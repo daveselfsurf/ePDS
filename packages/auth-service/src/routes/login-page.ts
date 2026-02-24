@@ -119,13 +119,48 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
 
     // Pillar 1 — State Determination: decide which step to render based on
     // login_hint presence. No method-assuming side effects in the GET handler.
-    // The login_hint may be an email (from our own demo app) or an AT Protocol
-    // handle (from third-party apps like sdsls.dev). Resolve either to an email.
+    // The login_hint may be:
+    //   a) On the query string as an email (from our demo app)
+    //   b) On the query string as a handle/DID (unlikely but possible)
+    //   c) Only in the stored PAR request (third-party apps like sdsls.dev put
+    //      the handle in the PAR body but don't duplicate it on the redirect URL)
     const pdsInternalUrl =
       process.env.PDS_INTERNAL_URL || ctx.config.pdsPublicUrl
     const internalSecret = process.env.EPDS_INTERNAL_SECRET ?? ''
-    const resolvedEmail = loginHint
-      ? await resolveLoginHint(loginHint, pdsInternalUrl, internalSecret)
+
+    // If no login_hint on the query string, try to retrieve it from the PAR request
+    let effectiveLoginHint = loginHint ?? null
+    if (!effectiveLoginHint && requestUri) {
+      try {
+        const parRes = await fetch(
+          `${pdsInternalUrl}/_internal/par-login-hint?request_uri=${encodeURIComponent(requestUri)}`,
+          {
+            headers: { 'x-internal-secret': internalSecret },
+            signal: AbortSignal.timeout(3000),
+          },
+        )
+        if (parRes.ok) {
+          const data = (await parRes.json()) as { login_hint: string | null }
+          if (data.login_hint) {
+            effectiveLoginHint = data.login_hint
+            logger.debug(
+              { loginHint: effectiveLoginHint },
+              'Retrieved login_hint from stored PAR request',
+            )
+          }
+        }
+      } catch (err) {
+        logger.warn({ err }, 'Failed to fetch login_hint from PAR request')
+      }
+    }
+
+    // Resolve the hint (email, handle, or DID) to an email address
+    const resolvedEmail = effectiveLoginHint
+      ? await resolveLoginHint(
+          effectiveLoginHint,
+          pdsInternalUrl,
+          internalSecret,
+        )
       : null
     const hasLoginHint = !!resolvedEmail
     const initialStep = hasLoginHint ? 'otp' : 'email'

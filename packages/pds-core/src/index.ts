@@ -391,6 +391,38 @@ async function main() {
     }
   })
 
+  // Protected internal endpoint for auth service to retrieve the login_hint
+  // stored in a PAR request. Third-party apps put the handle/DID in the PAR body
+  // but don't duplicate it on the authorization redirect URL. The auth service
+  // needs to retrieve it to resolve the user's email for OTP.
+  pds.app.get('/_internal/par-login-hint', async (req, res) => {
+    if (!verifyInternalSecret(req.headers['x-internal-secret'])) {
+      res.status(401).json({ error: 'Unauthorized' })
+      return
+    }
+    const requestUri = ((req.query.request_uri as string) || '').trim()
+    if (!requestUri) {
+      res.status(400).json({ error: 'Missing request_uri' })
+      return
+    }
+    try {
+      const oauthProvider = pds.ctx.oauthProvider
+      if (!oauthProvider) {
+        res.status(503).json({ error: 'OAuth provider not available' })
+        return
+      }
+      // Cast to the branded RequestUri type expected by requestManager.get()
+      const request = await oauthProvider.requestManager.get(
+        requestUri as `urn:ietf:params:oauth:request_uri:req-${string}`,
+      )
+      res.json({ login_hint: request.parameters.login_hint ?? null })
+    } catch (err) {
+      logger.debug({ err, requestUri }, 'Failed to read PAR login_hint')
+      // Not found or expired — not an error, just no hint available
+      res.json({ login_hint: null })
+    }
+  })
+
   pds.app.get('/health', (_req, res) => {
     res.json({ status: 'ok', service: 'epds' })
   })
