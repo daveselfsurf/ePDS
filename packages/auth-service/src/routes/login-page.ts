@@ -30,6 +30,7 @@ import {
 } from '../lib/client-metadata.js'
 import { escapeHtml, createLogger } from '@certified-app/shared'
 import { socialProviders } from '../better-auth.js'
+import { resolveLoginHint } from '../lib/resolve-login-hint.js'
 
 const logger = createLogger('auth:login-page')
 
@@ -118,7 +119,15 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
 
     // Pillar 1 — State Determination: decide which step to render based on
     // login_hint presence. No method-assuming side effects in the GET handler.
-    const hasLoginHint = !!(loginHint && loginHint.includes('@'))
+    // The login_hint may be an email (from our own demo app) or an AT Protocol
+    // handle (from third-party apps like sdsls.dev). Resolve either to an email.
+    const pdsInternalUrl =
+      process.env.PDS_INTERNAL_URL || ctx.config.pdsPublicUrl
+    const internalSecret = process.env.EPDS_INTERNAL_SECRET ?? ''
+    const resolvedEmail = loginHint
+      ? await resolveLoginHint(loginHint, pdsInternalUrl, internalSecret)
+      : null
+    const hasLoginHint = !!resolvedEmail
     const initialStep = hasLoginHint ? 'otp' : 'email'
 
     // Pillar 3 — Idempotency (Option A): when this is a duplicate GET for an
@@ -138,13 +147,17 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
       'Serving login page for auth_flow',
     )
 
+    // Use the resolved email (not the raw loginHint) for pre-filling forms.
+    // This ensures handle-based hints get resolved to the correct email.
+    const emailHint = resolvedEmail ?? ''
+
     res.type('html').send(
       renderLoginPage({
         flowId,
         clientId: clientId ?? '',
         clientName,
         branding: clientMeta,
-        loginHint: loginHint ?? '',
+        loginHint: emailHint,
         initialStep,
         otpAlreadySent,
         csrfToken: res.locals.csrfToken,

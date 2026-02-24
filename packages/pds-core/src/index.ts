@@ -349,6 +349,24 @@ async function main() {
     res.json({ did: account?.did ?? null })
   })
 
+  // Protected internal endpoint for auth service to look up an account by handle or DID.
+  // Used to resolve AT Protocol login_hints (handles or DIDs) to email addresses so the
+  // auth service can skip the email form and go straight to OTP.
+  // accountManager.getAccount() accepts both handles and DIDs.
+  pds.app.get('/_internal/account-by-handle', async (req, res) => {
+    if (req.headers['x-internal-secret'] !== process.env.EPDS_INTERNAL_SECRET) {
+      res.status(401).json({ error: 'Unauthorized' })
+      return
+    }
+    const handle = ((req.query.handle as string) || '').trim()
+    if (!handle) {
+      res.status(400).json({ error: 'Missing handle' })
+      return
+    }
+    const account = await pds.ctx.accountManager.getAccount(handle)
+    res.json({ email: account?.email ?? null })
+  })
+
   pds.app.get('/health', (_req, res) => {
     res.json({ status: 'ok', service: 'epds' })
   })
