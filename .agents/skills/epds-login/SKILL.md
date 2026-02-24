@@ -20,9 +20,16 @@ The reference implementation is `packages/demo` in the [ePDS repository](https:/
 |                         | Flow 1                | Flow 2           |
 | ----------------------- | --------------------- | ---------------- |
 | **App collects email?** | Yes                   | No               |
-| **PAR includes**        | `login_hint=<email>`  | Nothing extra    |
+| **PAR includes**        | Nothing extra         | Nothing extra    |
 | **Auth server shows**   | OTP input directly    | Email form first |
 | **Redirect includes**   | `&login_hint=<email>` | Nothing extra    |
+
+> **Important:** `login_hint` must **never** go in the PAR body when the value is an
+> email address. The PDS core (AT Protocol layer) validates `login_hint` as an ATProto
+> identity (handle like `user.bsky.social` or DID like `did:plc:…`) and rejects email
+> addresses with `Invalid login_hint`. Put `login_hint` only on the **auth redirect URL**
+> — that request goes to the ePDS auth service (Better Auth layer), which accepts emails
+> and uses them to skip the email-collection step.
 
 ## Quick Start
 
@@ -65,7 +72,6 @@ const parBody = new URLSearchParams({
   state,
   code_challenge: codeChallenge,
   code_challenge_method: 'S256',
-  ...(email ? { login_hint: email } : {}), // Flow 1 only
 })
 
 // PAR always requires a DPoP nonce retry — handle it:
@@ -170,14 +176,15 @@ const { sub: userDid } = await tokenRes.json()
 
 ## Common Pitfalls
 
-| Pitfall                        | Fix                                                                            |
-| ------------------------------ | ------------------------------------------------------------------------------ |
-| Flash of email form            | Include `login_hint` in **both** PAR body **and** the auth redirect URL        |
-| `auth_failed` immediately      | Check Caddy logs — likely a DNS/upstream name mismatch                         |
-| DPoP rejected                  | Always implement the nonce retry loop (ePDS always demands a nonce)            |
-| `Cannot find package` in tests | Run `pnpm build` before `pnpm test` — vitest needs `dist/`                     |
-| Token exchange fails           | Restore the DPoP key pair from the session cookie, don't generate a new one    |
-| Double OTP email               | Normal on duplicate GET — `otpAlreadySent` flag suppresses auto-send on reload |
+| Pitfall                        | Fix                                                                                            |
+| ------------------------------ | ---------------------------------------------------------------------------------------------- |
+| Flash of email form            | Include `login_hint` on the **auth redirect URL only** (never in the PAR body)                 |
+| `Invalid login_hint` from PAR  | Remove `login_hint` from the PAR body — PDS core only accepts ATProto handles/DIDs, not emails |
+| `auth_failed` immediately      | Check Caddy logs — likely a DNS/upstream name mismatch                                         |
+| DPoP rejected                  | Always implement the nonce retry loop (ePDS always demands a nonce)                            |
+| `Cannot find package` in tests | Run `pnpm build` before `pnpm test` — vitest needs `dist/`                                     |
+| Token exchange fails           | Restore the DPoP key pair from the session cookie, don't generate a new one                    |
+| Double OTP email               | Normal on duplicate GET — `otpAlreadySent` flag suppresses auto-send on reload                 |
 
 ## Handles
 

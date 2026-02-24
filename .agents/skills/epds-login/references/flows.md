@@ -19,10 +19,15 @@ and your callback receives an authorization code to exchange for tokens.
 
 1. User enters their email in your app and clicks "Sign in"
 2. Your login handler:
+
    a. Generates a DPoP key pair and PKCE verifier (see [dpop-pkce.md](dpop-pkce.md))
-   b. POSTs to `/oauth/par` with `login_hint=<email>` (see code below)
+
+   b. POSTs to `/oauth/par`
+
    c. Stores DPoP private key, code verifier, and state in a signed session cookie
+
    d. Redirects the browser to `/oauth/authorize?...&login_hint=<email>`
+
 3. The auth server sees the email, immediately sends the OTP, and shows the user
    the code entry screen (no email form shown)
 4. User reads OTP from email and submits it
@@ -60,7 +65,6 @@ export async function handleLogin(email: string) {
     state,
     code_challenge: codeChallenge,
     code_challenge_method: 'S256',
-    login_hint: email, // Flow 1: include the email
   })
 
   // ePDS always requires a nonce on the first attempt — retry automatically
@@ -109,10 +113,6 @@ export async function handleLogin(email: string) {
 }
 ```
 
-> **Important:** Pass `login_hint` in both the PAR body _and_ the redirect URL.
-> Missing it from the redirect URL causes a flash of the email form before the
-> OTP screen appears.
-
 ---
 
 ## Flow 2 — Auth server collects the email
@@ -134,7 +134,7 @@ export async function handleLogin(email: string) {
 
 ### Login handler code
 
-Same as Flow 1 but omit `login_hint` from the PAR body and the redirect URL:
+Same as Flow 1 except `login_hint` is not added to the redirect URL. Flow 1 sends `login_hint` only on the redirect URL (not in the PAR body); Flow 2 omits `login_hint` from both the PAR body and the redirect URL:
 
 ```typescript
 const parBody = new URLSearchParams({
@@ -244,7 +244,7 @@ sequenceDiagram
     participant Inbox as User's Inbox
 
     User->>App: Enters email, clicks Sign in
-    App->>PDS: POST /oauth/par (with email)
+    App->>PDS: POST /oauth/par
     PDS-->>App: { request_uri }
     App-->>User: Redirect to /oauth/authorize?...&login_hint=email
 
