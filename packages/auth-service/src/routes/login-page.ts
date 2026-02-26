@@ -30,7 +30,10 @@ import {
 } from '../lib/client-metadata.js'
 import { escapeHtml, createLogger } from '@certified-app/shared'
 import { socialProviders } from '../better-auth.js'
-import { resolveLoginHint } from '../lib/resolve-login-hint.js'
+import {
+  resolveLoginHint,
+  fetchParLoginHint,
+} from '../lib/resolve-login-hint.js'
 
 const logger = createLogger('auth:login-page')
 
@@ -131,27 +134,11 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
     // If no login_hint on the query string, try to retrieve it from the PAR request
     let effectiveLoginHint = loginHint ?? null
     if (!effectiveLoginHint && requestUri) {
-      try {
-        const parRes = await fetch(
-          `${pdsInternalUrl}/_internal/par-login-hint?request_uri=${encodeURIComponent(requestUri)}`,
-          {
-            headers: { 'x-internal-secret': internalSecret },
-            signal: AbortSignal.timeout(3000),
-          },
-        )
-        if (parRes.ok) {
-          const data = (await parRes.json()) as { login_hint: string | null }
-          if (data.login_hint) {
-            effectiveLoginHint = data.login_hint
-            logger.debug(
-              { loginHint: effectiveLoginHint },
-              'Retrieved login_hint from stored PAR request',
-            )
-          }
-        }
-      } catch (err) {
-        logger.warn({ err }, 'Failed to fetch login_hint from PAR request')
-      }
+      effectiveLoginHint = await fetchParLoginHint(
+        pdsInternalUrl,
+        requestUri,
+        internalSecret,
+      )
     }
 
     // Resolve the hint (email, handle, or DID) to an email address

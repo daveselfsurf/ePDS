@@ -1,14 +1,17 @@
 /**
- * Tests for resolveLoginHint() and the PAR login-hint fetch logic.
+ * Tests for resolveLoginHint() and fetchParLoginHint().
  *
  * resolveLoginHint() determines whether a login_hint is an email, handle,
  * or DID and resolves it to an email address via pds-core's internal API.
  *
- * The PAR login-hint fetch (in login-page.ts) retrieves a login_hint from
- * a stored PAR request when the hint isn't on the redirect URL query string.
+ * fetchParLoginHint() retrieves a login_hint from a stored PAR request
+ * on pds-core when the hint isn't on the redirect URL query string.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { resolveLoginHint } from '../lib/resolve-login-hint.js'
+import {
+  resolveLoginHint,
+  fetchParLoginHint,
+} from '../lib/resolve-login-hint.js'
 
 const PDS_URL = 'http://core:3000'
 const SECRET = 'test-internal-secret'
@@ -145,33 +148,7 @@ describe('resolveLoginHint', () => {
   })
 })
 
-describe('PAR login-hint fetch logic', () => {
-  // These tests exercise the same pattern used in login-page.ts lines 133-155:
-  // fetch /_internal/par-login-hint, extract login_hint from response.
-
-  async function fetchParLoginHint(
-    pdsInternalUrl: string,
-    requestUri: string,
-    internalSecret: string,
-  ): Promise<string | null> {
-    try {
-      const parRes = await fetch(
-        `${pdsInternalUrl}/_internal/par-login-hint?request_uri=${encodeURIComponent(requestUri)}`,
-        {
-          headers: { 'x-internal-secret': internalSecret },
-          signal: AbortSignal.timeout(3000),
-        },
-      )
-      if (parRes.ok) {
-        const data = (await parRes.json()) as { login_hint: string | null }
-        return data.login_hint ?? null
-      }
-      return null
-    } catch {
-      return null
-    }
-  }
-
+describe('fetchParLoginHint', () => {
   it('returns login_hint from PAR when present', async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(JSON.stringify({ login_hint: 'alice.pds.example' }), {

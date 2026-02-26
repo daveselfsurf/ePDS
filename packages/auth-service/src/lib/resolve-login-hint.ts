@@ -68,3 +68,43 @@ export async function resolveLoginHint(
     return null
   }
 }
+
+/**
+ * Retrieve the login_hint stored in a PAR request on pds-core.
+ *
+ * Third-party apps put the handle/DID in the PAR body but don't duplicate
+ * it on the authorization redirect URL. This fetches it from pds-core's
+ * /_internal/par-login-hint endpoint.
+ *
+ * Returns the login_hint string if found, or null on any error.
+ */
+export async function fetchParLoginHint(
+  pdsInternalUrl: string,
+  requestUri: string,
+  internalSecret: string,
+): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `${pdsInternalUrl}/_internal/par-login-hint?request_uri=${encodeURIComponent(requestUri)}`,
+      {
+        headers: { 'x-internal-secret': internalSecret },
+        signal: AbortSignal.timeout(RESOLVE_TIMEOUT_MS),
+      },
+    )
+    if (!res.ok) {
+      return null
+    }
+    const data = (await res.json()) as { login_hint: string | null }
+    if (data.login_hint) {
+      logger.debug(
+        { loginHint: data.login_hint },
+        'Retrieved login_hint from stored PAR request',
+      )
+      return data.login_hint
+    }
+    return null
+  } catch (err) {
+    logger.warn({ err }, 'Failed to fetch login_hint from PAR request')
+    return null
+  }
+}
