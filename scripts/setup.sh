@@ -146,6 +146,15 @@ prompt_hostname() {
   set_env_var PDS_PUBLIC_URL "$pds_public_url" .env
   set_env_var AUTH_HOSTNAME "$auth_hostname" .env
   set_env_var EPDS_LINK_BASE_URL "${proto}://${auth_hostname}/auth/verify" .env
+
+  # Set PDS_INTERNAL_URL for multi-service deployments (auth-service → pds-core).
+  # Docker: http://core:3000; Railway: http://<service>.railway.internal:3000
+  # Not needed for localhost (both services on same host).
+  if [ "$pds_hostname" != "localhost" ] && [[ "$pds_hostname" != *.localhost ]]; then
+    set_env_var PDS_INTERNAL_URL "http://core:3000" .env
+    echo "  Set PDS_INTERNAL_URL=http://core:3000"
+  fi
+
   echo "  Set PDS_HOSTNAME=${pds_hostname}"
   echo "  Set PDS_PUBLIC_URL=${pds_public_url}"
   echo "  Set AUTH_HOSTNAME=${auth_hostname}"
