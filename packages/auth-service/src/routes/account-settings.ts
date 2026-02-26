@@ -4,33 +4,9 @@ import { createLogger } from '@certified-app/shared'
 import { hashToken, generateVerificationToken } from '@certified-app/shared'
 import { escapeHtml } from '@certified-app/shared'
 import { fromNodeHeaders } from 'better-auth/node'
+import { getDidByEmail } from '../lib/get-did-by-email.js'
 
 const logger = createLogger('auth:account-settings')
-
-/**
- * Look up a DID for an email via the PDS internal endpoint.
- * Returns null if not found or on error.
- */
-async function getDidByEmail(
-  email: string,
-  pdsUrl: string,
-  internalSecret: string,
-): Promise<string | null> {
-  try {
-    const res = await fetch(
-      `${pdsUrl}/_internal/account-by-email?email=${encodeURIComponent(email)}`,
-      {
-        headers: { 'x-internal-secret': internalSecret },
-        signal: AbortSignal.timeout(3000),
-      },
-    )
-    if (!res.ok) return null
-    const data = (await res.json()) as { did: string | null }
-    return data.did
-  } catch {
-    return null
-  }
-}
 
 /**
  * Middleware that validates a better-auth session and injects it into res.locals.

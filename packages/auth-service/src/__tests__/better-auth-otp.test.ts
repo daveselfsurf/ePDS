@@ -14,6 +14,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
 import { EpdsDb } from '@certified-app/shared'
+import { getDidByEmail } from '../lib/get-did-by-email.js'
 
 describe('sendVerificationOTP client branding via auth_flow', () => {
   let db: EpdsDb
@@ -93,6 +94,7 @@ describe('sendVerificationOTP client branding via auth_flow', () => {
   it('EmailSender.sendOtpCode receives clientId when resolved from auth_flow', async () => {
     // Mock EmailSender.sendOtpCode to verify it receives the correct clientId
     const sendOtpCode = vi.fn().mockResolvedValue(undefined)
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
 
     db.createAuthFlow({
       flowId: 'brand-test-flow',
@@ -104,11 +106,15 @@ describe('sendVerificationOTP client branding via auth_flow', () => {
     // Simulate the sendVerificationOTP callback logic
     const email = 'user@example.com'
     const otp = '12345678'
-    const type = 'sign-in'
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- testing type comparison logic
-    const isNewUser = type === 'sign-in'
     const pdsName = 'My PDS'
     const pdsDomain = 'pds.example.com'
+
+    // Determine isNewUser via getDidByEmail (new user — no PDS account)
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ did: null }), { status: 200 }),
+    )
+    const did = await getDidByEmail(email, 'http://core:3000', 'secret')
+    const isNewUser = !did
 
     // Lookup (simulating ctx.getCookie() returning 'brand-test-flow')
     const flowId = 'brand-test-flow'
@@ -132,10 +138,13 @@ describe('sendVerificationOTP client branding via auth_flow', () => {
         isNewUser: true,
       }),
     )
+
+    fetchSpy.mockRestore()
   })
 
-  it('EmailSender.sendOtpCode receives no clientId for account settings flow', async () => {
+  it('EmailSender.sendOtpCode receives no clientId for account settings flow (existing user)', async () => {
     const sendOtpCode = vi.fn().mockResolvedValue(undefined)
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
 
     // No auth_flow cookie (account settings login)
     const flowId: string | null = null
@@ -146,15 +155,25 @@ describe('sendVerificationOTP client branding via auth_flow', () => {
       clientId = flow?.clientId ?? undefined
     }
 
+    // Existing user — PDS account found
+    const email = 'user@example.com'
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ did: 'did:plc:existing' }), {
+        status: 200,
+      }),
+    )
+    const did = await getDidByEmail(email, 'http://core:3000', 'secret')
+    const isNewUser = !did
+
     const pdsName = 'My PDS'
     await sendOtpCode({
-      to: 'user@example.com',
+      to: email,
       code: '12345678',
       clientAppName: pdsName,
       clientId,
       pdsName,
       pdsDomain: 'pds.example.com',
-      isNewUser: false,
+      isNewUser,
     })
 
     expect(sendOtpCode).toHaveBeenCalledWith(
@@ -163,5 +182,7 @@ describe('sendVerificationOTP client branding via auth_flow', () => {
         isNewUser: false,
       }),
     )
+
+    fetchSpy.mockRestore()
   })
 })

@@ -21,6 +21,7 @@ import { Router, type Request, type Response } from 'express'
 import type { AuthServiceContext } from '../context.js'
 import { createLogger, signCallback } from '@certified-app/shared'
 import { fromNodeHeaders } from 'better-auth/node'
+import { getDidByEmail } from '../lib/get-did-by-email.js'
 
 const logger = createLogger('auth:complete')
 
@@ -86,27 +87,10 @@ export function createCompleteRouter(
     // Step 4: Check whether this is a new account and whether consent is needed.
     // Consent is required for existing accounts logging into a new client for the first time.
     // New accounts (no PDS account yet) skip consent since account creation implies consent.
-    let isNewAccount = false
-    try {
-      const pdsUrl = process.env.PDS_INTERNAL_URL || ctx.config.pdsPublicUrl
-      const internalSecret = process.env.EPDS_INTERNAL_SECRET
-      const checkRes = await fetch(
-        `${pdsUrl}/_internal/account-by-email?email=${encodeURIComponent(email)}`,
-        {
-          headers: { 'x-internal-secret': internalSecret ?? '' },
-          signal: AbortSignal.timeout(3000),
-        },
-      )
-      if (checkRes.ok) {
-        const data = (await checkRes.json()) as { did: string | null }
-        isNewAccount = !data.did
-      }
-    } catch (err) {
-      logger.warn(
-        { err, email },
-        'Failed to check PDS account existence, assuming existing account',
-      )
-    }
+    const pdsUrl = process.env.PDS_INTERNAL_URL || ctx.config.pdsPublicUrl
+    const internalSecret = process.env.EPDS_INTERNAL_SECRET ?? ''
+    const did = await getDidByEmail(email, pdsUrl, internalSecret)
+    const isNewAccount = !did
 
     const clientId = flow.clientId ?? ''
     const needsConsent =

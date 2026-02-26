@@ -16,6 +16,7 @@ import { emailOTP } from 'better-auth/plugins'
 import { createLogger } from '@certified-app/shared'
 import type { EpdsDb } from '@certified-app/shared'
 import type { EmailSender } from './email/sender.js'
+import { getDidByEmail } from './lib/get-did-by-email.js'
 
 const logger = createLogger('auth:better-auth')
 
@@ -167,25 +168,8 @@ export function createBetterAuth(emailSender: EmailSender, db: EpdsDb): any {
             process.env.PDS_INTERNAL_URL ||
             `https://${process.env.PDS_HOSTNAME ?? 'localhost'}`
           const internalSecret = process.env.EPDS_INTERNAL_SECRET ?? ''
-          let isNewUser = true // default to welcome email if check fails
-          try {
-            const checkRes = await fetch(
-              `${pdsUrl}/_internal/account-by-email?email=${encodeURIComponent(email)}`,
-              {
-                headers: { 'x-internal-secret': internalSecret },
-                signal: AbortSignal.timeout(3000),
-              },
-            )
-            if (checkRes.ok) {
-              const data = (await checkRes.json()) as { did: string | null }
-              isNewUser = !data.did
-            }
-          } catch (err) {
-            logger.warn(
-              { err, email },
-              'Failed to check PDS account existence for OTP email template, defaulting to welcome',
-            )
-          }
+          const did = await getDidByEmail(email, pdsUrl, internalSecret)
+          const isNewUser = !did
 
           // Try to resolve client_id from the active auth_flow via cookie
           let clientId: string | undefined
