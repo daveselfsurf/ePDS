@@ -1,10 +1,9 @@
 {
     email admin@{$PDS_HOSTNAME:pds.example}
     on_demand_tls {
-        ask http://{$PDS_UPSTREAM:core:3000}/xrpc/_health
+        ask http://{$PDS_UPSTREAM:core:3000}/tls-check
     }
 }
-
 # PDS API + handle subdomains (on-demand TLS for handle resolution)
 :443 {
     tls {
@@ -15,7 +14,6 @@
     @auth host auth.{$PDS_HOSTNAME:pds.example}
     handle @auth {
         reverse_proxy {$AUTH_UPSTREAM:auth:3001}
-
         header {
             X-Frame-Options "DENY"
             X-Content-Type-Options "nosniff"
@@ -23,14 +21,12 @@
             Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
         }
     }
-
     # Everything else goes to PDS (main domain + handle subdomains)
     handle {
         reverse_proxy {$PDS_UPSTREAM:core:3000} {
             header_up Connection {http.request.header.Connection}
             header_up Upgrade {http.request.header.Upgrade}
         }
-
         header {
             Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
             X-Content-Type-Options "nosniff"

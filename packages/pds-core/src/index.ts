@@ -423,6 +423,14 @@ async function main() {
     }
   })
 
+  // =========================================================================
+  // TLS check - used by Caddy on-demand TLS to verify handle ownership
+  // =========================================================================
+
+  pds.app.get('/tls-check', async (req, res) => {
+    await checkHandleRoute(pds, authHostname, req, res)
+  })
+
   pds.app.get('/health', (_req, res) => {
     res.json({ status: 'ok', service: 'epds' })
   })
@@ -438,6 +446,54 @@ async function main() {
 
   process.on('SIGTERM', shutdown)
   process.on('SIGINT', shutdown)
+}
+
+/** Caddy on-demand TLS ask handler.
+ *  Returns 200 if the domain is the PDS hostname, the auth subdomain, or a
+ *  valid hosted handle, so Caddy knows it should provision a certificate for it. */
+async function checkHandleRoute(
+  pds: PDS,
+  authHostname: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Express types not directly available in this package
+  req: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Express types not directly available in this package
+  res: any,
+) {
+  try {
+    const { domain } = req.query
+    if (!domain || typeof domain !== 'string') {
+      return res.status(400).json({
+        error: 'InvalidRequest',
+        message: 'bad or missing domain query param',
+      })
+    }
+    // Allow the PDS hostname and the auth subdomain through unconditionally
+    if (domain === pds.ctx.cfg.service.hostname || domain === authHostname) {
+      return res.json({ success: true })
+    }
+    const isHostedHandle = pds.ctx.cfg.identity.serviceHandleDomains.find(
+      (avail: string) => domain.endsWith(avail),
+    )
+    if (!isHostedHandle) {
+      return res.status(400).json({
+        error: 'InvalidRequest',
+        message: 'handles are not provided on this domain',
+      })
+    }
+    const account = await pds.ctx.accountManager.getAccount(domain)
+    if (!account) {
+      return res.status(404).json({
+        error: 'NotFound',
+        message: 'handle not found for this domain',
+      })
+    }
+    return res.json({ success: true })
+  } catch (err) {
+    logger.error({ err }, 'check handle failed')
+    return res
+      .status(500)
+      .json({ error: 'InternalServerError', message: 'Internal Server Error' })
+  }
 }
 
 main().catch((err: unknown) => {
