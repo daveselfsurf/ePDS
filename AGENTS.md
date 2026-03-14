@@ -76,6 +76,31 @@ Follow these guidelines when adding tests:
 - **Ratchet thresholds** — after improving coverage, bump the thresholds in
   `vitest.config.ts` so coverage cannot regress.
 
+### Coverage Ratcheting Policy
+
+Coverage thresholds in `vitest.config.ts` must **only ever increase**.
+When a PR increases coverage above the current thresholds, the thresholds
+must be ratcheted up to the new floor (rounded down to the nearest integer)
+as part of the same PR. This ensures coverage can never regress.
+
+```bash
+pnpm test:coverage   # check current coverage vs thresholds
+```
+
+After confirming coverage exceeds thresholds, update `vitest.config.ts`:
+
+```ts
+thresholds: {
+  statements: <new floor>,
+  branches: <new floor>,
+  functions: <new floor>,
+  lines: <new floor>,
+},
+```
+
+**Never lower thresholds.** If a change removes tested code (e.g. deleting
+a feature), add tests for other code to compensate.
+
 ## Docker
 
 ```bash

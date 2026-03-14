@@ -213,3 +213,23 @@ describe('Auth Flow Operations', () => {
     expect(db.getAuthFlow('flow-cleanup')).toBeUndefined()
   })
 })
+
+describe('Migration: v8 drops client_logins table', () => {
+  it('client_logins table does not exist after migration', () => {
+    // EpdsDb constructor runs all migrations including v8.
+    // Verify the table was dropped by querying sqlite_master.
+    const tables = db['db']
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name='client_logins'`,
+      )
+      .all()
+    expect(tables).toHaveLength(0)
+  })
+
+  it('schema version is at least 8 after migration', () => {
+    const row = db['db']
+      .prepare('SELECT version FROM schema_version')
+      .get() as { version: number }
+    expect(row.version).toBeGreaterThanOrEqual(8)
+  })
+})

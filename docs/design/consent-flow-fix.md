@@ -14,7 +14,7 @@ broken reimplementation of the consent UI that already exists in the upstream
    PAR request. A client requesting `transition:chat.bsky` would still see
    generic permissions.
 
-3. **Separate consent tracking** — uses its own `client_login` table
+3. **Separate consent tracking** — uses its own `client_logins` table
    (`hasClientLogin` / `recordClientLogin`) instead of the atproto provider's
    built-in `authorizedClients` tracking, which already handles scope-level
    consent (re-prompting when new scopes are requested).
@@ -46,7 +46,7 @@ instead of calling `setAuthorized()` directly.
 
 **Current flow (broken consent):**
 
-```
+```text
 OTP verify → /auth/complete → check consent (auth-service) →
   → show broken consent page (auth-service) →
   → /oauth/epds-callback → setAuthorized() → redirect to client
@@ -54,7 +54,7 @@ OTP verify → /auth/complete → check consent (auth-service) →
 
 **Fixed flow:**
 
-```
+```text
 OTP verify → /auth/complete →
   → /oauth/epds-callback → create account if needed, upsertDeviceAccount →
   → redirect to /oauth/authorize?request_uri=... (stock middleware) →

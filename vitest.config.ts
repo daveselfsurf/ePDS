@@ -15,7 +15,8 @@ export default defineConfig({
       reportsDirectory: './coverage',
       include: ['packages/*/src/**/*.ts'],
       exclude: ['packages/*/src/__tests__/**', '**/*.test.ts', '**/*.d.ts'],
-      // Baseline thresholds — ratchet these up as coverage improves
+      // Ratchet thresholds — update these whenever coverage increases.
+      // See AGENTS.md for the ratcheting policy.
       thresholds: {
         statements: 29,
         branches: 22,
