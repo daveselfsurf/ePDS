@@ -57,7 +57,7 @@ inject_shared_vars() {
   for var in PDS_HOSTNAME PDS_PUBLIC_URL AUTH_HOSTNAME \
              EPDS_CALLBACK_SECRET EPDS_INTERNAL_SECRET PDS_ADMIN_PASSWORD \
              PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX \
-             EPDS_INVITE_CODE \
+             EPDS_INVITE_CODE PDS_INTERNAL_URL \
              SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS SMTP_FROM SMTP_FROM_NAME PDS_EMAIL_FROM_ADDRESS; do
     # Skip if the var isn't in the target AND isn't in the package's .env.example.
     # This avoids injecting vars a package doesn't use, while still handling
@@ -422,6 +422,11 @@ print_next_steps() {
   echo "  grep -v '^\s*#' packages/pds-core/.env | grep -v '^\s*$'"
   echo "  grep -v '^\s*#' packages/auth-service/.env | grep -v '^\s*$'"
   echo "  grep -v '^\s*#' packages/demo/.env | grep -v '^\s*$'"
+  echo ""
+  echo "  IMPORTANT: For Railway, change PDS_INTERNAL_URL in auth-service from"
+  echo "  the Docker value (http://core:3000) to the Railway internal URL:"
+  echo "    http://<pds-core-service>.railway.internal:3000"
+  echo "  The auth service will fail to start without a correct PDS_INTERNAL_URL."
 }
 
 # ── Main ──

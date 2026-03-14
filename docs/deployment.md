@@ -115,9 +115,24 @@ grep -v '^\s*#' packages/auth-service/.env | grep -v '^\s*$'
 grep -v '^\s*#' packages/demo/.env | grep -v '^\s*$'
 ```
 
-**Important**: Set `PDS_INTERNAL_URL` on the auth-service to the pds-core
-Railway internal URL (e.g. `http://pds-core.railway.internal:3000`). Without
-this, internal API calls from auth-service to pds-core will fail.
+**Important**: The setup script sets `PDS_INTERNAL_URL=http://core:3000` (the
+Docker Compose service name). For Railway, you **must** change this to the
+pds-core service's Railway internal URL on the auth-service. Find it via:
+
+```bash
+railway link -s '@certified-app/pds-core'
+railway variables --json | python3 -c "import sys,json; print(json.load(sys.stdin)['RAILWAY_PRIVATE_DOMAIN'])"
+```
+
+Then set it on the auth-service:
+
+```bash
+railway link -s '@certified-app/auth-service'
+railway variables set PDS_INTERNAL_URL=http://<private-domain>:3000
+```
+
+Without a correct `PDS_INTERNAL_URL`, the auth service will **crash at startup**
+with `PDS_INTERNAL_URL and EPDS_INTERNAL_SECRET must be set`.
 
 Alternatively, use the Railway CLI:
 

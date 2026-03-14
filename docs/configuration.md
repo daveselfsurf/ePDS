@@ -61,13 +61,13 @@ Optional PDS email variables:
 
 ## Auth Service
 
-| Variable              | Description                                                                                                                                             |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AUTH_HOSTNAME`       | Auth subdomain (e.g. `auth.pds.example.com`) — must be a subdomain of `PDS_HOSTNAME`                                                                    |
-| `AUTH_PORT`           | Port for Auth Service (default `3001`)                                                                                                                  |
-| `AUTH_SESSION_SECRET` | Session secret — generate with `openssl rand -hex 32`                                                                                                   |
-| `AUTH_CSRF_SECRET`    | CSRF secret — generate with `openssl rand -hex 32`                                                                                                      |
-| `PDS_INTERNAL_URL`    | Internal URL for auth→PDS calls. Docker: `http://core:3000`; Railway: `http://<service>.railway.internal:3000`. Not needed for `pnpm dev` on localhost. |
+| Variable              | Description                                                                                                                                                                                                 |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AUTH_HOSTNAME`       | Auth subdomain (e.g. `auth.pds.example.com`) — must be a subdomain of `PDS_HOSTNAME`                                                                                                                        |
+| `AUTH_PORT`           | Port for Auth Service (default `3001`)                                                                                                                                                                      |
+| `AUTH_SESSION_SECRET` | Session secret — generate with `openssl rand -hex 32`                                                                                                                                                       |
+| `AUTH_CSRF_SECRET`    | CSRF secret — generate with `openssl rand -hex 32`                                                                                                                                                          |
+| `PDS_INTERNAL_URL`    | **Required.** Internal URL for auth→PDS calls. Docker: `http://core:3000`; Railway: `http://<service>.railway.internal:3000`; local dev: `http://localhost:3000`. Auth service crashes at startup if unset. |
 
 ### Verification link settings
 
