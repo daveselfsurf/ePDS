@@ -204,12 +204,9 @@ Once the PDS is running, generate a high-`useCount` invite code via the admin
 API and set it as `EPDS_INVITE_CODE` on the pds-core service:
 
 ```bash
-# Encode credentials (portable across GNU/Linux and macOS)
-AUTH=$(printf 'admin:<PDS_ADMIN_PASSWORD>' | base64 | tr -d '\n')
-
-curl -X POST https://<pds-hostname>/xrpc/com.atproto.server.createInviteCode \
+curl -X POST https://$PDS_HOSTNAME/xrpc/com.atproto.server.createInviteCode \
   -H "Content-Type: application/json" \
-  -H "Authorization: Basic $AUTH" \
+  -u "admin:$PDS_ADMIN_PASSWORD" \
   -d '{"useCount": 9999999}'
 ```
 
