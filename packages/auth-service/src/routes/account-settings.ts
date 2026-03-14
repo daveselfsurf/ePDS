@@ -9,6 +9,7 @@ import {
 } from '@certified-app/shared'
 import { fromNodeHeaders } from 'better-auth/node'
 import { getDidByEmail } from '../lib/get-did-by-email.js'
+import { ensurePdsUrl } from '../lib/pds-url.js'
 
 const logger = createLogger('auth:account-settings')
 
@@ -47,7 +48,10 @@ export function createAccountSettingsRouter(
   const router = Router()
   const requireAuth = requireBetterAuth(auth)
 
-  const pdsUrl = process.env.PDS_INTERNAL_URL || ctx.config.pdsPublicUrl
+  const pdsUrl = ensurePdsUrl(
+    process.env.PDS_INTERNAL_URL,
+    ctx.config.pdsPublicUrl,
+  )
   const internalSecret = process.env.EPDS_INTERNAL_SECRET ?? ''
 
   // GET /account - main settings page

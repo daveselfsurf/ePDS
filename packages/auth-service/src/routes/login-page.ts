@@ -35,6 +35,7 @@ import {
   resolveLoginHint,
   fetchParLoginHint,
 } from '../lib/resolve-login-hint.js'
+import { ensurePdsUrl } from '../lib/pds-url.js'
 
 const logger = createLogger('auth:login-page')
 
@@ -128,8 +129,10 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
     //   b) On the query string as a handle/DID (unlikely but possible)
     //   c) Only in the stored PAR request (third-party apps like sdsls.dev put
     //      the handle in the PAR body but don't duplicate it on the redirect URL)
-    const pdsInternalUrl =
-      process.env.PDS_INTERNAL_URL || ctx.config.pdsPublicUrl
+    const pdsInternalUrl = ensurePdsUrl(
+      process.env.PDS_INTERNAL_URL,
+      ctx.config.pdsPublicUrl,
+    )
     const internalSecret = process.env.EPDS_INTERNAL_SECRET ?? ''
 
     // If no login_hint on the query string, try to retrieve it from the PAR request

@@ -18,6 +18,7 @@ import { emailOTP } from 'better-auth/plugins'
 import Database from 'better-sqlite3'
 import type { EmailSender } from './email/sender.js'
 import { getDidByEmail } from './lib/get-did-by-email.js'
+import { ensurePdsUrl } from './lib/pds-url.js'
 
 export type BetterAuthInstance = ReturnType<typeof createBetterAuth>
 
@@ -187,9 +188,10 @@ export function createBetterAuth(
         async sendVerificationOTP({ email, otp }, ctx) {
           // Determine whether this is a first-time sign-up or a returning user
           // by checking if a PDS account already exists for this email.
-          const pdsUrl =
-            process.env.PDS_INTERNAL_URL ||
-            `https://${process.env.PDS_HOSTNAME ?? 'localhost'}`
+          const pdsUrl = ensurePdsUrl(
+            process.env.PDS_INTERNAL_URL,
+            `https://${process.env.PDS_HOSTNAME ?? 'localhost'}`,
+          )
           const internalSecret = process.env.EPDS_INTERNAL_SECRET ?? ''
           const did = await getDidByEmail(email, pdsUrl, internalSecret)
           const isNewUser = !did

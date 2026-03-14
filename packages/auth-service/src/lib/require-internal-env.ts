@@ -1,22 +1,20 @@
+import { ensurePdsUrl } from './pds-url.js'
+
 /**
- * Validate that PDS_INTERNAL_URL and EPDS_INTERNAL_SECRET are set.
+ * Validate that PDS_INTERNAL_URL and EPDS_INTERNAL_SECRET are set,
+ * and that PDS_INTERNAL_URL includes an http(s) scheme.
  *
  * Called at router-creation time so the process fails fast at startup
  * rather than at first request.  The error message names exactly which
- * variable(s) are missing.
+ * variable(s) are missing or malformed.
  */
 export function requireInternalEnv(): {
   pdsUrl: string
   internalSecret: string
 } {
-  const pdsUrl = process.env.PDS_INTERNAL_URL
   const internalSecret = process.env.EPDS_INTERNAL_SECRET
-  if (!pdsUrl || !internalSecret) {
-    const missing = [
-      ...(!pdsUrl ? ['PDS_INTERNAL_URL'] : []),
-      ...(!internalSecret ? ['EPDS_INTERNAL_SECRET'] : []),
-    ]
-    throw new Error(`${missing.join(' and ')} must be set`)
+  if (!internalSecret) {
+    throw new Error('EPDS_INTERNAL_SECRET must be set')
   }
-  return { pdsUrl, internalSecret }
+  return { pdsUrl: ensurePdsUrl(process.env.PDS_INTERNAL_URL), internalSecret }
 }
