@@ -74,7 +74,7 @@ describe('EmailSender', () => {
 
   describe('sendOtpCode (client template)', () => {
     it('uses client template when available', async () => {
-      const mockFetch = vi.fn().mockImplementation((url: string) => {
+      const mockFetch = vi.fn((url: string) => {
         if (url === 'https://app.example/client-metadata.json') {
           return Promise.resolve({
             ok: true,
@@ -97,8 +97,8 @@ describe('EmailSender', () => {
           })
         }
         return Promise.resolve({ ok: false })
-      }) as unknown as typeof fetch
-      globalThis.fetch = mockFetch
+      })
+      globalThis.fetch = mockFetch as unknown as typeof fetch
 
       const sender = makeSender()
       // Spy on the transporter to capture the sent email
@@ -114,7 +114,7 @@ describe('EmailSender', () => {
       })
 
       // Verify the template URL was fetched
-      const fetchedUrls = mockFetch.mock.calls.map((call: unknown[]) => call[0])
+      const fetchedUrls = mockFetch.mock.calls.map((call) => call[0])
       expect(fetchedUrls).toContain('https://app.example/email-template.html')
 
       // Verify the sent email uses the branded template content
@@ -131,7 +131,7 @@ describe('EmailSender', () => {
     })
 
     it('falls back to default when client template fetch fails', async () => {
-      const mockFetch = vi.fn().mockImplementation((url: string) => {
+      const mockFetch = vi.fn((url: string) => {
         if (url.includes('client-metadata.json')) {
           return Promise.resolve({
             ok: true,
@@ -144,8 +144,8 @@ describe('EmailSender', () => {
         }
         // Template fetch fails
         return Promise.reject(new Error('Network error'))
-      }) as unknown as typeof fetch
-      globalThis.fetch = mockFetch
+      })
+      globalThis.fetch = mockFetch as unknown as typeof fetch
 
       const sender = makeSender()
       const sendMailSpy = vi.spyOn(sender['transporter'], 'sendMail')
@@ -160,7 +160,7 @@ describe('EmailSender', () => {
       })
 
       // Verify the broken template URL was attempted
-      const fetchedUrls = mockFetch.mock.calls.map((call: unknown[]) => call[0])
+      const fetchedUrls = mockFetch.mock.calls.map((call) => call[0])
       expect(fetchedUrls).toContain('https://app.example/broken-template.html')
 
       // Verify fallback to default template (sign-in, not branded)
