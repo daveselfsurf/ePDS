@@ -16,6 +16,7 @@ import { createAccountLoginRouter } from './routes/account-login.js'
 import { createAccountSettingsRouter } from './routes/account-settings.js'
 import { createCompleteRouter } from './routes/complete.js'
 import { createChooseHandleRouter } from './routes/choose-handle.js'
+import { resolveAuthPort } from './lib/resolve-port.js'
 
 const logger = createLogger('auth-service')
 
@@ -119,7 +120,7 @@ export function createAuthService(config: AuthServiceConfig): {
 async function main() {
   const config: AuthServiceConfig = {
     hostname: process.env.AUTH_HOSTNAME || 'auth.localhost',
-    port: parseInt(process.env.AUTH_PORT || '3001', 10),
+    port: resolveAuthPort(),
     sessionSecret:
       process.env.AUTH_SESSION_SECRET || 'dev-session-secret-change-me',
     csrfSecret: process.env.AUTH_CSRF_SECRET || 'dev-csrf-secret-change-me',

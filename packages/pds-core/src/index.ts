@@ -16,6 +16,12 @@
 import * as dotenv from 'dotenv'
 dotenv.config()
 
+// @atproto/pds reads PDS_PORT, not PORT.  On Railway the platform injects
+// PORT and uses it for healthchecks, so fall back to PORT when PDS_PORT is
+// not explicitly set.  This must happen before readEnv().
+import { applyPdsPortFallback } from './lib/resolve-port.js'
+applyPdsPortFallback()
+
 import type * as http from 'node:http'
 import { randomBytes, timingSafeEqual, createHash } from 'node:crypto'
 import { PDS, envToCfg, envToSecrets, readEnv } from '@atproto/pds'

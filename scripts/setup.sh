@@ -98,6 +98,22 @@ inject_derived_vars() {
   if var_belongs PDS_EMAIL_SMTP_URL && [ -n "$smtp_url" ]; then
     set_env_var PDS_EMAIL_SMTP_URL "$smtp_url" "$target"
   fi
+
+  # PORT — Railway uses this for healthchecks.  Derive from the service-
+  # specific port variable in the top-level .env so the per-package .env
+  # has the right value for Railway paste-in.
+  if var_belongs PORT; then
+    # pds-core uses PDS_PORT, auth-service uses AUTH_PORT
+    local port_val=""
+    if [[ "$target" == *pds-core* ]]; then
+      port_val=$(read_env_var PDS_PORT .env)
+    elif [[ "$target" == *auth-service* ]]; then
+      port_val=$(read_env_var AUTH_PORT .env)
+    fi
+    if [ -n "$port_val" ]; then
+      set_env_var PORT "$port_val" "$target"
+    fi
+  fi
 }
 
 # ── Interactive prompts ──
