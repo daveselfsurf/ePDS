@@ -118,7 +118,17 @@ export function createChooseHandleRouter(
     const result = await getFlowAndSession(req, res)
     if (!result) return
 
-    const { email } = result
+    const { email, flowId } = result
+
+    // Guard: reject flows with handleMode='random' — they should skip the picker entirely
+    if (result.flow.handleMode === 'random') {
+      logger.info(
+        { email, flowId, handleMode: 'random' },
+        'Random flow reached choose-handle — redirecting to /auth/complete',
+      )
+      res.redirect(303, '/auth/complete')
+      return
+    }
 
     // Guard: if PDS account already exists for this email, redirect to /auth/complete
     const did = await getDidByEmail(email, pdsUrl, internalSecret)
@@ -191,6 +201,17 @@ export function createChooseHandleRouter(
     if (!result) return
 
     const { flowId, flow, email } = result
+
+    // Guard: reject flows with handleMode='random' — they should skip the picker entirely
+    if (flow.handleMode === 'random') {
+      logger.info(
+        { email, flowId, handleMode: 'random' },
+        'Random flow reached POST choose-handle — redirecting to /auth/complete',
+      )
+      res.redirect(303, '/auth/complete')
+      return
+    }
+
     const showRandomButton = flow.handleMode === 'picker-with-random'
 
     // Guard: if PDS account already exists, bounce back to /auth/complete
@@ -515,7 +536,7 @@ function renderChooseHandlePage(
         setStatus('Checking\u2026', 'checking');
 
         fetch('/api/check-handle?handle=' + encodeURIComponent(value), {
-          signal: currentAbort.signal,
+          signal: AbortSignal.any([currentAbort.signal, AbortSignal.timeout(5000)]),
         })
           .then(function(r) { return r.json(); })
           .then(function(data) {
@@ -598,11 +619,16 @@ function renderChooseHandlePage(
           updateSubmit();
           setStatus('Checking\u2026', 'checking');
 
+          // Cancel any in-flight random handle check from a previous click
+          if (currentAbort) currentAbort.abort();
+          currentAbort = new AbortController();
+
           fetch('/api/check-handle?handle=' + encodeURIComponent(local), {
-            signal: AbortSignal.timeout(5000),
+            signal: AbortSignal.any([currentAbort.signal, AbortSignal.timeout(5000)]),
           })
             .then(function(r) { return r.json(); })
             .then(function(data) {
+              currentAbort = null;
               if (data.available) {
                 isAvailable = true;
                 setStatus('\u2713 Available!', 'available');
@@ -617,7 +643,12 @@ function renderChooseHandlePage(
                 tryRandomHandle(attemptsLeft - 1);
               }
             })
-            .catch(function() {
+            .catch(function(err) {
+              if (err.name === 'AbortError') {
+                randomBtn.disabled = false;
+                return; // silently ignore cancelled requests
+              }
+              currentAbort = null;
               setStatus('Could not check availability.', 'format-error');
               randomBtn.disabled = false;
             });
@@ -631,10 +662,11 @@ function renderChooseHandlePage(
         });
       }
 
-      // Disable button for the duration of the POST to prevent double-submit
+      // Disable buttons for the duration of the POST to prevent double-submit
       form.addEventListener('submit', function() {
         submitBtn.disabled = true;
         submitBtn.textContent = 'Creating\u2026';
+        if (randomBtn) { randomBtn.disabled = true; }
       });
 
       // Hide server-rendered error once user starts typing
