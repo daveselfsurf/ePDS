@@ -14,8 +14,8 @@ Feature: Passwordless authentication via email OTP
     When the demo client initiates an OAuth login
     Then the browser is redirected to the auth service login page
     And the login page displays an email input form
-    When the user enters "alice@example.com" and submits
-    Then an OTP email arrives in the mail trap for "alice@example.com"
+    When the user enters a unique test email and submits
+    Then an OTP email arrives in the mail trap for the test email
     And the email subject contains "Welcome" (new user)
     And the login page shows an OTP verification form
     When the user enters the OTP code from the email
@@ -42,13 +42,13 @@ Feature: Passwordless authentication via email OTP
   # --- Brute force protection ---
 
   Scenario: OTP verification rejects wrong code
-    When the user requests an OTP for "alice@example.com"
+    When the user requests an OTP for a unique test email
     And enters an incorrect OTP code
     Then the verification form shows an error message
     And the user can try again
 
   Scenario: Too many failed OTP attempts locks out the token
-    When the user requests an OTP for "alice@example.com"
+    When the user requests an OTP for a unique test email
     And enters an incorrect OTP code 5 times
     Then further attempts are rejected
     And the user must request a new OTP

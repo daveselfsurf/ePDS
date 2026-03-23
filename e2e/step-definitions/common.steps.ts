@@ -18,6 +18,10 @@ Given('a demo OAuth client is registered', async function (this: EpdsWorld) {
 Given(
   '{string} already has a PDS account',
   function (this: EpdsWorld, _email: string) {
-    return this.skipIfNoMailpit()
+    // TODO: implement account creation via full OTP sign-up flow.
+    // This step should create a real account by driving the browser through
+    // the demo app login → OTP → welcome flow, then the scenario can
+    // re-authenticate as a returning user.
+    return 'pending'
   },
 )

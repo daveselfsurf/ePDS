@@ -12,6 +12,9 @@ export class EpdsWorld extends World {
   /** Subject line of the most recent email — set by email steps. */
   lastEmailSubject?: string
 
+  /** Generated unique email for the current scenario — set by "unique test email" steps. */
+  testEmail?: string
+
   get env() {
     return testEnv
   }

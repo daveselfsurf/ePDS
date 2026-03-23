@@ -34,6 +34,16 @@ When(
 )
 
 When(
+  'the user enters a unique test email and submits',
+  async function (this: EpdsWorld) {
+    this.testEmail = `test-${Date.now()}@example.com`
+    await this.page.fill('#email', this.testEmail)
+    await this.page.click('button[type=submit]')
+    await this.page.waitForLoadState('networkidle')
+  },
+)
+
+When(
   'the user enters {string} on the login page',
   async function (this: EpdsWorld, email: string) {
     await this.page.fill('#email', email)
@@ -98,6 +108,20 @@ When(
   async function (this: EpdsWorld, email: string) {
     await this.page.goto(testEnv.demoUrl)
     await this.page.fill('#email', email)
+    await this.page.click('button[type=submit]')
+    await this.page.waitForLoadState('networkidle')
+    await expect(this.page.locator('#step-otp.active')).toBeVisible({
+      timeout: 30_000,
+    })
+  },
+)
+
+When(
+  'the user requests an OTP for a unique test email',
+  async function (this: EpdsWorld) {
+    this.testEmail = `test-${Date.now()}@example.com`
+    await this.page.goto(testEnv.demoUrl)
+    await this.page.fill('#email', this.testEmail)
     await this.page.click('button[type=submit]')
     await this.page.waitForLoadState('networkidle')
     await expect(this.page.locator('#step-otp.active')).toBeVisible({
