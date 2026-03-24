@@ -574,8 +574,10 @@ function renderChooseHandlePage(
       });
 
       // Random handle button: generate a base36 local part client-side (mirrors
-      // generateRandomHandle() in shared/src/crypto.ts) and confirm availability
-      // via /api/check-handle, retrying up to 3 times on collision.
+      // generateRandomHandle() in shared/src/crypto.ts — duplicated here because
+      // this script is inlined in a template literal and cannot import server-side
+      // modules) and confirm availability via /api/check-handle, retrying up to
+      // 3 times on collision.
       var randomBtn = document.getElementById('random-btn');
       if (randomBtn) {
         function randomLocalPart() {
