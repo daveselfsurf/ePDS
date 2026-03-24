@@ -63,7 +63,7 @@ export async function safeResolveClientMetadata(
 export function resolveHandleMode(
   queryParam: string | undefined,
   clientMeta: ClientMetadata,
-): HandleMode | null {
+): HandleMode {
   for (const raw of [
     queryParam,
     clientMeta.epds_handle_mode,
