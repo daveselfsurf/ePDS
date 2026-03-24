@@ -139,8 +139,8 @@ railway variables set PDS_INTERNAL_URL=http://<private-domain>:3000
 ```
 
 Without a correct `PDS_INTERNAL_URL`, the auth service will **crash at startup**
-if the value is missing, or fail silently on auth→PDS calls at runtime if it
-points to the wrong host.
+if the value is missing, or log warnings and fail on auth→PDS calls at runtime
+if it points to the wrong host.
 
 ### DNS Setup
 
