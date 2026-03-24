@@ -65,6 +65,9 @@ export async function GET(request: Request) {
       .replace(/^@/, '')
       .trim()
     const handleMode = url.searchParams.get('handle_mode') || ''
+    const handleModeParam = handleMode
+      ? `&epds_handle_mode=${encodeURIComponent(handleMode)}`
+      : ''
 
     // Input validation
     // Note: email and handle are both optional — omitting both triggers Flow 2
@@ -188,9 +191,6 @@ export async function GET(request: Request) {
         const loginHint = email
           ? `&login_hint=${encodeURIComponent(email)}`
           : ''
-        const handleModeParam = handleMode
-          ? `&epds_handle_mode=${encodeURIComponent(handleMode)}`
-          : ''
         const authUrl = `${authEndpoint}?client_id=${encodeURIComponent(clientId)}&request_uri=${encodeURIComponent(parData2.request_uri)}${loginHint}${handleModeParam}`
         console.log('[oauth/login] Redirecting to auth (after nonce retry)')
         const resp2 = NextResponse.redirect(authUrl)
@@ -210,9 +210,6 @@ export async function GET(request: Request) {
     const parData = (await parRes.json()) as { request_uri: string }
     const loginHintParam = email
       ? `&login_hint=${encodeURIComponent(email)}`
-      : ''
-    const handleModeParam = handleMode
-      ? `&epds_handle_mode=${encodeURIComponent(handleMode)}`
       : ''
     const authUrl = `${authEndpoint}?client_id=${encodeURIComponent(clientId)}&request_uri=${encodeURIComponent(parData.request_uri)}${loginHintParam}${handleModeParam}`
 
