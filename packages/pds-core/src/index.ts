@@ -387,7 +387,28 @@ async function main() {
         }
       }
 
-      // Step 6: Redirect through the stock /oauth/authorize endpoint.
+      // Step 6: For new accounts, patch the stored PAR parameters to set
+      // prompt=consent. This tells the stock authorize endpoint to skip
+      // account selection and show the consent screen directly.
+      // The prompt must be in the PAR parameters (not the URL query string)
+      // because the stock middleware reads prompt from the stored request,
+      // ignoring query params when a request_uri is present.
+      if (isNewAccount) {
+        const REQUEST_URI_PREFIX = 'urn:ietf:params:oauth:request_uri:'
+        const requestId = decodeURIComponent(
+          requestUri.slice(REQUEST_URI_PREFIX.length),
+        )
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @atproto/oauth-provider store not exported
+        const store = (provider.requestManager as any).store
+        const storedRequest = await store.readRequest(requestId)
+        if (storedRequest?.parameters) {
+          await store.updateRequest(requestId, {
+            parameters: { ...storedRequest.parameters, prompt: 'consent' },
+          })
+        }
+      }
+
+      // Step 7: Redirect through the stock /oauth/authorize endpoint.
       // The oauthMiddleware will call provider.authorize() which:
       // - Finds the device session we just created via upsertDeviceAccount
       // - Checks checkConsentRequired() against actual OAuth scopes
@@ -396,12 +417,6 @@ async function main() {
       const authorizeUrl = new URL('/oauth/authorize', pdsUrl)
       authorizeUrl.searchParams.set('request_uri', requestUri)
       authorizeUrl.searchParams.set('client_id', clientId)
-
-      // For new accounts, set prompt=consent to skip account selection
-      // (the user just created this account — no point asking them to select it)
-      if (isNewAccount) {
-        authorizeUrl.searchParams.set('prompt', 'consent')
-      }
 
       res.setHeader('Cache-Control', 'no-store')
       res.redirect(303, authorizeUrl.toString())

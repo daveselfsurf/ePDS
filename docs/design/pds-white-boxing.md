@@ -24,8 +24,13 @@ Methods used:
   sliding window (see item 7 below). Used in the `/oauth/epds-callback`
   handler and the `/_internal/ping-request` keepalive.
 - `.setAuthorized(requestUri, client, account, deviceId, deviceMetadata)` —
-  marks a request as authorized and issues an authorization code. This is the
-  core of the ePDS callback mechanism.
+  marks a request as authorized and issues an authorization code. Used in the
+  consent-skip path.
+- `.store.readRequest(requestId)` / `.store.updateRequest(requestId, data)` —
+  direct store access to patch the PAR request's stored `parameters` (e.g.
+  setting `prompt: 'consent'` for new accounts). The stock `/oauth/authorize`
+  middleware reads `prompt` from the stored parameters, not the URL query
+  string, so patching is required.
 
 **Breakage scenario:** Method renamed, signature changed, or `requestManager`
 made private. The entire authorization code issuance flow stops working.
