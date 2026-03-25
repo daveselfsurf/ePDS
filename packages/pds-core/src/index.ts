@@ -387,14 +387,14 @@ async function main() {
         }
       }
 
-      // Step 6: For new accounts, set login_hint in the stored PAR
-      // parameters so the stock authorize UI auto-selects the just-created
-      // session and skips account selection (going straight to consent).
+      // Step 6: Set login_hint in the stored PAR parameters so the stock
+      // authorize UI auto-selects this account's session and skips account
+      // selection (going straight to consent or auto-approve).
       // The oauth-provider UI checks `selected` which is true when
       // login_hint matches the account AND prompt !== 'select_account'.
       // prompt is already 'consent' (forced by the provider for
       // unauthenticated clients).
-      if (isNewAccount && did) {
+      if (did) {
         const REQUEST_URI_PREFIX = 'urn:ietf:params:oauth:request_uri:'
         const requestId = decodeURIComponent(
           requestUri.slice(REQUEST_URI_PREFIX.length),
