@@ -26,6 +26,12 @@ Methods used:
 - `.setAuthorized(requestUri, client, account, deviceId, deviceMetadata)` —
   marks a request as authorized and issues an authorization code. Used in the
   consent-skip path.
+- `.store.readRequest(requestId)` / `.store.updateRequest(requestId, data)` —
+  direct store access to patch the PAR request's stored `parameters`. Used to
+  set `login_hint` for new accounts so the stock authorize UI auto-selects the
+  session and skips account selection. The provider already mutates parameters
+  during `validate()` (forcing `prompt: 'consent'` for unauthenticated clients),
+  so this is consistent with upstream behavior.
 
 **Breakage scenario:** Method renamed, signature changed, or `requestManager`
 made private. The entire authorization code issuance flow stops working.

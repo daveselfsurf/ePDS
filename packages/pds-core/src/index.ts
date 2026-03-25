@@ -387,7 +387,29 @@ async function main() {
         }
       }
 
-      // Step 6: Redirect through the stock /oauth/authorize endpoint.
+      // Step 6: For new accounts, set login_hint in the stored PAR
+      // parameters so the stock authorize UI auto-selects the just-created
+      // session and skips account selection (going straight to consent).
+      // The oauth-provider UI checks `selected` which is true when
+      // login_hint matches the account AND prompt !== 'select_account'.
+      // prompt is already 'consent' (forced by the provider for
+      // unauthenticated clients).
+      if (isNewAccount && did) {
+        const REQUEST_URI_PREFIX = 'urn:ietf:params:oauth:request_uri:'
+        const requestId = decodeURIComponent(
+          requestUri.slice(REQUEST_URI_PREFIX.length),
+        )
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @atproto/oauth-provider store not exported
+        const store = (provider.requestManager as any).store
+        const storedRequest = await store.readRequest(requestId)
+        if (storedRequest?.parameters) {
+          await store.updateRequest(requestId, {
+            parameters: { ...storedRequest.parameters, login_hint: did },
+          })
+        }
+      }
+
+      // Step 7: Redirect through the stock /oauth/authorize endpoint.
       // The oauthMiddleware will call provider.authorize() which:
       // - Finds the device session we just created via upsertDeviceAccount
       // - Checks checkConsentRequired() against actual OAuth scopes
