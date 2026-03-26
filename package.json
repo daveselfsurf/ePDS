@@ -20,7 +20,7 @@
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "test:e2e": "TSX_TSCONFIG_PATH=e2e/tsconfig.e2e.json node --import tsx/esm ./node_modules/@cucumber/cucumber/bin/cucumber-js --config e2e/cucumber.mjs",
-    "test:e2e:ci": "E2E_HEADLESS=true TSX_TSCONFIG_PATH=e2e/tsconfig.e2e.json node --import tsx/esm ./node_modules/@cucumber/cucumber/bin/cucumber-js --config e2e/cucumber.mjs",
+    "test:e2e:headless": "E2E_HEADLESS=true TSX_TSCONFIG_PATH=e2e/tsconfig.e2e.json node --import tsx/esm ./node_modules/@cucumber/cucumber/bin/cucumber-js --config e2e/cucumber.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",

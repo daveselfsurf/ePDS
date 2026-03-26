@@ -1,7 +1,6 @@
 name: E2E tests
 on:
   deployment_status:
-    states: [success]
 
 jobs:
   e2e:
@@ -11,7 +10,8 @@ jobs:
       pull-requests: read
     if: |
       github.event.deployment_status.state == 'success' &&
-      github.event.deployment.transient_environment == true
+      github.event.deployment.transient_environment == true &&
+      github.event.deployment.creator.login == 'railway-app[bot]'
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v5
@@ -72,12 +72,12 @@ jobs:
           E2E_MAILPIT_USER: ${{ secrets.E2E_MAILPIT_USER }}
           E2E_MAILPIT_PASS: ${{ secrets.E2E_MAILPIT_PASS }}
           E2E_HEADLESS: 'true'
-        run: pnpm test:e2e:ci
+        run: pnpm test:e2e:headless
 
-      - name: Upload Playwright report
+      - name: Upload e2e report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v6
         with:
-          name: playwright-report
-          path: playwright-report/
+          name: e2e-report
+          path: reports/
           retention-days: 2

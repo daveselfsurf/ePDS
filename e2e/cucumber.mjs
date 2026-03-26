@@ -3,5 +3,5 @@ export default {
   import: ['e2e/step-definitions/**/*.ts', 'e2e/support/**/*.ts'],
   format: ['progress-bar', 'html:reports/e2e.html'],
   tags: 'not @manual',
-  strict: false,
+  strict: true,
 }

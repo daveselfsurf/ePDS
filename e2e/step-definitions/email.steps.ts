@@ -43,20 +43,26 @@ async function waitForEmail(
 }
 
 /**
- * Fetch the plain-text rendering of a message and extract the 8-digit OTP.
- * The OTP is split across two <span> elements in the HTML, so the text
- * rendering produces "XXXX YYYY" or "XXXXYYYY". Regex captures both halves.
+ * Fetch the plain-text rendering of a message and extract the OTP.
+ * Handles numeric (default, 8 digits) and alphanumeric codes of configurable
+ * length (4–12), set via OTP_LENGTH and OTP_CHARSET env vars.
+ * Collapses whitespace in the text before matching to handle OTP codes split
+ * across <span> elements.
  */
 async function extractOtp(messageId: string): Promise<string> {
   const res = await fetch(`${testEnv.mailpitUrl}/view/${messageId}.txt`, {
     headers: { Authorization: mailpitAuthHeader() },
   })
   const text = await res.text()
-  const match = /(\d{4})\s*(\d{4})/.exec(text)
+  const charClass =
+    testEnv.otpCharset === 'alphanumeric' ? '[A-Za-z0-9]' : '\\d'
+  const pattern = new RegExp(`(${charClass}{${testEnv.otpLength}})`)
+  const collapsed = text.replace(/\s+/g, '')
+  const match = pattern.exec(collapsed)
   if (!match) {
     throw new Error(`Could not extract OTP from email body:\n${text}`)
   }
-  return match[1] + match[2]
+  return match[1]
 }
 
 Then(

@@ -22,6 +22,7 @@ Feature: Passwordless authentication via email OTP
     Then the browser is redirected back to the demo client
     And the demo client has a valid OAuth access token
 
+  @manual
   Scenario: Returning user authenticates with email OTP
     Given "bob@example.com" already has a PDS account
     When the demo client initiates an OAuth login

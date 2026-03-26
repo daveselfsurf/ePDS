@@ -23,5 +23,9 @@ export const testEnv = {
     'https://mailpit-e2e-karma-test.up.railway.app',
   mailpitUser: process.env.E2E_MAILPIT_USER ?? 'karma',
   mailpitPass: process.env.E2E_MAILPIT_PASS ?? '',
+  otpLength: Math.min(12, Math.max(4, Number(process.env.OTP_LENGTH ?? '8'))),
+  otpCharset: (process.env.OTP_CHARSET ?? 'numeric') as
+    | 'numeric'
+    | 'alphanumeric',
   headless: process.env.E2E_HEADLESS === 'true',
 }
