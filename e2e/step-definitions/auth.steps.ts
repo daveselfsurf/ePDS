@@ -52,6 +52,20 @@ When(
   },
 )
 
+When(
+  'the user enters the test email on the login page',
+  async function (this: EpdsWorld) {
+    if (!this.testEmail) {
+      throw new Error(
+        'No test email set — "a returning user has a PDS account" step must run first',
+      )
+    }
+    await this.page.fill('#email', this.testEmail)
+    await this.page.click('button[type=submit]')
+    await this.page.waitForLoadState('networkidle')
+  },
+)
+
 Then(
   'the login page shows an OTP verification form',
   async function (this: EpdsWorld) {
@@ -106,6 +120,7 @@ Then(
 When(
   'the user requests an OTP for {string}',
   async function (this: EpdsWorld, email: string) {
+    if (!testEnv.mailpitPass) return 'pending'
     await this.page.goto(testEnv.demoUrl)
     await this.page.fill('#email', email)
     await this.page.click('button[type=submit]')
@@ -119,6 +134,7 @@ When(
 When(
   'the user requests an OTP for a unique test email',
   async function (this: EpdsWorld) {
+    if (!testEnv.mailpitPass) return 'pending'
     this.testEmail = `test-${Date.now()}@example.com`
     await this.page.goto(testEnv.demoUrl)
     await this.page.fill('#email', this.testEmail)

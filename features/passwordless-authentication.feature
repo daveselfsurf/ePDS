@@ -22,11 +22,10 @@ Feature: Passwordless authentication via email OTP
     Then the browser is redirected back to the demo client
     And the demo client has a valid OAuth access token
 
-  @manual
   Scenario: Returning user authenticates with email OTP
-    Given "bob@example.com" already has a PDS account
+    Given a returning user has a PDS account
     When the demo client initiates an OAuth login
-    And the user enters "bob@example.com" on the login page
+    And the user enters the test email on the login page
     Then an OTP email arrives in the mail trap
     And the email subject contains "Sign-in" (returning user)
     When the user enters the OTP code

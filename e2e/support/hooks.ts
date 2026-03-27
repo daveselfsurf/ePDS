@@ -10,12 +10,13 @@ import { chromium, type Browser } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 import type { EpdsWorld } from './world.js'
 import { testEnv } from './env.js'
+import { clearMailpit } from './mailpit.js'
 
 // Railway services have cold-start latency. Default cucumber step timeout
 // is 5 seconds which is too short for OAuth redirect chains.
 setDefaultTimeout(60_000)
 
-let sharedBrowser: Browser
+export let sharedBrowser: Browser
 
 BeforeAll(async function () {
   await mkdir('reports/screenshots', { recursive: true })
@@ -23,6 +24,7 @@ BeforeAll(async function () {
 })
 
 Before(async function (this: EpdsWorld) {
+  this.browser = sharedBrowser
   this.context = await sharedBrowser.newContext()
   this.page = await this.context.newPage()
   this.page.setDefaultNavigationTimeout(30_000)
@@ -31,13 +33,7 @@ Before(async function (this: EpdsWorld) {
 
 Before(async function () {
   if (!testEnv.mailpitPass) return
-  const auth = Buffer.from(
-    `${testEnv.mailpitUser}:${testEnv.mailpitPass}`,
-  ).toString('base64')
-  await fetch(`${testEnv.mailpitUrl}/api/v1/messages`, {
-    method: 'DELETE',
-    headers: { Authorization: `Basic ${auth}` },
-  })
+  await clearMailpit()
 })
 
 After(async function (this: EpdsWorld, scenario) {

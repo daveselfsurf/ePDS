@@ -1,69 +1,7 @@
 import { Then } from '@cucumber/cucumber'
 import type { EpdsWorld } from '../support/world.js'
 import { testEnv } from '../support/env.js'
-
-interface MailpitMessage {
-  ID: string
-  Subject: string
-}
-
-interface MailpitSearchResponse {
-  messages?: MailpitMessage[]
-}
-
-function mailpitAuthHeader(): string {
-  return `Basic ${Buffer.from(`${testEnv.mailpitUser}:${testEnv.mailpitPass}`).toString('base64')}`
-}
-
-/**
- * Poll Mailpit search until a message matching the query arrives, or timeout.
- * Returns the first matching message.
- */
-async function waitForEmail(
-  query: string,
-  timeoutMs = 15_000,
-): Promise<MailpitMessage> {
-  const interval = 500
-  const attempts = Math.ceil(timeoutMs / interval)
-  const headers = { Authorization: mailpitAuthHeader() }
-
-  for (let i = 0; i < attempts; i++) {
-    const res = await fetch(
-      `${testEnv.mailpitUrl}/api/v1/search?query=${encodeURIComponent(query)}&limit=1`,
-      { headers },
-    )
-    const data = (await res.json()) as MailpitSearchResponse
-    if (data.messages?.length) {
-      return data.messages[0]
-    }
-    await new Promise<void>((r) => setTimeout(r, interval))
-  }
-
-  throw new Error(`No email matching "${query}" arrived within ${timeoutMs}ms`)
-}
-
-/**
- * Fetch the plain-text rendering of a message and extract the OTP.
- * Handles numeric (default, 8 digits) and alphanumeric codes of configurable
- * length (4–12), set via OTP_LENGTH and OTP_CHARSET env vars.
- * Collapses whitespace in the text before matching to handle OTP codes split
- * across <span> elements.
- */
-async function extractOtp(messageId: string): Promise<string> {
-  const res = await fetch(`${testEnv.mailpitUrl}/view/${messageId}.txt`, {
-    headers: { Authorization: mailpitAuthHeader() },
-  })
-  const text = await res.text()
-  const charClass =
-    testEnv.otpCharset === 'alphanumeric' ? '[A-Za-z0-9]' : '\\d'
-  const pattern = new RegExp(`(${charClass}{${testEnv.otpLength}})`)
-  const collapsed = text.replace(/\s+/g, '')
-  const match = pattern.exec(collapsed)
-  if (!match) {
-    throw new Error(`Could not extract OTP from email body:\n${text}`)
-  }
-  return match[1]
-}
+import { waitForEmail, extractOtp } from '../support/mailpit.js'
 
 Then(
   'an OTP email arrives in the mail trap for the test email',
@@ -92,12 +30,10 @@ Then(
 
 Then('an OTP email arrives in the mail trap', async function (this: EpdsWorld) {
   if (!testEnv.mailpitPass) return 'pending'
-  // TODO: The 'to:*' wildcard query doesn't work in Mailpit's search API.
-  // This step is currently only reached by Scenario 2 (returning user), which
-  // goes pending earlier due to unimplemented account creation. When Scenario 2
-  // is implemented, replace this with a call to GET /api/v1/messages?limit=1
-  // (the list endpoint) or pass the test email explicitly.
-  const message = await waitForEmail('to:*')
+  if (!this.testEmail) {
+    throw new Error('No test email set — account creation step must run first')
+  }
+  const message = await waitForEmail(`to:${this.testEmail}`)
   this.lastEmailSubject = message.Subject
   this.otpCode = await extractOtp(message.ID)
 })
