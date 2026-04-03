@@ -307,7 +307,7 @@ function renderLoginPage(opts: {
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: ${escapeHtml(bgColor)}; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
     .container { background: transparent; padding: 40px; max-width: 420px; width: 100%; text-align: center; }
-    .client-logo { height: 80px; margin-bottom: 24px; display: block; margin-left: auto; margin-right: auto; }
+    .client-logo { max-height: 48px; width: auto; margin-bottom: 16px; display: block; margin-left: auto; margin-right: auto; filter: brightness(0); }
     h1 { font-size: 24px; margin-bottom: 8px; color: #1A130F; }
     .subtitle { color: #555; margin-bottom: 24px; font-size: 15px; line-height: 1.5; }
     .field { margin-bottom: 16px; text-align: left; }
