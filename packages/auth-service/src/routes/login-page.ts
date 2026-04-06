@@ -92,7 +92,13 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
       return
     }
 
-    const clientMeta = await safeResolveClientMetadata(clientId)
+    // Look up any existing flow for this request_uri early so we can fall back
+    // to its stored clientId when the query string omits client_id (e.g. when
+    // the user navigates back from the recovery page via a bare request_uri link).
+    const existingFlow = ctx.db.getAuthFlowByRequestUri(requestUri)
+    const effectiveClientId = clientId ?? existingFlow?.clientId ?? undefined
+
+    const clientMeta = await safeResolveClientMetadata(effectiveClientId)
     const handleMode = resolveHandleMode(
       req.query.epds_handle_mode as string | undefined,
       clientMeta,
@@ -115,7 +121,6 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
     // than creating a second row (and triggering a second OTP send). This protects
     // against duplicate GETs from browser extensions, prefetch, or StayFocusd.
     let flowId: string
-    const existingFlow = ctx.db.getAuthFlowByRequestUri(requestUri)
     if (existingFlow) {
       flowId = existingFlow.flowId
       logger.warn(
@@ -157,12 +162,18 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
 
     const clientName =
       clientMeta.client_name ??
-      (clientId ? await resolveClientName(clientId) : 'an application')
+      (effectiveClientId
+        ? await resolveClientName(effectiveClientId)
+        : 'an application')
 
     // CSS injection for trusted clients
-    const customCss = clientId
-      ? getClientCss(clientId, clientMeta, ctx.config.trustedClients)
+    const customCss = effectiveClientId
+      ? getClientCss(effectiveClientId, clientMeta, ctx.config.trustedClients)
       : null
+    logger.debug(
+      { clientId, trusted: customCss !== null },
+      'client CSS trust check',
+    )
 
     // Pillar 1 — State Determination: decide which step to render based on
     // login_hint presence. No method-assuming side effects in the GET handler.
@@ -222,7 +233,7 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
     res.type('html').send(
       renderLoginPage({
         flowId,
-        clientId: clientId ?? '',
+        clientId: effectiveClientId ?? '',
         clientName,
         branding: clientMeta,
         customCss,

@@ -19,6 +19,7 @@ import type { AuthServiceContext } from '../context.js'
 import { createLogger } from '@certified-app/shared'
 import { escapeHtml, maskEmail } from '@certified-app/shared'
 import { buildOtpInputProps } from '../otp-input.js'
+import { resolveClientMetadata, getClientCss } from '../lib/client-metadata.js'
 
 const logger = createLogger('auth:recovery')
 
@@ -33,7 +34,31 @@ export function createRecoveryRouter(
   const otpLength = ctx.config.otpLength
   const otpCharset = ctx.config.otpCharset
 
-  router.get('/auth/recover', (req: Request, res: Response) => {
+  /** Look up clientId and requestUri from the epds_auth_flow cookie. */
+  async function getFlowCss(req: Request): Promise<{
+    clientId: string | null
+    backUri: string | null
+    customCss: string | null
+  }> {
+    const flowId = req.cookies[AUTH_FLOW_COOKIE] as string | undefined
+    const flow = flowId ? ctx.db.getAuthFlow(flowId) : undefined
+    const clientId = flow?.clientId ?? null
+    const backUri = flow?.requestUri ?? null
+    if (!clientId) return { clientId: null, backUri, customCss: null }
+    try {
+      const meta = await resolveClientMetadata(clientId)
+      const customCss = getClientCss(clientId, meta, ctx.config.trustedClients)
+      logger.debug(
+        { clientId, trusted: customCss !== null },
+        'client CSS trust check',
+      )
+      return { clientId, backUri, customCss }
+    } catch {
+      return { clientId, backUri, customCss: null }
+    }
+  }
+
+  router.get('/auth/recover', async (req: Request, res: Response) => {
     const requestUri = req.query.request_uri as string | undefined
 
     if (!requestUri) {
@@ -41,10 +66,14 @@ export function createRecoveryRouter(
       return
     }
 
+    const { customCss, backUri } = await getFlowCss(req)
+
     res.type('html').send(
       renderRecoveryForm({
         requestUri,
         csrfToken: res.locals.csrfToken,
+        customCss,
+        backUri,
       }),
     )
   })
@@ -53,12 +82,16 @@ export function createRecoveryRouter(
     const email = ((req.body.email as string) || '').trim().toLowerCase()
     const requestUri = req.body.request_uri as string
 
+    const { customCss, backUri } = await getFlowCss(req)
+
     if (!email || !requestUri) {
       res.status(400).send(
         renderRecoveryForm({
           requestUri: requestUri || '',
           csrfToken: res.locals.csrfToken,
           error: 'Email and request URI are required.',
+          customCss,
+          backUri,
         }),
       )
       return
@@ -70,6 +103,8 @@ export function createRecoveryRouter(
           requestUri,
           csrfToken: res.locals.csrfToken,
           error: 'Please enter a valid email address.',
+          customCss,
+          backUri,
         }),
       )
       return
@@ -83,13 +118,16 @@ export function createRecoveryRouter(
         // Ensure the auth_flow cookie is set so /auth/complete can thread the request_uri.
         // If one already exists from a previous step, we keep it; otherwise create a new one.
         let flowId = req.cookies[AUTH_FLOW_COOKIE] as string | undefined
-        if (!flowId || !ctx.db.getAuthFlow(flowId)) {
+        const existingFlow = flowId ? ctx.db.getAuthFlow(flowId) : undefined
+        if (!flowId || !existingFlow) {
           const { randomBytes } = await import('node:crypto')
           flowId = randomBytes(16).toString('hex')
           ctx.db.createAuthFlow({
             flowId,
             requestUri,
-            clientId: null,
+            // Preserve clientId from existing flow so CSS injection works on
+            // subsequent renders; fall back to null if no flow context exists.
+            clientId: existingFlow?.clientId ?? null,
             // handleMode omitted — recovery flows don't go through handle assignment
             expiresAt: Date.now() + 10 * 60 * 1000,
           })
@@ -114,6 +152,8 @@ export function createRecoveryRouter(
             requestUri,
             otpLength,
             otpCharset,
+            customCss,
+            backUri,
           }),
         )
       } catch (err) {
@@ -126,6 +166,8 @@ export function createRecoveryRouter(
             error: 'Failed to send code. Please try again.',
             otpLength,
             otpCharset,
+            customCss,
+            backUri,
           }),
         )
       }
@@ -138,6 +180,8 @@ export function createRecoveryRouter(
           requestUri,
           otpLength,
           otpCharset,
+          customCss,
+          backUri,
         }),
       )
     }
@@ -186,6 +230,7 @@ export function createRecoveryRouter(
         (err.message.includes('invalid') || err.message.includes('expired'))
           ? 'Invalid or expired code. Please try again.'
           : 'Verification failed. Please try again.'
+      const { customCss, backUri } = await getFlowCss(req)
       res.send(
         renderOtpForm({
           email,
@@ -194,6 +239,8 @@ export function createRecoveryRouter(
           error: errMsg,
           otpLength,
           otpCharset,
+          customCss,
+          backUri,
         }),
       )
     }
@@ -206,15 +253,19 @@ function renderRecoveryForm(opts: {
   requestUri: string
   csrfToken: string
   error?: string
+  customCss?: string | null
+  backUri?: string | null
 }): string {
-  const encodedUri = encodeURIComponent(opts.requestUri)
+  const backHref = opts.backUri
+    ? `/oauth/authorize?request_uri=${encodeURIComponent(opts.backUri)}`
+    : '/oauth/authorize'
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Account Recovery</title>
-  <style>${CSS}</style>
+  <style>${CSS}</style>${opts.customCss ? `\n  <style>${opts.customCss}</style>` : ''}
 </head>
 <body>
   <div class="container">
@@ -231,7 +282,7 @@ function renderRecoveryForm(opts: {
       </div>
       <button type="submit" class="btn-primary">Send recovery code</button>
     </form>
-    <a href="/oauth/authorize?request_uri=${encodedUri}" class="btn-secondary">Back to sign in</a>
+    <a href="${backHref}" class="btn-secondary">Back to sign in</a>
   </div>
 </body>
 </html>`
@@ -244,9 +295,13 @@ function renderOtpForm(opts: {
   otpLength: number
   otpCharset: 'numeric' | 'alphanumeric'
   error?: string
+  customCss?: string | null
+  backUri?: string | null
 }): string {
   const maskedEmail = maskEmail(opts.email)
-  const encodedUri = encodeURIComponent(opts.requestUri)
+  const backHref = opts.backUri
+    ? `/oauth/authorize?request_uri=${encodeURIComponent(opts.backUri)}`
+    : '/oauth/authorize'
   const inputProps = buildOtpInputProps(opts.otpLength, opts.otpCharset)
 
   return `<!DOCTYPE html>
@@ -255,7 +310,7 @@ function renderOtpForm(opts: {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Enter recovery code</title>
-  <style>${CSS}</style>
+  <style>${CSS}</style>${opts.customCss ? `\n  <style>${opts.customCss}</style>` : ''}
 </head>
 <body>
   <div class="container">
@@ -288,7 +343,7 @@ function renderOtpForm(opts: {
       <input type="hidden" name="email" value="${escapeHtml(opts.email)}">
       <button type="submit" class="btn-secondary">Resend code</button>
     </form>
-    <a href="/oauth/authorize?request_uri=${encodedUri}" class="btn-secondary">Back to sign in</a>
+    <a href="${backHref}" class="btn-secondary">Back to sign in</a>
   </div>
 </body>
 </html>`

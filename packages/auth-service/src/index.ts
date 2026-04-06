@@ -51,9 +51,16 @@ export function createAuthService(config: AuthServiceConfig): {
     res.setHeader('X-Content-Type-Options', 'nosniff')
     res.setHeader('Referrer-Policy', 'no-referrer')
 
-    // Build img-src dynamically: allow the client's origin if a client_id URL is present
+    // Build img-src dynamically: allow the client's origin if a client_id URL is present.
+    // Fall back to the stored clientId from the DB flow when client_id is absent from the
+    // query string (e.g. back-navigation from recovery via a bare request_uri link).
     let imgSrc = "'self' data:"
-    const clientId = (req.query.client_id as string) || req.body?.client_id
+    let clientId = (req.query.client_id as string) || req.body?.client_id
+    if (!clientId && req.query.request_uri) {
+      clientId =
+        ctx.db.getAuthFlowByRequestUri(req.query.request_uri as string)
+          ?.clientId ?? undefined
+    }
     if (clientId && typeof clientId === 'string') {
       try {
         const clientOrigin = new URL(clientId).origin
@@ -145,6 +152,11 @@ async function main() {
       .map((s) => s.trim())
       .filter(Boolean),
   }
+
+  logger.info(
+    { trustedClients: config.trustedClients },
+    'trusted clients configured',
+  )
 
   if (
     isNaN(config.otpLength) ||

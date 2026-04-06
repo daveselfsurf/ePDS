@@ -51,6 +51,10 @@ export function createConsentRouter(ctx: AuthServiceContext): Router {
       const customCss = clientId
         ? getClientCss(clientId, clientMeta, ctx.config.trustedClients)
         : null
+      logger.debug(
+        { clientId, trusted: customCss !== null },
+        'client CSS trust check',
+      )
 
       res.type('html').send(
         renderConsent({
