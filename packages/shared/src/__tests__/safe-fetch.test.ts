@@ -230,6 +230,48 @@ describe('makeSafeFetch — fetch behaviour', () => {
     )
   })
 
+  it('always passes redirect: error to underlying fetch', async () => {
+    const mock = mockFetchOk()
+    const safeFetch = makeSafeFetch()
+    await safeFetch('https://cool.app/data.json')
+    expect(mock).toHaveBeenCalledWith(
+      'https://cool.app/data.json',
+      expect.objectContaining({ redirect: 'error' }),
+    )
+  })
+
+  it('overrides caller-supplied redirect mode with error', async () => {
+    const mock = mockFetchOk()
+    const safeFetch = makeSafeFetch()
+    await safeFetch('https://cool.app/data.json', { redirect: 'follow' })
+    expect(mock).toHaveBeenCalledWith(
+      'https://cool.app/data.json',
+      expect.objectContaining({ redirect: 'error' }),
+    )
+  })
+
+  it('respects caller-supplied abort signal before internal timeout fires', async () => {
+    const upstream = new AbortController()
+
+    globalThis.fetch = vi.fn().mockImplementation(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('The operation was aborted.', 'AbortError'))
+          })
+        }),
+    ) as unknown as typeof fetch
+
+    const safeFetch = makeSafeFetch({ timeoutMs: 10_000 }) // long timeout — won't fire
+    const fetchPromise = safeFetch('https://cool.app/data.json', {
+      signal: upstream.signal,
+    })
+
+    upstream.abort() // fire upstream before the 10s timeout
+
+    await expect(fetchPromise).rejects.toThrow(/aborted/i)
+  })
+
   it('aborts and throws after timeoutMs', async () => {
     vi.useFakeTimers()
 

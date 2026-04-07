@@ -95,8 +95,11 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
     // Look up any existing flow for this request_uri early so we can fall back
     // to its stored clientId when the query string omits client_id (e.g. when
     // the user navigates back from the recovery page via a bare request_uri link).
+    // The persisted flow's clientId takes precedence over the query-string
+    // client_id — the flow was stored from a validated PAR request server-side,
+    // whereas client_id on the query string is user-controlled.
     const existingFlow = ctx.db.getAuthFlowByRequestUri(requestUri)
-    const effectiveClientId = clientId ?? existingFlow?.clientId ?? undefined
+    const effectiveClientId = existingFlow?.clientId ?? clientId ?? undefined
 
     const clientMeta = await safeResolveClientMetadata(effectiveClientId)
     const handleMode = resolveHandleMode(
@@ -171,7 +174,7 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
       ? getClientCss(effectiveClientId, clientMeta, ctx.config.trustedClients)
       : null
     logger.debug(
-      { clientId, trusted: customCss !== null },
+      { clientId: effectiveClientId, trusted: customCss !== null },
       'client CSS trust check',
     )
 

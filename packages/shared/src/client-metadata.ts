@@ -143,8 +143,14 @@ export function escapeCss(css: string): string {
   return css.replace(/<\/style>/gi, '\\u003c/style>')
 }
 
+/** Maximum allowed size for injected CSS. Values above this are dropped. */
+const MAX_CSS_BYTES = 8_192 // 8 KB
+
 /**
  * Returns escaped CSS for injection if the client is trusted, or null.
+ *
+ * TODO: add CSS sanitization to strip dangerous primitives (@import, url(),
+ * expression(), javascript:, behavior:, -moz-binding) before injection.
  */
 export function getClientCss(
   clientId: string,
@@ -154,6 +160,7 @@ export function getClientCss(
   if (!trustedClients.includes(clientId)) return null
   const raw = metadata.branding?.css
   if (!raw) return null
+  if (raw.length > MAX_CSS_BYTES) return null
   return escapeCss(raw)
 }
 

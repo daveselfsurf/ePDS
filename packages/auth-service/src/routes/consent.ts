@@ -1,10 +1,6 @@
 import { Router, type Request, type Response } from 'express'
 import type { AuthServiceContext } from '../context.js'
-import {
-  resolveClientMetadata,
-  resolveClientName,
-  getClientCss,
-} from '../lib/client-metadata.js'
+import { resolveClientBranding } from '../lib/client-metadata.js'
 import { escapeHtml, signCallback, createLogger } from '@certified-app/shared'
 
 const logger = createLogger('auth:consent')
@@ -44,17 +40,9 @@ export function createConsentRouter(ctx: AuthServiceContext): Router {
       const email = req.query.email as string | undefined
       const isNew = req.query.new === '1'
       const clientId = flow.clientId ?? ''
-      const clientMeta = clientId ? await resolveClientMetadata(clientId) : {}
-      const clientName =
-        clientMeta.client_name ||
-        (clientId ? await resolveClientName(clientId) : 'the application')
-      const customCss = clientId
-        ? getClientCss(clientId, clientMeta, ctx.config.trustedClients)
-        : null
-      logger.debug(
-        { clientId, trusted: customCss !== null },
-        'client CSS trust check',
-      )
+      const { clientName, customCss } = clientId
+        ? await resolveClientBranding(clientId, ctx.config.trustedClients)
+        : { clientName: 'the application', customCss: null }
 
       res.type('html').send(
         renderConsent({
@@ -82,13 +70,9 @@ export function createConsentRouter(ctx: AuthServiceContext): Router {
       return
     }
 
-    const clientMeta = clientId ? await resolveClientMetadata(clientId) : {}
-    const clientName =
-      clientMeta.client_name ||
-      (clientId ? await resolveClientName(clientId) : 'the application')
-    const customCss = clientId
-      ? getClientCss(clientId, clientMeta, ctx.config.trustedClients)
-      : null
+    const { clientName, customCss } = clientId
+      ? await resolveClientBranding(clientId, ctx.config.trustedClients)
+      : { clientName: 'the application', customCss: null }
 
     res.type('html').send(
       renderConsent({

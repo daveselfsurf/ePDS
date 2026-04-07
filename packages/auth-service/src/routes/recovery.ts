@@ -19,7 +19,7 @@ import type { AuthServiceContext } from '../context.js'
 import { createLogger } from '@certified-app/shared'
 import { escapeHtml, maskEmail } from '@certified-app/shared'
 import { buildOtpInputProps } from '../otp-input.js'
-import { resolveClientMetadata, getClientCss } from '../lib/client-metadata.js'
+import { resolveClientBranding } from '../lib/client-metadata.js'
 
 const logger = createLogger('auth:recovery')
 
@@ -45,17 +45,11 @@ export function createRecoveryRouter(
     const clientId = flow?.clientId ?? null
     const backUri = flow?.requestUri ?? null
     if (!clientId) return { clientId: null, backUri, customCss: null }
-    try {
-      const meta = await resolveClientMetadata(clientId)
-      const customCss = getClientCss(clientId, meta, ctx.config.trustedClients)
-      logger.debug(
-        { clientId, trusted: customCss !== null },
-        'client CSS trust check',
-      )
-      return { clientId, backUri, customCss }
-    } catch {
-      return { clientId, backUri, customCss: null }
-    }
+    const { customCss } = await resolveClientBranding(
+      clientId,
+      ctx.config.trustedClients,
+    )
+    return { clientId, backUri, customCss }
   }
 
   router.get('/auth/recover', async (req: Request, res: Response) => {
@@ -125,9 +119,10 @@ export function createRecoveryRouter(
           ctx.db.createAuthFlow({
             flowId,
             requestUri,
-            // Preserve clientId from existing flow so CSS injection works on
-            // subsequent renders; fall back to null if no flow context exists.
-            clientId: existingFlow?.clientId ?? null,
+            // Recovery flows always start with null clientId — the prior OAuth
+            // flow's clientId is not recoverable here since getAuthFlow filters
+            // expired rows and we have no peek accessor.
+            clientId: null,
             // handleMode omitted — recovery flows don't go through handle assignment
             expiresAt: Date.now() + 10 * 60 * 1000,
           })

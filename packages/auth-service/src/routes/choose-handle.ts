@@ -28,7 +28,7 @@ import { fromNodeHeaders } from 'better-auth/node'
 import { getDidByEmail } from '../lib/get-did-by-email.js'
 import { pingParRequest } from '../lib/ping-par-request.js'
 import { requireInternalEnv } from '../lib/require-internal-env.js'
-import { resolveClientMetadata, getClientCss } from '../lib/client-metadata.js'
+import { resolveClientBranding } from '../lib/client-metadata.js'
 
 const logger = createLogger('auth:choose-handle')
 
@@ -179,20 +179,11 @@ export function createChooseHandleRouter(
     const showRandomButton = result.flow.handleMode === 'picker-with-random'
 
     // CSS injection for trusted clients — clientId is already in the flow row
-    let customCss: string | null = null
     const clientId = result.flow.clientId
-    if (clientId) {
-      try {
-        const meta = await resolveClientMetadata(clientId)
-        customCss = getClientCss(clientId, meta, ctx.config.trustedClients)
-        logger.debug(
-          { clientId, trusted: customCss !== null },
-          'client CSS trust check',
-        )
-      } catch {
-        // Degrade gracefully — no branding if metadata fetch fails
-      }
-    }
+    const customCss = clientId
+      ? (await resolveClientBranding(clientId, ctx.config.trustedClients))
+          .customCss
+      : null
 
     res
       .type('html')
@@ -229,19 +220,10 @@ export function createChooseHandleRouter(
     const showRandomButton = flow.handleMode === 'picker-with-random'
 
     // CSS injection for trusted clients
-    let customCss: string | null = null
-    if (flow.clientId) {
-      try {
-        const meta = await resolveClientMetadata(flow.clientId)
-        customCss = getClientCss(flow.clientId, meta, ctx.config.trustedClients)
-        logger.debug(
-          { clientId: flow.clientId, trusted: customCss !== null },
-          'client CSS trust check',
-        )
-      } catch {
-        // Degrade gracefully — no branding if metadata fetch fails
-      }
-    }
+    const customCss = flow.clientId
+      ? (await resolveClientBranding(flow.clientId, ctx.config.trustedClients))
+          .customCss
+      : null
 
     // Guard: if PDS account already exists, bounce back to /auth/complete
     // (mirrors the same check in the GET handler — prevents signing a

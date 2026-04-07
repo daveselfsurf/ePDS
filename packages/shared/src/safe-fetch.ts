@@ -6,11 +6,15 @@
  * - Rejects IP literals that are not globally routable unicast addresses
  *   (loopback, private RFC-1918, link-local, unique-local, etc.)
  * - Rejects bare/local hostnames (.local, .test, .localhost, .invalid, .example)
+ * - Disables automatic redirect following (redirect: 'error') to prevent
+ *   redirects to private/internal addresses
  * - Enforces a request timeout and response Content-Length cap
  *
  * Mirrors the approach used in @atproto-labs/fetch-node (unicast.ts / safe.ts)
  * but without the DNS-level interception (undici dispatcher), which is
- * out of scope for this use case.
+ * out of scope for this use case. DNS rebinding protection via pre-fetch
+ * dns.resolve() is intentionally omitted — it does not close the TOCTOU race
+ * window and the correct fix (undici dispatcher) requires a separate dependency.
  */
 
 import ipaddr from 'ipaddr.js'
@@ -115,12 +119,19 @@ export function makeSafeFetch(options: SafeFetchOptions = {}) {
     // Use globalThis.fetch at call time so test mocks applied after module
     // import are correctly picked up.
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    const timer = setTimeout(() => {
+      controller.abort()
+    }, timeoutMs)
 
     try {
       const res = await globalThis.fetch(url, {
         ...init,
-        signal: controller.signal,
+        redirect: 'error',
+        // Compose internal timeout signal with any caller-supplied signal so
+        // both are respected. AbortSignal.any() requires Node.js >= 20.3.0.
+        signal: init?.signal
+          ? AbortSignal.any([controller.signal, init.signal])
+          : controller.signal,
       })
 
       // 6. Enforce Content-Length cap before the caller reads the body

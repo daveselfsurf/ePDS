@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   resolveClientName,
   resolveClientMetadata,
+  resolveClientBranding,
   clearClientMetadataCache,
 } from '../lib/client-metadata.js'
 
@@ -153,6 +154,8 @@ describe('resolveClientMetadata', () => {
     const metadata = await resolveClientMetadata(
       'https://[::ffff:192.168.1.1]/client-metadata.json',
     )
+    // Node's URL parser normalises the IPv4 suffix to hex: ::ffff:c0a8:101
+    expect(metadata.client_name).toBe('[::ffff:c0a8:101]')
     expect(mockFetch).not.toHaveBeenCalled()
   })
 })
@@ -189,5 +192,40 @@ describe('resolveClientName', () => {
     // name will just be the client_id string itself.
     const name = await resolveClientName('unnamed-client')
     expect(name).toBe('unnamed-client')
+  })
+})
+
+describe('resolveClientBranding', () => {
+  it('returns clientMeta, clientName, and customCss on happy path', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => null },
+      json: () => Promise.resolve({ client_name: 'My App' }),
+    }) as unknown as typeof fetch
+
+    const result = await resolveClientBranding(
+      'https://myapp.dev/client-metadata.json',
+      [], // not in trustedClients so customCss is null
+    )
+
+    expect(result.clientMeta.client_name).toBe('My App')
+    expect(result.clientName).toBe('My App')
+    expect(result.customCss).toBeNull()
+  })
+
+  it('falls back to domain for clientName when client_name is missing', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => null },
+      json: () => Promise.resolve({}),
+    }) as unknown as typeof fetch
+
+    const result = await resolveClientBranding(
+      'https://cool.app/client-metadata.json',
+      [],
+    )
+
+    expect(result.clientName).toBe('cool.app')
+    expect(result.customCss).toBeNull()
   })
 })
