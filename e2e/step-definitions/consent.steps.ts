@@ -76,11 +76,21 @@ Then('a consent screen is displayed', async function (this: EpdsWorld) {
   )
 })
 
-Then("it shows the demo client's name", async function (this: EpdsWorld) {
-  const res = await fetch(`${testEnv.demoUrl}/client-metadata.json`)
+/**
+ * Fetches the client_name from a demo client's metadata document and
+ * asserts that exact string is visible on the currently-displayed page.
+ * Shared between the trusted / untrusted variants of the "shows the
+ * demo client's name" step.
+ */
+async function assertClientNameVisibleFromMetadata(
+  world: EpdsWorld,
+  baseUrl: string,
+): Promise<void> {
+  const metadataUrl = `${baseUrl}/client-metadata.json`
+  const res = await fetch(metadataUrl)
   if (!res.ok) {
     throw new Error(
-      `Demo client metadata not found: ${res.status} at ${testEnv.demoUrl}/client-metadata.json`,
+      `Demo client metadata not found: ${res.status} at ${metadataUrl}`,
     )
   }
 
@@ -88,12 +98,29 @@ Then("it shows the demo client's name", async function (this: EpdsWorld) {
   const clientName =
     typeof body.client_name === 'string' ? body.client_name.trim() : ''
   if (!clientName) {
-    throw new Error('client-metadata.json is missing client_name')
+    throw new Error(
+      `client-metadata.json at ${metadataUrl} is missing client_name`,
+    )
   }
 
-  const page = getPage(this)
+  const page = getPage(world)
   await expect(page.getByText(clientName, { exact: true })).toBeVisible()
-})
+}
+
+Then(
+  "it shows the untrusted demo client's name",
+  async function (this: EpdsWorld) {
+    await assertClientNameVisibleFromMetadata(this, requireUntrustedDemoUrl())
+  },
+)
+
+When(
+  'the untrusted demo client initiates an OAuth login',
+  async function (this: EpdsWorld) {
+    const page = getPage(this)
+    await page.goto(requireUntrustedDemoUrl())
+  },
+)
 
 Then(
   'the browser is redirected to the PDS with an access_denied error',

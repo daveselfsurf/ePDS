@@ -13,20 +13,26 @@ Feature: OAuth consent screen
     And the trusted demo OAuth client's metadata is discoverable
     And the untrusted demo OAuth client's metadata is discoverable
 
+  # These scenarios sign up via the trusted demo client (which skips the
+  # consent screen at sign-up as part of the trusted-client flow) and then
+  # log in to the *untrusted* demo client — a genuinely new client for the
+  # user. That's the only way to exercise the "first login to a new client
+  # shows consent" path now that sign-up auto-authorises trusted clients.
+
   Scenario: Existing user sees consent screen for a new client
     Given a returning user has a PDS account
-    When the demo client initiates an OAuth login
+    When the untrusted demo client initiates an OAuth login
     And the user enters the test email on the login page
     Then an OTP email arrives in the mail trap
     When the user enters the OTP code
     Then a consent screen is displayed
-    And it shows the demo client's name
+    And it shows the untrusted demo client's name
     When the user clicks "Authorize"
-    Then the browser is redirected back to the demo client with a valid session
+    Then the browser is redirected back to the untrusted demo client with a valid session
 
   Scenario: User denies consent
     Given a returning user has a PDS account
-    When the demo client initiates an OAuth login
+    When the untrusted demo client initiates an OAuth login
     And the user enters the test email on the login page
     Then an OTP email arrives in the mail trap
     When the user enters the OTP code
