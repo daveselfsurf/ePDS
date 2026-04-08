@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express'
 import type { AuthServiceContext } from '../context.js'
 import { resolveClientBranding } from '../lib/client-metadata.js'
 import { escapeHtml, signCallback, createLogger } from '@certified-app/shared'
+import { renderOptionalStyleTag } from '../lib/page-helpers.js'
 
 const logger = createLogger('auth:consent')
 
@@ -225,7 +226,7 @@ function renderConsent(opts: {
     .btn-approve:hover { background: #1a2a40; }
     .btn-deny { background: #f0f0f0; color: #333; }
     .btn-deny:hover { background: #e0e0e0; }
-  </style>${opts.customCss ? `\n  <style>${opts.customCss}</style>` : ''}
+  </style>${renderOptionalStyleTag(opts.customCss)}
 </head>
 <body>
   <div class="container">

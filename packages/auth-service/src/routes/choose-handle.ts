@@ -29,6 +29,7 @@ import { getDidByEmail } from '../lib/get-did-by-email.js'
 import { pingParRequest } from '../lib/ping-par-request.js'
 import { requireInternalEnv } from '../lib/require-internal-env.js'
 import { resolveClientBranding } from '../lib/client-metadata.js'
+import { renderOptionalStyleTag } from '../lib/page-helpers.js'
 
 const logger = createLogger('auth:choose-handle')
 
@@ -477,7 +478,7 @@ function renderChooseHandlePage(
     .btn-secondary { width: 100%; padding: 10px; background: white; color: #0f1828; border: 1px solid #0f1828; border-radius: 8px; font-size: 15px; font-weight: 500; cursor: pointer; margin-top: 8px; }
     .btn-secondary:hover:not(:disabled) { background: #f0f2f5; }
     .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
-  </style>${customCss ? `\n  <style>${customCss}</style>` : ''}
+  </style>${renderOptionalStyleTag(customCss)}
 </head>
 <body>
   <div class="container">

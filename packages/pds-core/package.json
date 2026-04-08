@@ -9,10 +9,10 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@certified-app/shared": "workspace:*",
-    "@atproto/pds": "^0.4.209",
-    "@atproto/oauth-provider": "^0.15.9",
     "@atproto/crypto": "^0.4.5",
+    "@atproto/oauth-provider": "^0.15.9",
+    "@atproto/pds": "^0.4.209",
+    "@certified-app/shared": "workspace:*",
     "@did-plc/lib": "^0.0.4",
     "dotenv": "^16.3.1"
   },

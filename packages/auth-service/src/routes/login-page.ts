@@ -42,6 +42,7 @@ import {
   fetchParLoginHint,
 } from '../lib/resolve-login-hint.js'
 import { ensurePdsUrl } from '../lib/pds-url.js'
+import { renderOptionalStyleTag } from '../lib/page-helpers.js'
 
 const logger = createLogger('auth:login-page')
 
@@ -352,7 +353,7 @@ function renderLoginPage(opts: {
     .step-email.hidden { display: none; }
     .recovery-link { display: block; margin-top: 16px; color: #888; font-size: 13px; text-decoration: none; }
     .recovery-link:hover { color: #555; }
-  </style>${opts.customCss ? `\n  <style>${opts.customCss}</style>` : ''}
+  </style>${renderOptionalStyleTag(opts.customCss)}
 </head>
 <body>
   <div class="container">

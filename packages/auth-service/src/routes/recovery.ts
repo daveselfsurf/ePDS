@@ -20,6 +20,7 @@ import { createLogger } from '@certified-app/shared'
 import { escapeHtml, maskEmail } from '@certified-app/shared'
 import { buildOtpInputProps } from '../otp-input.js'
 import { resolveClientBranding } from '../lib/client-metadata.js'
+import { renderOptionalStyleTag } from '../lib/page-helpers.js'
 
 const logger = createLogger('auth:recovery')
 
@@ -260,7 +261,7 @@ function renderRecoveryForm(opts: {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Account Recovery</title>
-  <style>${CSS}</style>${opts.customCss ? `\n  <style>${opts.customCss}</style>` : ''}
+  <style>${CSS}</style>${renderOptionalStyleTag(opts.customCss)}
 </head>
 <body>
   <div class="container">
@@ -305,7 +306,7 @@ function renderOtpForm(opts: {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Enter recovery code</title>
-  <style>${CSS}</style>${opts.customCss ? `\n  <style>${opts.customCss}</style>` : ''}
+  <style>${CSS}</style>${renderOptionalStyleTag(opts.customCss)}
 </head>
 <body>
   <div class="container">
