@@ -26,7 +26,7 @@ Feature: OAuth consent screen
     Then an OTP email arrives in the mail trap
     When the user enters the OTP code
     Then a consent screen is displayed
-    And it shows the untrusted demo client's name
+    And it identifies the untrusted demo client by its URL host
     When the user clicks "Authorize"
     Then the browser is redirected back to the untrusted demo client with a valid session
 

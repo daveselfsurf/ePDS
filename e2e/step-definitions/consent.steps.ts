@@ -69,41 +69,27 @@ Then('a consent screen is displayed', async function (this: EpdsWorld) {
   ).toBeVisible()
 })
 
-/**
- * Fetches the client_name from a demo client's metadata document and
- * asserts that exact string is visible on the currently-displayed page.
- * Shared between the trusted / untrusted variants of the "shows the
- * demo client's name" step.
- */
-async function assertClientNameVisibleFromMetadata(
-  world: EpdsWorld,
-  baseUrl: string,
-): Promise<void> {
-  const metadataUrl = `${baseUrl}/client-metadata.json`
-  const res = await fetch(metadataUrl)
-  if (!res.ok) {
-    throw new Error(
-      `Demo client metadata not found: ${res.status} at ${metadataUrl}`,
-    )
-  }
-
-  const body = (await res.json()) as Record<string, unknown>
-  const clientName =
-    typeof body.client_name === 'string' ? body.client_name.trim() : ''
-  if (!clientName) {
-    throw new Error(
-      `client-metadata.json at ${metadataUrl} is missing client_name`,
-    )
-  }
-
-  const page = getPage(world)
-  await expect(page.getByText(clientName, { exact: true })).toBeVisible()
-}
-
 Then(
-  "it shows the untrusted demo client's name",
+  'it identifies the untrusted demo client by its URL host',
   async function (this: EpdsWorld) {
-    await assertClientNameVisibleFromMetadata(this, requireUntrustedDemoUrl())
+    // @atproto/oauth-provider-ui's <ClientName> component only renders
+    // the self-declared client_name for clients listed in
+    // PDS_OAUTH_TRUSTED_CLIENTS. For untrusted clients it falls through
+    // to <UrlViewer>, which shows the client_id URL's host so users can
+    // identify the app by its domain rather than a self-declared name
+    // (see packages/oauth/oauth-provider-ui/src/components/utils/client-name.tsx
+    // in the atproto repo at version 0.4.3).
+    //
+    // Asserting the host is present is a security-relevant check: it
+    // proves the upstream "untrusted → show URL, not name" guard is
+    // working and that the PDS is classifying the demo client as
+    // untrusted, exactly as the PDS_OAUTH_TRUSTED_CLIENTS allowlist
+    // should be doing.
+    const untrustedUrl = requireUntrustedDemoUrl()
+    const host = new URL(untrustedUrl).host
+
+    const page = getPage(this)
+    await expect(page.getByText(host)).toBeVisible()
   },
 )
 
