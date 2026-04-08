@@ -2,7 +2,11 @@ import { Given, Then, When } from '@cucumber/cucumber'
 import { expect } from '@playwright/test'
 import { testEnv } from '../support/env.js'
 import type { EpdsWorld } from '../support/world.js'
-import { getPage, resetBrowserContext } from '../support/utils.js'
+import {
+  getPage,
+  resetBrowserContext,
+  assertDemoClientSession,
+} from '../support/utils.js'
 import { createAccountViaOAuth, pickHandle } from '../support/flows.js'
 import { sharedBrowser } from '../support/hooks.js'
 import { waitForEmail, extractOtp, clearMailpit } from '../support/mailpit.js'
@@ -60,24 +64,6 @@ async function buildIncorrectOtpCode(world: EpdsWorld): Promise<string> {
   }
 
   return mutateOtpCode('0'.repeat(otpLength), otpCharset)
-}
-
-async function assertDemoClientSession(world: EpdsWorld): Promise<void> {
-  const page = getPage(world)
-
-  await page.waitForURL('**/welcome', { timeout: 30_000 })
-
-  const cookies = await page.context().cookies()
-  const sessionCookie = cookies.find((cookie) => cookie.name === 'session_id')
-  if (!sessionCookie?.value) {
-    throw new Error('Demo client session cookie was not set after redirect')
-  }
-
-  const body = page.locator('body')
-  await expect(body).toContainText('You are signed in.')
-  await expect(body).toContainText('Sign out')
-  await expect(body).toContainText(/@[\w.-]+/)
-  await expect(body).toContainText(/did:[a-z0-9:]+/i)
 }
 
 // ---------------------------------------------------------------------------
