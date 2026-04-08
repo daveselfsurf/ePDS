@@ -166,6 +166,48 @@ Then(
   },
 )
 
+/**
+ * Exercises the HYPER-270 path: sign up via the untrusted demo,
+ * reach the real consent screen (because the untrusted client
+ * doesn't satisfy the PDS_SIGNUP_ALLOW_CONSENT_SKIP three-condition
+ * check and therefore goes through the normal oauth-provider
+ * authorize flow), click Authorize explicitly, land on /welcome,
+ * then reset the browser context so the next OAuth flow starts
+ * without session cookies. After this Given runs, any persistent
+ * grant recorded by the PDS during the Authorize click is the only
+ * thing that can stop the return login from showing consent again.
+ *
+ * Distinct from `a returning user has already approved the demo client`
+ * (auth.steps.ts) which uses the trusted demo and relies on the
+ * sign-up consent-skip path to auto-authorize, papering over any bug
+ * in the click-Authorize grant-recording path.
+ */
+Given(
+  'a returning user has already approved the untrusted demo client',
+  async function (this: EpdsWorld) {
+    if (!testEnv.mailpitPass) return 'pending'
+
+    const email = `approved-untrusted-${Date.now()}@example.com`
+    await startSignUpAwaitingConsent(this, email, requireUntrustedDemoUrl())
+
+    // Explicitly click Authorize — this is the click that HYPER-270
+    // claims does not result in a persistent grant being recorded.
+    const page = getPage(this)
+    await page.getByRole('button', { name: 'Authorize' }).click()
+
+    // Wait for the demo's /welcome page to confirm the flow
+    // completed successfully.
+    await page.waitForURL('**/welcome', { timeout: 30_000 })
+
+    // Reset the browser context so the next login starts with no
+    // demo-app cookies and no PDS session cookies. If the PDS
+    // recorded the grant, the return login will still skip consent;
+    // if it didn't, the return login will show consent again
+    // (reproducing HYPER-270).
+    await resetBrowserContext(this, sharedBrowser)
+  },
+)
+
 Given(
   'a returning user signed up via the trusted demo client with consent skipped',
   async function (this: EpdsWorld) {

@@ -40,14 +40,20 @@ Feature: OAuth consent screen
     When the user clicks "Deny access"
     Then the browser is redirected back to the untrusted demo client with an auth error
 
-  Scenario: Returning user skips consent for a previously-approved client
-    Given a returning user has already approved the demo client
-    When the demo client initiates an OAuth login
+  # HYPER-270: Tests the real "click Authorize → record grant → return
+  # login skips consent" path. Uses the untrusted demo deliberately —
+  # the trusted demo would auto-authorize during sign-up via the
+  # PDS_SIGNUP_ALLOW_CONSENT_SKIP path (setAuthorizedClient in
+  # pds-core/src/index.ts step 5) and silently paper over any bug in
+  # the explicit-click-Authorize grant-recording path.
+  Scenario: Returning user skips consent for a previously-approved untrusted client
+    Given a returning user has already approved the untrusted demo client
+    When the untrusted demo client initiates an OAuth login
     And the user enters the test email on the login page
     Then an OTP email arrives in the mail trap
     When the user enters the OTP code
     Then no consent screen is shown
-    And the browser is redirected back to the demo client with a valid session
+    And the browser is redirected back to the untrusted demo client with a valid session
 
   Scenario: New user skips consent when signing up via a trusted client
     When a new user signs up via the trusted demo client
