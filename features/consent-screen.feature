@@ -38,7 +38,7 @@ Feature: OAuth consent screen
     When the user enters the OTP code
     Then a consent screen is displayed
     When the user clicks "Deny access"
-    Then the browser is redirected to the PDS with an access_denied error
+    Then the browser is redirected back to the untrusted demo client with an auth error
 
   Scenario: Returning user skips consent for a previously-approved client
     Given a returning user has already approved the demo client

@@ -102,11 +102,21 @@ When(
 )
 
 Then(
-  'the browser is redirected to the PDS with an access_denied error',
+  'the browser is redirected back to the untrusted demo client with an auth error',
   async function (this: EpdsWorld) {
+    // Per RFC 6749 §4.1.2.1, denying consent causes the authorization
+    // server to redirect to the client's redirect_uri with
+    // `error=access_denied`. The demo client's callback route sees the
+    // `error` query param and translates it to its own `auth_failed`
+    // code on its landing page (see
+    // packages/demo/src/app/api/oauth/callback/route.ts). By the time
+    // waitForURL fires, the browser is already on the final landing
+    // page, so we assert against that.
+    const untrustedUrl = requireUntrustedDemoUrl()
+    const origin = new URL(untrustedUrl).origin
+
     const page = getPage(this)
-    // Deny redirects to <PDS>/oauth/authorize?request_uri=...&error=access_denied
-    await page.waitForURL('**/oauth/authorize**error=access_denied**', {
+    await page.waitForURL(`${origin}/?error=auth_failed*`, {
       timeout: 30_000,
     })
   },
