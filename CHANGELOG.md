@@ -18,7 +18,7 @@
 
 ### Minor Changes
 
-- <a id="v0.2.0-longer-sign-in-codes-optionally-mixing-letters-and-numbers"></a> [#58](https://github.com/hypercerts-org/ePDS/pull/58) [`905ad25`](https://github.com/hypercerts-org/ePDS/commit/905ad25e8c0b61eae68b695ec0c9d00cb03d03f9) Thanks [@aspiers](https://github.com/aspiers)! - Longer sign-in codes, optionally mixing letters and numbers.
+- <a id="v0.2.0-longer-sign-in-codes-optionally-mixing-letters-and-numbers"></a> [#14](https://github.com/hypercerts-org/ePDS/pull/14) Thanks [@Kzoeps](https://github.com/Kzoeps)! - Longer sign-in codes, optionally mixing letters and numbers.
 
   **Affects:** End users, Operators
 
@@ -47,7 +47,7 @@
   import `formatOtpPlain()` and `formatOtpHtmlGrouped()` from
   `@certified-app/shared` instead of interpolating the raw code.
 
-- <a id="v0.2.0-choose-your-own-handle-when-signing-up-instead-of-being"></a> [#58](https://github.com/hypercerts-org/ePDS/pull/58) [`905ad25`](https://github.com/hypercerts-org/ePDS/commit/905ad25e8c0b61eae68b695ec0c9d00cb03d03f9) Thanks [@aspiers](https://github.com/aspiers)! - Choose your own handle when signing up, instead of being given a random one.
+- <a id="v0.2.0-choose-your-own-handle-when-signing-up-instead-of-being"></a> [#13](https://github.com/hypercerts-org/ePDS/pull/13) [#29](https://github.com/hypercerts-org/ePDS/pull/29) [#33](https://github.com/hypercerts-org/ePDS/pull/33) [#36](https://github.com/hypercerts-org/ePDS/pull/36) Thanks [@Kzoeps](https://github.com/Kzoeps) & [@aspiers](https://github.com/aspiers)! - Choose your own handle when signing up, instead of being given a random one.
 
   **Affects:** End users, Client app developers, Operators
 
@@ -118,7 +118,7 @@
 
 ### Patch Changes
 
-- <a id="v0.2.0-sign-in-faster-from-third-party-apps-that-already-know-who"></a> [#58](https://github.com/hypercerts-org/ePDS/pull/58) [`905ad25`](https://github.com/hypercerts-org/ePDS/commit/905ad25e8c0b61eae68b695ec0c9d00cb03d03f9) Thanks [@aspiers](https://github.com/aspiers)! - Sign in faster from third-party apps that already know who you are.
+- <a id="v0.2.0-sign-in-faster-from-third-party-apps-that-already-know-who"></a> [#3](https://github.com/hypercerts-org/ePDS/pull/3) [#6](https://github.com/hypercerts-org/ePDS/pull/6) Thanks [@aspiers](https://github.com/aspiers)! - Sign in faster from third-party apps that already know who you are.
 
   **Affects:** End users
 
@@ -134,7 +134,7 @@
   that sent the identifier over a back channel rather than in the
   sign-in URL.
 
-- <a id="v0.2.0-fail-fast-validation-of-internal-environment-variables-on"></a> [#58](https://github.com/hypercerts-org/ePDS/pull/58) [`905ad25`](https://github.com/hypercerts-org/ePDS/commit/905ad25e8c0b61eae68b695ec0c9d00cb03d03f9) Thanks [@aspiers](https://github.com/aspiers)! - Fail-fast validation of internal environment variables on the auth
+- <a id="v0.2.0-fail-fast-validation-of-internal-environment-variables-on"></a> [#20](https://github.com/hypercerts-org/ePDS/pull/20) [#23](https://github.com/hypercerts-org/ePDS/pull/23) Thanks [@aspiers](https://github.com/aspiers)! - Fail-fast validation of internal environment variables on the auth
   service.
 
   **Affects:** Operators
@@ -169,7 +169,7 @@
   first internal request; the new behaviour surfaces the
   misconfiguration immediately.
 
-- <a id="v0.2.0-honour-the-generic-environment-variable-on-both-services-so"></a> [#58](https://github.com/hypercerts-org/ePDS/pull/58) [`905ad25`](https://github.com/hypercerts-org/ePDS/commit/905ad25e8c0b61eae68b695ec0c9d00cb03d03f9) Thanks [@aspiers](https://github.com/aspiers)! - Honour the generic `PORT` environment variable on both services, so
+- <a id="v0.2.0-honour-the-generic-environment-variable-on-both-services-so"></a> [#27](https://github.com/hypercerts-org/ePDS/pull/27) Thanks [@aspiers](https://github.com/aspiers)! - Honour the generic `PORT` environment variable on both services, so
   Railway's automatic healthcheck succeeds without per-service
   configuration.
 
