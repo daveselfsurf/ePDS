@@ -6,11 +6,33 @@ export function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;')
 }
 
+/**
+ * Mask an email so that knowing a user's handle does not let an observer
+ * recover (or easily guess) their email address. Both the local part and the
+ * domain — including the TLD — are masked. Dot-separated segments are masked
+ * independently so that segment boundaries are preserved but lengths and
+ * characters are not revealed.
+ *
+ * Each segment is replaced with `***` followed by its final character (or
+ * just `***` if the segment is a single character). Revealing the TLD (e.g.
+ * `.com`) would otherwise make popular providers like `gmail.com` trivially
+ * identifiable, which in turn makes the local part much more guessable.
+ *
+ * Example: `persons.address@gmail.com` → `***s.***s@***l.***m`
+ */
 export function maskEmail(email: string): string {
-  const [local, domain] = email.split('@')
-  if (!local || !domain) return email
-  if (local.length <= 2) return local[0] + '***@' + domain
-  return local[0] + '***' + local[local.length - 1] + '@' + domain
+  const atIndex = email.lastIndexOf('@')
+  if (atIndex <= 0 || atIndex === email.length - 1) return email
+  const local = email.slice(0, atIndex)
+  const domain = email.slice(atIndex + 1)
+  return maskDottedSegments(local) + '@' + maskDottedSegments(domain)
+}
+
+function maskDottedSegments(s: string): string {
+  return s
+    .split('.')
+    .map((seg) => (seg.length <= 1 ? '***' : '***' + seg.slice(-1)))
+    .join('.')
 }
 
 /**

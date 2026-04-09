@@ -35,24 +35,35 @@ describe('escapeHtml', () => {
 })
 
 describe('maskEmail', () => {
-  it('masks a normal email', () => {
-    expect(maskEmail('john@example.com')).toBe('j***n@example.com')
-  })
-
-  it('masks a short local part (2 chars)', () => {
-    expect(maskEmail('ab@example.com')).toBe('a***@example.com')
-  })
-
-  it('masks a single char local part', () => {
-    expect(maskEmail('a@example.com')).toBe('a***@example.com')
-  })
-
-  it('returns invalid email unchanged', () => {
-    expect(maskEmail('not-an-email')).toBe('not-an-email')
-  })
-
-  it('handles long local parts', () => {
-    expect(maskEmail('longusername@test.com')).toBe('l***e@test.com')
+  it.each([
+    [
+      'masks every segment including the TLD',
+      'john@example.com',
+      '***n@***e.***m',
+    ],
+    [
+      'masks each dot-separated segment of the local part independently',
+      'persons.address@gmail.com',
+      '***s.***s@***l.***m',
+    ],
+    ['masks a short local part (2 chars)', 'ab@example.com', '***b@***e.***m'],
+    ['masks a single char local part', 'a@example.com', '***@***e.***m'],
+    ['masks a single char domain segment', 'user@a.co', '***r@***.***o'],
+    [
+      'handles long local parts without leaking length',
+      'longusername@test.com',
+      '***e@***t.***m',
+    ],
+    ['handles multi-level TLDs', 'alice@example.co.uk', '***e@***e.***o.***k'],
+    ['returns invalid email unchanged (no @)', 'not-an-email', 'not-an-email'],
+    [
+      'returns invalid email unchanged (empty local)',
+      '@example.com',
+      '@example.com',
+    ],
+    ['returns invalid email unchanged (empty domain)', 'user@', 'user@'],
+  ])('%s', (_desc, input, expected) => {
+    expect(maskEmail(input)).toBe(expected)
   })
 })
 
