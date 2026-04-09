@@ -6,7 +6,19 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile.demo"
 watchPatterns = [
   "packages/demo/**",
+  # Workspace-sibling package.jsons are referenced during the pnpm
+  # install step, so a bump to any of them changes the produced image.
+  "packages/auth-service/package.json",
+  "packages/pds-core/package.json",
+  "packages/shared/package.json",
   "Dockerfile.demo",
+  # Repo-root files COPYed by Dockerfile.demo. A change to any of these
+  # can legitimately alter the produced image (new dep, new pnpm version,
+  # changed tsconfig project references, etc.), so we must redeploy.
+  "package.json",
+  "pnpm-workspace.yaml",
+  "pnpm-lock.yaml",
+  "tsconfig.json",
   # e2e test / feature changes produce a byte-identical image, but we still
   # need Railway to redeploy so the GitHub Actions e2e job (which gates on
   # deployment_status webhooks) actually runs against PRs that only touch

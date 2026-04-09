@@ -103,22 +103,27 @@ jobs:
       # ------------------------------------------------------------
       # The step below decides whether to wait for a fresh Railway
       # rebuild OR to fall back to an existing deployment by
-      # *observing* what Railway actually does: "did a deployment
-      # record for this SHA appear within 20 seconds?" If yes, wait
-      # for it to finish; if no, assume Railway correctly decided not
-      # to rebuild and fall back to the newest existing deployment in
-      # the target environment.
+      # *observing* what Railway actually does. Two paths lead to
+      # fallback:
       #
-      # This is a HEURISTIC, not a guarantee. If Railway's webhook /
-      # deployment-API pipeline is delayed, broken, or silently drops
-      # an event — or if Railway genuinely should have rebuilt but
-      # didn't due to a bug in their watchPatterns matcher — the
-      # 20-second grace window will conclude "no rebuild coming" and
-      # fall back to a previous deployment. Tests then run against a
-      # stale image and silently pass even though the new code was
-      # never actually exercised. A regressing push is especially
-      # dangerous: broken code goes green because the old env still
-      # works. The failure mode is SILENT and BIASED TOWARD PASSING.
+      #   a) SHA-specific deployment exists and is 'inactive' — this
+      #      is Railway's way of saying SKIPPED (nothing matched the
+      #      service's watchPatterns). We know for sure there's no
+      #      rebuild coming, so we switch to Phase 2 immediately.
+      #
+      #   b) No deployment record appears for the SHA within a
+      #      20-second grace window — we assume Railway correctly
+      #      decided not to rebuild and switch to Phase 2.
+      #
+      # Path (a) is deterministic. Path (b) is a HEURISTIC — if
+      # Railway's webhook / deployment-API pipeline is delayed,
+      # broken, or silently drops an event, the 20s grace will
+      # conclude "no rebuild coming" and fall back to a previous
+      # deployment. Tests then run against a stale image and silently
+      # pass even though the new code was never actually exercised.
+      # A regressing push is especially dangerous: broken code goes
+      # green because the old env still works. The failure mode is
+      # SILENT and BIASED TOWARD PASSING.
       #
       # Blast radius is reduced (but not eliminated) by the post-merge
       # backstop run on push-to-main, which re-tests the merged code
@@ -137,9 +142,9 @@ jobs:
       #
       #   https://github.com/hypercerts-org/ePDS/issues/57
       #
-      # Until that lands, the 20-second window is the honest
-      # trade-off: correct enough in the common case, explicitly
-      # documented in the failure mode.
+      # Until that lands, path (a) plus the 20-second window for
+      # path (b) is the honest trade-off: correct enough in the
+      # common case, explicitly documented in the failure mode.
       # ------------------------------------------------------------
       - name: Find Railway deployment
         # Skipped on workflow_dispatch, which is the manual-retrigger
@@ -169,21 +174,33 @@ jobs:
           #      current push touched a path in Railway's watchPatterns,
           #      Railway will rebuild and such a deployment will exist
           #      (eventually) — poll for it to reach success.
-          #   2. Fallback: after a 20-second grace period with no
-          #      SHA-specific deployment, fall back to the newest
-          #      Railway deployment in the target environment,
-          #      regardless of SHA. That covers pushes that don't
-          #      touch a watched path — the currently-running env is
-          #      still the right thing to test against.
           #
-          # Strict fallback policy: only the NEWEST deployment counts.
-          # If it's failure/error/inactive we hard-fail rather than
-          # walking back to find an older success, because that would
-          # silently mask a broken env. See the KNOWN LIMITATION
-          # comment above the step.
+          #      Exception: if Railway creates a deployment record for
+          #      the SHA but immediately marks it 'inactive' (= Railway
+          #      decided SKIPPED, nothing in the watchPatterns changed),
+          #      that deployment will never reach success by design.
+          #      Break out of Phase 1 early and go to Phase 2.
+          #   2. Fallback: after a 20-second grace period with no
+          #      SHA-specific deployment, OR after detecting a SKIPPED
+          #      deployment, fall back to the newest successful Railway
+          #      deployment in the target environment, regardless of
+          #      SHA. That covers pushes that don't touch a watched
+          #      path — the currently-running env is still the right
+          #      thing to test against.
+          #
+          # Fallback policy: walk back through recent Railway-bot
+          # deployments to find the newest one whose current state is
+          # 'success'. We stop at a small depth limit (FALLBACK_WALK
+          # below) rather than walking unbounded, so we don't silently
+          # mask a broken env by skipping past real failures to find
+          # a stale success far back in history. A broken env will
+          # surface as either (a) all recent deploys being
+          # failure/error (we hard-fail), or (b) no success within the
+          # walk depth (we also hard-fail).
 
           GRACE_ATTEMPTS=4   # 4 × 5s = 20 seconds
           MAX_ATTEMPTS=36    # 36 × 5s = 3 minutes
+          FALLBACK_WALK=10   # max depth when walking back to find a success
 
           # Event-type-specific query configuration.
           case "$EVENT" in
@@ -216,9 +233,11 @@ jobs:
               --jq "map(select($SHA_FILTER))[0]"
           }
 
-          find_newest_deploy() {
+          find_newest_deploys() {
+            # Return up to FALLBACK_WALK railway-bot deployments in
+            # the target env, newest first, as a JSON array.
             gh api "$FALLBACK_URL" \
-              --jq "map(select($FALLBACK_FILTER))[0]"
+              --jq "[.[] | select($FALLBACK_FILTER)][:$FALLBACK_WALK]"
           }
 
           latest_state_of() {
@@ -240,7 +259,7 @@ jobs:
           echo
           echo "Phase 1: looking for a fresh Railway rebuild on this SHA (up to $((MAX_ATTEMPTS * 5))s)..."
           echo "::group::Polling loop (SHA-specific lookup)"
-          grace_elapsed=false
+          go_to_phase_2=false
           for i in $(seq 1 $MAX_ATTEMPTS); do
             deploy_json=$(find_deploy_for_sha)
             if [ -z "$deploy_json" ] || [ "$deploy_json" = "null" ]; then
@@ -268,10 +287,22 @@ jobs:
               exit 1
             fi
 
-            # Grace period exhausted → break out of Phase 1 and
-            # continue to Phase 2 (fallback).
+            # Railway marks SKIPPED deployments as 'inactive' on the
+            # GitHub Deployments API. A SKIPPED deployment will never
+            # reach success — Railway has decided nothing in its
+            # watchPatterns changed, so no build will run. Break out
+            # to Phase 2 immediately and look for the most recent
+            # actually-successful deployment in the env.
+            if [ "$state" = "inactive" ]; then
+              echo "  → Railway marked this SHA as SKIPPED (inactive). Falling back to newest successful deployment."
+              go_to_phase_2=true
+              break
+            fi
+
+            # Grace period exhausted with no deployment record at all
+            # → break out of Phase 1 and continue to Phase 2.
             if [ "$state" = "none" ] && [ "$i" -ge "$GRACE_ATTEMPTS" ]; then
-              grace_elapsed=true
+              go_to_phase_2=true
               break
             fi
 
@@ -279,113 +310,122 @@ jobs:
           done
           echo "::endgroup::"
 
-          if [ "$grace_elapsed" != "true" ]; then
+          if [ "$go_to_phase_2" != "true" ]; then
             echo
             echo "::error::Railway deployment for this SHA did not reach success within $((MAX_ATTEMPTS * 5))s. Something is stuck in Railway's build pipeline."
             exit 1
           fi
 
           # ----------------------------------------------------------
-          # Phase 2: fallback — newest deployment in target env
+          # Phase 2: fallback — walk back through recent deployments
           # ----------------------------------------------------------
           echo
-          echo "Phase 2: no rebuild triggered in $((GRACE_ATTEMPTS * 5))s — this push doesn't touch any path in Railway's watchPatterns."
-          echo "Falling back to the newest existing deployment in $TARGET_DESC."
+          echo "Phase 2: looking for the newest successful deployment in $TARGET_DESC."
 
           echo "::group::Fallback query details"
-          newest=$(find_newest_deploy)
-          if [ -z "$newest" ] || [ "$newest" = "null" ]; then
+          recent=$(find_newest_deploys)
+          recent_count=$(echo "$recent" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)))')
+          if [ "$recent_count" = "0" ]; then
             echo "Query returned no results."
             echo "::endgroup::"
             echo
             echo "::error::No Railway deployments exist for $TARGET_DESC at all. Is this a brand-new context whose first deploy hasn't landed yet? Push a change under one of Railway's watchPatterns to force a fresh build, or retrigger manually via workflow_dispatch once Railway's env is up."
             exit 1
           fi
-          newest_id=$(echo "$newest" | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
-          newest_sha=$(echo "$newest" | python3 -c 'import sys,json;print(json.load(sys.stdin)["sha"])')
-          newest_state=$(latest_state_of "$newest_id")
-          newest_summary=$(describe_sha "$newest_sha")
-          echo "  id:      $newest_id"
-          echo "  sha:     $newest_sha"
-          echo "  summary: $newest_summary"
-          echo "  state:   $newest_state"
+          echo "Found $recent_count Railway-bot deployment(s) in the last $FALLBACK_WALK entries. Walking newest → oldest:"
           echo "::endgroup::"
 
-          echo
-          echo "Newest deployment in $TARGET_DESC:"
-          echo "  $newest_summary"
-          echo "  state: $newest_state"
+          # Walk the list newest → oldest. For each entry look up the
+          # current state. Stop at the first 'success' (use it). Stop
+          # immediately on 'failure' / 'error' (the env is broken and
+          # falling back would mask it). Skip over 'inactive' (SKIPPED
+          # deploys and superseded deploys — neither represents a
+          # broken env) and 'in_progress' / 'queued' / 'pending' (an
+          # earlier build is still running; we wait for it later if
+          # nothing more recent is usable).
+          pending_deploy=""
+          for idx in $(seq 0 $((recent_count - 1))); do
+            entry=$(echo "$recent" | python3 -c "import sys,json;print(json.dumps(json.load(sys.stdin)[$idx]))")
+            entry_id=$(echo "$entry" | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+            entry_sha=$(echo "$entry" | python3 -c 'import sys,json;print(json.load(sys.stdin)["sha"])')
+            entry_state=$(latest_state_of "$entry_id")
+            entry_summary=$(describe_sha "$entry_sha")
+            echo "  [$((idx + 1))/$recent_count] $entry_summary → $entry_state"
 
-          case "$newest_state" in
-            success)
-              env_name=$(echo "$newest" | python3 -c 'import sys,json;print(json.load(sys.stdin)["environment"])')
-              echo
-              echo "✓ Using existing Railway deployment."
-              echo "  Environment: $env_name"
-              echo "env_name=$env_name" >> "$GITHUB_OUTPUT"
-              exit 0
-              ;;
-            in_progress|queued|pending)
-              # The newest deployment in the target env is still
-              # being built — an earlier push's deploy that hasn't
-              # finished yet. Rather than returning stale results
-              # against an even older deploy, wait for this one to
-              # finish. We only monitor this specific deployment
-              # because by the time we got here (grace period
-              # already exhausted without a SHA-specific deploy
-              # appearing), Railway has already decided not to
-              # rebuild for our SHA — so there's no point re-polling
-              # the SHA-specific path.
-              echo
-              echo "Waiting for the in-progress deploy to finish (up to $((MAX_ATTEMPTS * 5))s total)..."
-              echo "::group::Waiting for fallback deployment to finish"
-              for j in $(seq 1 $MAX_ATTEMPTS); do
-                sleep 5
-                new_state=$(latest_state_of "$newest_id")
-                echo "  fallback wait $j/$MAX_ATTEMPTS: state=$new_state"
-                case "$new_state" in
-                  success)
-                    env_name=$(echo "$newest" | python3 -c 'import sys,json;print(json.load(sys.stdin)["environment"])')
-                    echo "::endgroup::"
-                    echo
-                    echo "✓ Fallback deployment reached success."
-                    echo "  Environment: $env_name"
-                    echo "env_name=$env_name" >> "$GITHUB_OUTPUT"
-                    exit 0
-                    ;;
-                  failure|error)
-                    echo "::endgroup::"
-                    echo
-                    echo "::error::Fallback Railway deployment transitioned to '$new_state' while we were waiting. The env is broken — fix the underlying failure."
-                    exit 1
-                    ;;
-                esac
-              done
-              echo "::endgroup::"
-              echo
-              echo "::error::Fallback Railway deployment didn't reach a terminal state within $((MAX_ATTEMPTS * 5))s."
-              exit 1
-              ;;
-            failure|error)
-              echo
-              echo "::error::Newest Railway deployment in $TARGET_DESC is in '$newest_state' state. The env is broken — fix the underlying failure or retrigger a Railway build. Refusing to fall back to an older successful deploy because that would silently hide the broken state."
-              exit 1
-              ;;
-            inactive)
-              # GitHub marks deployments 'inactive' when a newer one
-              # supersedes them. The newest entry being 'inactive' is
-              # unusual — it could mean Railway's webhook-to-API
-              # plumbing is lagging. Fail rather than guess.
-              echo
-              echo "::error::Newest Railway deployment in $TARGET_DESC is 'inactive', which is unexpected for the most recent deployment. Check Railway's deployment history and retry."
-              exit 1
-              ;;
-            *)
-              echo
-              echo "::error::Newest Railway deployment in $TARGET_DESC is in unknown state '$newest_state'. Refusing to proceed."
-              exit 1
-              ;;
-          esac
+            case "$entry_state" in
+              success)
+                env_name=$(echo "$entry" | python3 -c 'import sys,json;print(json.load(sys.stdin)["environment"])')
+                echo
+                echo "✓ Using existing Railway deployment."
+                echo "  Environment: $env_name"
+                echo "  Commit:      $entry_summary"
+                echo "env_name=$env_name" >> "$GITHUB_OUTPUT"
+                exit 0
+                ;;
+              failure|error)
+                echo
+                echo "::error::Railway deployment '$entry_summary' in $TARGET_DESC is in '$entry_state' state. The env is broken — fix the underlying failure or retrigger a Railway build. Refusing to fall back to an older successful deploy because that would silently hide the broken state."
+                exit 1
+                ;;
+              in_progress|queued|pending)
+                # Remember the most recent in-progress deploy so we
+                # can wait for it if we don't find a newer success.
+                if [ -z "$pending_deploy" ]; then
+                  pending_deploy="$entry"
+                fi
+                ;;
+              inactive)
+                # SKIPPED or superseded. Skip it and walk back.
+                ;;
+              *)
+                echo
+                echo "::error::Railway deployment '$entry_summary' in $TARGET_DESC is in unknown state '$entry_state'. Refusing to proceed."
+                exit 1
+                ;;
+            esac
+          done
+
+          # We walked the full window without finding a 'success'.
+          # If any entry was in_progress, wait for the newest such to
+          # finish — it may be an earlier push still building.
+          if [ -n "$pending_deploy" ]; then
+            pending_id=$(echo "$pending_deploy" | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+            pending_sha=$(echo "$pending_deploy" | python3 -c 'import sys,json;print(json.load(sys.stdin)["sha"])')
+            pending_summary=$(describe_sha "$pending_sha")
+            echo
+            echo "No successful deployment in the last $recent_count. Waiting for in-progress deploy '$pending_summary' to finish (up to $((MAX_ATTEMPTS * 5))s)..."
+            echo "::group::Waiting for in-progress deployment"
+            for j in $(seq 1 $MAX_ATTEMPTS); do
+              sleep 5
+              new_state=$(latest_state_of "$pending_id")
+              echo "  wait $j/$MAX_ATTEMPTS: state=$new_state"
+              case "$new_state" in
+                success)
+                  env_name=$(echo "$pending_deploy" | python3 -c 'import sys,json;print(json.load(sys.stdin)["environment"])')
+                  echo "::endgroup::"
+                  echo
+                  echo "✓ In-progress deployment reached success."
+                  echo "  Environment: $env_name"
+                  echo "env_name=$env_name" >> "$GITHUB_OUTPUT"
+                  exit 0
+                  ;;
+                failure|error)
+                  echo "::endgroup::"
+                  echo
+                  echo "::error::In-progress Railway deployment transitioned to '$new_state' while we were waiting. The env is broken — fix the underlying failure."
+                  exit 1
+                  ;;
+              esac
+            done
+            echo "::endgroup::"
+            echo
+            echo "::error::In-progress Railway deployment didn't reach a terminal state within $((MAX_ATTEMPTS * 5))s."
+            exit 1
+          fi
+
+          echo
+          echo "::error::No successful Railway deployment found in the last $recent_count entries in $TARGET_DESC. All recent entries were SKIPPED or superseded. Retrigger a Railway build manually or push a change under one of Railway's watchPatterns."
+          exit 1
 
       - name: Derive service URLs
         id: urls

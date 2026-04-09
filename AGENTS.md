@@ -208,6 +208,45 @@ import { AuthServiceContext } from './context.js'
 - `bd export -o .beads/issues.jsonl` to export issues (commit this file).
 - Do **not** use `bd sync` (obsolete).
 
+## Releases & Changesets
+
+ePDS uses [Changesets](https://github.com/changesets/changesets) for versioning
+and release notes. The repo is treated as a **single release unit** even though
+the source is split across `packages/*`, via a `"workspaces": ["."]` field in
+the root `package.json` that scopes Changesets to the root `epds` package only.
+One `CHANGELOG.md` at the repo root, one `v<version>` git tag per release, one
+GitHub Release per release.
+
+- **When to add a changeset:** any user-facing or operator-facing change to the
+  three in-scope packages (`pds-core`, `auth-service`, `shared`). Skip for
+  internal refactors, tests-only, CI-only, docs-only, and the internal trust
+  boundary between `auth-service` and `pds-core` (HMAC callback signature,
+  `/_internal/` routes). If in doubt, add one.
+- **How to add a changeset:** `pnpm changeset` then rename the generated file
+  to something descriptive. Commit it in the same PR as the code change.
+- **Required format:** every changeset must have a `**Affects:**` line listing
+  audiences (End users, Client app developers, Operators — in that order). The
+  release workflow **fails hard** if any changeset in a release is missing
+  this line, because `scripts/changelog-audience-summary.mjs` can't generate
+  the "Who should read this release" block without it.
+- **Summary line:** the first non-frontmatter line is read by _every_ listed
+  audience (it appears in the aggregate summary block at the top of the
+  release section). If End users is one of the audiences, write the summary
+  in plain language — no OTP/DID/PAR/OAuth jargon, no field names, no
+  implementation concepts. Technical naming belongs in the per-audience
+  sections below.
+- **No H2/H3 headings** inside changeset bodies. `@changesets/changelog-github`
+  renders each changeset as a single indented bullet, and indented headings
+  break out of the list on GitHub's renderer. Use **bold inline labels**
+  (`**End users:**`, `**Operators:**`) instead.
+- **Full format reference:** `.agents/skills/writing-changesets/SKILL.md`
+  (also reachable via the `.claude/skills/writing-changesets/SKILL.md`
+  symlink). Contains the audience list, body structure rules, examples of
+  good and bad summaries, and the plain-language rule in detail.
+- **Cutting a release:** `docs/PUBLISHING.md` documents the release workflow
+  for maintainers — the two-phase "Version Packages PR" → "tag + GitHub
+  Release" flow via `.github/workflows/release.yml`.
+
 ## Key Gotchas
 
 - `docker compose restart` does **not** pick up `.env` changes — use
@@ -220,9 +259,13 @@ import { AuthServiceContext } from './context.js'
   `registerAccount()` and leaves the `account` table empty, breaking
   `upsertDeviceAccount()` FK constraints.
 - Auth service must use `PDS_INTERNAL_URL` to reach pds-core over the internal
-  network (Docker: `http://core:3000`, Railway: `http://<service>.railway.internal:3000`).
-  Without it, internal API calls (par-login-hint, account-by-email) fall back to
-  the public URL which is unreachable from containers (no hairpin NAT).
+  network (Docker: `http://core:3000`, Railway:
+  `http://<service>.railway.internal:<PDS_PORT>` substituting whichever port
+  pds-core is actually configured to listen on). The URL must include the
+  `http://` or `https://` scheme — `requireInternalEnv()` rejects bare hostnames
+  at startup. Without `PDS_INTERNAL_URL`, internal API calls (par-login-hint,
+  account-by-email) fall back to the public URL which is unreachable from
+  containers (no hairpin NAT).
 - Caddy's on-demand TLS `ask` URL and reverse proxy upstreams must use the
   Docker Compose service name (`core`, `auth`) — if you rename services, update
   `Caddyfile` defaults too or Caddy will refuse all TLS connections.
