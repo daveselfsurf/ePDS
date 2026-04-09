@@ -200,6 +200,7 @@ export async function resolveDidToPds(did: string): Promise<string> {
 }
 
 export async function discoverOAuthEndpoints(pdsUrl: string): Promise<{
+  issuer: string
   parEndpoint: string
   authEndpoint: string
   tokenEndpoint: string
@@ -213,35 +214,35 @@ export async function discoverOAuthEndpoints(pdsUrl: string): Promise<{
       `Failed to fetch protected resource metadata from ${pdsUrl}`,
     )
   const prData = (await prRes.json()) as { authorization_servers?: string[] }
-  const issuer = prData.authorization_servers?.[0]
-  if (!issuer) throw new Error(`No authorization server found for ${pdsUrl}`)
+  const asUrl = prData.authorization_servers?.[0]
+  if (!asUrl) throw new Error(`No authorization server found for ${pdsUrl}`)
 
   // Step 2: Get OAuth endpoints from authorization server metadata
-  const asRes = await fetch(
-    `${issuer}/.well-known/oauth-authorization-server`,
-    {
-      signal: AbortSignal.timeout(RESOLVE_TIMEOUT),
-    },
-  )
+  const asRes = await fetch(`${asUrl}/.well-known/oauth-authorization-server`, {
+    signal: AbortSignal.timeout(RESOLVE_TIMEOUT),
+  })
   if (!asRes.ok)
     throw new Error(
-      `Failed to fetch authorization server metadata from ${issuer}`,
+      `Failed to fetch authorization server metadata from ${asUrl}`,
     )
   const asMeta = (await asRes.json()) as {
+    issuer?: string
     pushed_authorization_request_endpoint?: string
     authorization_endpoint?: string
     token_endpoint?: string
   }
 
   if (
+    !asMeta.issuer ||
     !asMeta.pushed_authorization_request_endpoint ||
     !asMeta.authorization_endpoint ||
     !asMeta.token_endpoint
   ) {
-    throw new Error(`Incomplete OAuth metadata from ${issuer}`)
+    throw new Error(`Incomplete OAuth metadata from ${asUrl}`)
   }
 
   return {
+    issuer: asMeta.issuer,
     parEndpoint: asMeta.pushed_authorization_request_endpoint,
     authEndpoint: asMeta.authorization_endpoint,
     tokenEndpoint: asMeta.token_endpoint,

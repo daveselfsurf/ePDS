@@ -80,7 +80,13 @@ export async function GET(request: Request) {
       return NextResponse.redirect(new URL('/?error=invalid_handle', baseUrl))
     }
 
-    // Determine endpoints: dynamic for handle, defaults for email
+    // Determine endpoints: dynamic for handle, defaults for email.
+    // The `issuer` is the authorization server identifier used as the
+    // `aud` claim in client_assertion JWTs for confidential clients.
+    // For atproto PDSs the PDS is its own authorization server, so the
+    // issuer matches PDS_URL for the email path; for the handle path
+    // we take whatever the PDS's AS metadata declares.
+    let issuer = PDS_URL
     let parEndpoint = `${PDS_URL}/oauth/par`
     let authEndpoint = AUTH_ENDPOINT
     let tokenEndpoint = `${PDS_URL}/oauth/token`
@@ -95,6 +101,7 @@ export async function GET(request: Request) {
       console.log('[oauth/login] Resolved PDS:', sanitizeForLog(pdsUrl))
       const endpoints = await discoverOAuthEndpoints(pdsUrl)
       console.log('[oauth/login] Discovered OAuth endpoints')
+      issuer = endpoints.issuer
       parEndpoint = endpoints.parEndpoint
       authEndpoint = endpoints.authEndpoint
       tokenEndpoint = endpoints.tokenEndpoint
@@ -136,9 +143,14 @@ export async function GET(request: Request) {
     // client authentication method as the token endpoint, so missing
     // the assertion here produces "client authentication method
     // private_key_jwt required a client_assertion". See HYPER-270.
+    //
+    // The `aud` claim MUST be the authorization server's issuer
+    // identifier (not the specific endpoint URL) — upstream atproto
+    // explicitly checks `audience: this.issuer` when verifying the
+    // client_assertion (see @atproto/oauth-provider's client.ts).
     const parClientAssertion = await signClientAssertion({
       clientId,
-      audience: parEndpoint,
+      audience: issuer,
     })
     if (parClientAssertion) {
       parBody.set(
@@ -165,6 +177,7 @@ export async function GET(request: Request) {
       codeVerifier,
       dpopPrivateJwk: privateJwk,
       tokenEndpoint,
+      issuer,
       email: email || undefined,
       expectedDid,
       expectedPdsUrl,
@@ -192,7 +205,7 @@ export async function GET(request: Request) {
         // duplicate of the first attempt's assertion.
         const parClientAssertionRetry = await signClientAssertion({
           clientId,
-          audience: parEndpoint,
+          audience: issuer,
         })
         if (parClientAssertionRetry) {
           parBody.set('client_assertion', parClientAssertionRetry)

@@ -61,6 +61,9 @@ export async function GET(request: NextRequest) {
 
     const codeVerifier = stateData.codeVerifier
     const tokenUrl = stateData.tokenEndpoint || `${PDS_URL}/oauth/token`
+    // Authorization server issuer identifier from the login-time
+    // discovery, used as the `aud` claim on client_assertion JWTs.
+    const issuer = stateData.issuer
 
     const clientId = `${baseUrl}/client-metadata.json`
     const redirectUri = `${baseUrl}/api/oauth/callback`
@@ -85,9 +88,14 @@ export async function GET(request: NextRequest) {
     // grants on return logins — otherwise the upstream force-consent
     // rule for public clients kicks in. See HYPER-270 for the full
     // diagnosis.
+    //
+    // The `aud` claim MUST be the authorization server's issuer
+    // identifier (not the token endpoint URL) — upstream atproto
+    // explicitly checks `audience: this.issuer` when verifying the
+    // client_assertion (see @atproto/oauth-provider's client.ts).
     const clientAssertion = await signClientAssertion({
       clientId,
-      audience: tokenUrl,
+      audience: issuer,
     })
     if (clientAssertion) {
       tokenBody.set(
@@ -131,7 +139,7 @@ export async function GET(request: NextRequest) {
         // api/oauth/login/route.ts).
         const clientAssertionRetry = await signClientAssertion({
           clientId,
-          audience: tokenUrl,
+          audience: issuer,
         })
         if (clientAssertionRetry) {
           tokenBody.set('client_assertion', clientAssertionRetry)
