@@ -23,7 +23,56 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  e2e:
+  # Detect whether this PR touches anything that could affect the
+  # running services or the e2e suite itself. We can't use a
+  # workflow-level `on.pull_request.paths:` filter because a workflow
+  # that is skipped via `paths:` never produces a check run, which
+  # breaks branch protection rules that require this check to pass.
+  # Instead we always run the workflow and skip the expensive `run`
+  # job below via `if:` — a skipped *job* (unlike a skipped workflow)
+  # still reports a check run with conclusion=skipped, which branch
+  # protection treats as passing.
+  #
+  # Only meaningful on pull_request: dorny/paths-filter diffs the PR
+  # head against the PR base via the GitHub API, with no checkout
+  # required. On push/workflow_dispatch the action has no natural
+  # base to diff against, so we skip this job entirely and let the
+  # `run` job below run unconditionally for those events.
+  gate:
+    name: gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      relevant: ${{ steps.filter.outputs.relevant }}
+    steps:
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        id: filter
+        with:
+          filters: |
+            relevant:
+              - 'packages/**'
+              - 'e2e/**'
+              - 'features/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'Dockerfile.*'
+              - 'playwright.config.*'
+              - '.github/workflows/e2e-tests.yml'
+
+  run:
+    name: run
+    needs: gate
+    # Run the full suite when:
+    #   - a PR touched relevant paths, OR
+    #   - this is the post-merge backstop on main (push), OR
+    #   - a human manually retriggered via workflow_dispatch.
+    #
+    # `always()` is needed because `gate` is skipped on non-PR
+    # events, and GitHub would otherwise cascade-skip this job.
+    if: always() && (needs.gate.outputs.relevant == 'true' || github.event_name != 'pull_request')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -35,9 +84,9 @@ jobs:
       # needs checks:write.
       checks: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v5
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: 20
           cache: pnpm
@@ -554,7 +603,7 @@ jobs:
 
       - name: Upload e2e report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: e2e-report
           path: reports/

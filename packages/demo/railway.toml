@@ -26,7 +26,7 @@ watchPatterns = [
   # pointlessly trigger a redeploy + ~8 minute e2e run.
   "e2e/**",
   "features/**",
-  ".github/workflows/e2e-pr.yml",
+  ".github/workflows/e2e-tests.yml",
   "!e2e/**/*.md",
   "!features/**/*.md",
 ]

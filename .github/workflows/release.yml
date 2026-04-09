@@ -67,7 +67,7 @@ jobs:
           fi
 
       # Changesets is configured (.changeset/config.json) to scope only the
-      # root `epds` package — the packages/* subpackages are not tracked,
+      # root `ePDS` package — the packages/* subpackages are not tracked,
       # so there is a single CHANGELOG.md at the repo root and a single
       # release per version.
       #

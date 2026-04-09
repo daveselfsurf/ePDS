@@ -74,7 +74,7 @@ shared exports is ePDS itself, and that's contributor territory.
 
 ePDS treats itself as a single release unit even though the source
 is organised into `packages/*`. Changesets is configured to track
-**only the root `epds` package**, so every changeset has a single
+**only the root `ePDS` package**, so every changeset has a single
 frontmatter entry and the resulting CHANGELOG is a single file at
 the repo root.
 
@@ -85,7 +85,7 @@ reflects the change.
 
 ```markdown
 ---
-'epds': minor
+'ePDS': minor
 ---
 
 One-sentence summary in the voice of the final changelog entry.
@@ -102,7 +102,7 @@ client app developers, then operators.
 
 ### Frontmatter
 
-The frontmatter is always just `"epds": <bump>`. Do not list
+The frontmatter is always just `"ePDS": <bump>`. Do not list
 `@certified-app/pds-core`, `@certified-app/auth-service`, or any
 other package name — those packages are deliberately not tracked
 by Changesets.
@@ -112,9 +112,9 @@ Bump types:
 - `patch` — bug fixes, non-breaking internal-behaviour changes
   that downstream consumers can observe.
 - `minor` — new features, new config options, additive API
-  changes. Also used for breaking changes while `epds` is still at
+  changes. Also used for breaking changes while `ePDS` is still at
   a `0.x.y` version, following the semver-for-0.x convention.
-- `major` — breaking changes, only after `epds` reaches `1.0.0`.
+- `major` — breaking changes, only after `ePDS` reaches `1.0.0`.
   Avoid for now.
 
 If a single changeset mixes a feature and a bug fix, pick `minor`
@@ -254,7 +254,7 @@ and describe the change. Do not offload the entire explanation.
 
 ```markdown
 ---
-'epds': minor
+'ePDS': minor
 ---
 
 Longer sign-in codes, optionally mixing letters and numbers.

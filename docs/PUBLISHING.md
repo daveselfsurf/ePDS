@@ -7,7 +7,7 @@ and a GitHub Actions workflow.
 Unlike the `hypercerts-lexicon` and `hypercerts-sdk` repositories,
 **ePDS does not publish to any registry** (not npm, not GitHub
 Packages). The release workflow is purely version-only: it bumps
-the root `epds` version, generates a changelog, creates a git tag,
+the root `ePDS` version, generates a changelog, creates a git tag,
 and publishes a GitHub Release. Registry publishing could be added
 later without changing the authoring workflow.
 
@@ -15,7 +15,7 @@ later without changing the authoring workflow.
 
 ePDS is organised as a pnpm monorepo with packages under
 `packages/`, but it is versioned and released as a **single
-product**. Changesets is configured to track only the root `epds`
+product**. Changesets is configured to track only the root `ePDS`
 package (via `packages: ["."]` in `.changeset/config.json`); the
 `packages/*/package.json` files are deliberately **not** tracked
 and do not carry a `version` field at all.
@@ -26,7 +26,7 @@ Concretely:
 - There is one `CHANGELOG.md`, at the repo root.
 - There is one git tag per release, of the form `v<major>.<minor>.<patch>`.
 - There is one GitHub Release per tag.
-- Every changeset has a single frontmatter entry: `"epds": minor`
+- Every changeset has a single frontmatter entry: `"ePDS": minor`
   (or `patch` / `major`).
 
 If the three in-scope packages ever need to be released
@@ -57,7 +57,7 @@ pnpm changeset
 
 The CLI will:
 
-1. Detect that there is only one tracked package (`epds`) and bump
+1. Detect that there is only one tracked package (`ePDS`) and bump
    it automatically without asking which packages changed.
 2. Ask for the bump type (`major` / `minor` / `patch`). When
    multiple changesets accumulate, the largest bump wins (one
@@ -139,7 +139,7 @@ test` as a fail-fast gate, and then invokes
    - If there are pending changesets in `.changeset/`, the action
      opens (or updates) a **"Release" PR** against `main`. This
      PR applies the pending changesets: it bumps the root
-     `epds` version, consumes the changeset files, and updates
+     `ePDS` version, consumes the changeset files, and updates
      the root `CHANGELOG.md`. After `changeset version` has
      written the new release section, `scripts/changelog-audience-summary.mjs`
      runs as part of `pnpm version-packages` to post-process the
