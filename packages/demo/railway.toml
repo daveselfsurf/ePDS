@@ -4,7 +4,20 @@
 builder = "DOCKERFILE"
 # Path is relative to the repository root, not this package directory.
 dockerfilePath = "Dockerfile.demo"
-watchPatterns = ["packages/demo/**", "Dockerfile.demo"]
+watchPatterns = [
+  "packages/demo/**",
+  "Dockerfile.demo",
+  # e2e test / feature changes produce a byte-identical image, but we still
+  # need Railway to redeploy so the GitHub Actions e2e job (which gates on
+  # deployment_status webhooks) actually runs against PRs that only touch
+  # tests. Exclude markdown under these dirs so doc-only edits don't
+  # pointlessly trigger a redeploy + ~8 minute e2e run.
+  "e2e/**",
+  "features/**",
+  ".github/workflows/e2e-pr.yml",
+  "!e2e/**/*.md",
+  "!features/**/*.md",
+]
 
 [deploy]
 healthcheckPath = "/"

@@ -267,6 +267,12 @@ When('the user submits a valid new handle', async function (this: EpdsWorld) {
   }
 
   await page.fill('input[name="handle"]', localPart)
+  // The POST /account/handle handler redirects to either
+  // /account?success=handle_updated on success, or
+  // /account?error=handle_taken / ?error=handle_failed on failure.
+  // Wait for the success query string specifically — a bare /account
+  // match would accept the failure redirects too, letting a rejected
+  // or ignored update silently pass.
   await Promise.all([
     page.waitForURL(
       (url) =>
@@ -281,7 +287,7 @@ When('the user submits a valid new handle', async function (this: EpdsWorld) {
   this.updatedHandle = `${localPart}.${getPdsDomain()}`
 })
 
-Then("the user's handle is updated", function (this: EpdsWorld) {
+Then("the user's handle is updated", async function (this: EpdsWorld) {
   if (!this.userHandle) {
     throw new Error(
       'No userHandle — "a returning user has a PDS account" step must run first',
@@ -290,9 +296,31 @@ Then("the user's handle is updated", function (this: EpdsWorld) {
   if (!this.updatedHandle) {
     throw new Error('No updatedHandle — handle update step must run first')
   }
+  if (!this.userDid) {
+    throw new Error(
+      'No userDid — "a returning user has a PDS account" step must run first',
+    )
+  }
 
   if (this.updatedHandle === this.userHandle) {
     throw new Error('Updated handle matches the original handle')
+  }
+
+  // Server-side ground truth: ask the PDS to resolve the new handle and
+  // check it points at this user's DID. This confirms the rename actually
+  // took effect in the PDS, not just in the auth-service UI.
+  const url = `${testEnv.pdsUrl}/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(this.updatedHandle)}`
+  const res = await fetch(url)
+  if (!res.ok) {
+    throw new Error(
+      `resolveHandle failed for updated handle "${this.updatedHandle}": ${res.status}`,
+    )
+  }
+  const body = (await res.json()) as { did?: string }
+  if (body.did !== this.userDid) {
+    throw new Error(
+      `Expected resolveHandle("${this.updatedHandle}") to return "${this.userDid}", got "${body.did}"`,
+    )
   }
 
   this.userHandle = this.updatedHandle

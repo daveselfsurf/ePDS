@@ -6,7 +6,7 @@ export default {
     'features/account-settings.feature',
   ],
   import: ['e2e/step-definitions/**/*.ts', 'e2e/support/**/*.ts'],
-  format: ['pretty', 'html:reports/e2e.html'],
+  format: ['pretty', 'html:reports/e2e.html', 'junit:reports/e2e.junit.xml'],
   tags: 'not @manual and not @docker-only and not @pending',
   strict: true,
 }
