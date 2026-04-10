@@ -183,11 +183,10 @@ export class EpdsDb {
         this.db.exec(`ALTER TABLE auth_flow ADD COLUMN handle_mode TEXT;`)
       },
 
-      // v9: Drop client_logins table — consent tracking is now handled by the
-      // stock @atproto/oauth-provider via its authorizedClients mechanism.
-      () => {
-        this.db.exec(`DROP TABLE IF EXISTS client_logins;`)
-      },
+      // v9: no-op. PR #21 originally dropped client_logins here, but
+      // changed to a no-op since the table is harmless to keep and dropping
+      // it prevents rollback. The table is no longer used by current code.
+      () => {},
     ]
 
     for (let i = currentVersion; i < migrations.length; i++) {

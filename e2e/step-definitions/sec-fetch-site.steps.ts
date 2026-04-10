@@ -20,7 +20,7 @@ import type { EpdsWorld } from '../support/world.js'
 import { testEnv } from '../support/env.js'
 
 When(
-  'a GET request is sent to the PDS \\/oauth\\/authorize with sec-fetch-site {string}',
+  String.raw`a GET request is sent to the PDS \/oauth\/authorize with sec-fetch-site {string}`,
   async function (this: EpdsWorld, secFetchSiteValue: string) {
     // We need a valid request_uri to avoid a different error (missing
     // request_uri) masking the sec-fetch-site rejection. Try PAR first;
@@ -71,15 +71,11 @@ When(
     })
 
     this.lastHttpStatus = res.status
+    const text = await res.text()
     try {
-      const text = await res.text()
-      try {
-        this.lastHttpJson = JSON.parse(text) as Record<string, unknown>
-      } catch {
-        this.lastHttpJson = { body: text }
-      }
+      this.lastHttpJson = JSON.parse(text) as Record<string, unknown>
     } catch {
-      this.lastHttpJson = {}
+      this.lastHttpJson = { body: text }
     }
   },
 )
@@ -90,11 +86,11 @@ Then(
     const status = this.lastHttpStatus
     const body = this.lastHttpJson
 
-    const bodyStr = JSON.stringify(body ?? {})
+    const bodyStr = JSON.stringify(body ?? {}).toLowerCase()
     const isSecFetchRejection =
       status === 400 &&
       bodyStr.includes('sec-fetch-site') &&
-      bodyStr.includes('Forbidden')
+      bodyStr.includes('forbidden')
 
     if (isSecFetchRejection) {
       throw new Error(

@@ -34,6 +34,7 @@ import {
   validateLocalPart,
   resolveClientMetadata,
 } from '@certified-app/shared'
+import { shouldRewriteSecFetchSite } from './lib/sec-fetch-site-rewrite.js'
 
 const logger = createLogger('pds-core')
 
@@ -490,17 +491,43 @@ async function main() {
     next()
   }
 
-  // Insert at position 0 in the Express middleware stack so it runs before
-  // the stock authRoutes middleware that serves the pre-serialized metadata.
+  // Rewrite sec-fetch-site: same-site → same-origin for GET /oauth/authorize.
+  //
+  // PR #21 changed epds-callback to redirect through the stock
+  // @atproto/oauth-provider /oauth/authorize endpoint. The browser tags that
+  // redirect as `same-site` (auth subdomain → PDS origin), but the upstream
+  // oauth-provider rejects `same-site` — it only accepts `same-origin`,
+  // `cross-site`, or `none`.
+  //
+  // We rewrite only when the referer is the auth subdomain, the PDS itself,
+  // or absent (no referer). Unknown same-site origins are left untouched to
+  // preserve the security boundary.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Express middleware injected into raw stack
+  const secFetchSiteRewrite = (req: any, _res: any, next: any) => {
+    if (
+      shouldRewriteSecFetchSite({
+        method: req.method,
+        path: req.path,
+        secFetchSite: req.headers['sec-fetch-site'],
+        referer: req.headers['referer'],
+        authOrigin: `https://${authHostname}`,
+        pdsOrigin: pdsUrl,
+      })
+    ) {
+      req.headers['sec-fetch-site'] = 'same-origin'
+    }
+    next()
+  }
+
+  // Insert both middlewares at position 0 in the Express middleware stack so
+  // they run before the stock authRoutes middleware. Register them both, then
+  // pop and splice each one in, in reverse registration order so that
+  // secFetchSiteRewrite ends up at insertIdx and asMetadataOverride follows.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing Express internal _router stack
   const stack = (pds.app as any)._router?.stack
   if (stack) {
-    // Create a Layer-like entry by temporarily registering and then moving it
-    pds.app.use(asMetadataOverride)
-    const layer = stack.pop()
-    // Insert after query (0) and expressInit (1) so req.path is available,
+    // Find expressInit and insert right after it so req.path is available,
     // but before the authRoutes router that serves stock OAuth metadata.
-    // Find expressInit and insert right after it.
     let insertIdx = 0
     for (let i = 0; i < stack.length; i++) {
       if (stack[i].name === 'expressInit') {
@@ -508,8 +535,16 @@ async function main() {
         break
       }
     }
-    stack.splice(insertIdx, 0, layer)
-    logger.info('AS metadata override installed')
+
+    pds.app.use(asMetadataOverride)
+    const metadataLayer = stack.pop()
+
+    pds.app.use(secFetchSiteRewrite)
+    const secFetchLayer = stack.pop()
+
+    // Insert in order: secFetchSiteRewrite first, then asMetadataOverride
+    stack.splice(insertIdx, 0, secFetchLayer, metadataLayer)
+    logger.info('AS metadata override and sec-fetch-site rewrite installed')
   }
 
   // =========================================================================
