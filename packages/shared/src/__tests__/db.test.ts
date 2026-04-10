@@ -214,22 +214,22 @@ describe('Auth Flow Operations', () => {
   })
 })
 
-describe('Migration: v8 drops client_logins table', () => {
-  it('client_logins table does not exist after migration', () => {
-    // EpdsDb constructor runs all migrations including v8.
-    // Verify the table was dropped by querying sqlite_master.
+describe('Migration: v9 is a no-op (client_logins preserved)', () => {
+  it('client_logins table still exists after all migrations', () => {
+    // v9 was originally a DROP but changed to a no-op. The table is no
+    // longer used by current code but kept to avoid breaking rollbacks.
     const tables = db['db']
       .prepare(
         `SELECT name FROM sqlite_master WHERE type='table' AND name='client_logins'`,
       )
       .all()
-    expect(tables).toHaveLength(0)
+    expect(tables).toHaveLength(1)
   })
 
-  it('schema version is at least 8 after migration', () => {
+  it('schema version is at least 9 after migration', () => {
     const row = db['db']
       .prepare('SELECT version FROM schema_version')
       .get() as { version: number }
-    expect(row.version).toBeGreaterThanOrEqual(8)
+    expect(row.version).toBeGreaterThanOrEqual(9)
   })
 })

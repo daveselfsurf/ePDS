@@ -236,6 +236,9 @@ import { AuthServiceContext } from './context.js'
 - SQLite via `better-sqlite3`. All DB access goes through `EpdsDb`
   (`packages/shared/src/db.ts`).
 - Schema changes use versioned migrations in `runMigrations()`.
+- **Never drop tables or columns in migrations.** Destructive schema changes
+  break emergency rollbacks — rolled-back code still references the dropped
+  schema and crashes. Leave unused tables/columns in place; they're harmless.
 - Do **not** directly read or modify `@atproto/pds` database tables — use
   `pds.ctx.accountManager.*` methods.
 

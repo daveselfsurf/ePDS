@@ -29,7 +29,7 @@ the actual request. Clients that only need scopes the user has
 already approved will now be auto-approved instead of being shown a
 redundant consent screen.
 
-**Operators:** On upgrade, the `client_logins` table is dropped by
-migration v8. Consent state now lives in the upstream provider's
-`authorizedClients` tracking, so nothing else needs to move. No
-configuration changes are required.
+**Operators:** No configuration changes are required. Consent state
+now lives in the upstream provider's `authorizedClients` tracking. The
+`client_logins` table is no longer used but is left in place (not
+dropped) to avoid breaking rollbacks in case they were ever needed.
