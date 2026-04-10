@@ -1,5 +1,5 @@
 ---
-'epds': patch
+'ePDS': patch
 ---
 
 The permissions shown on the sign-in approval screen now match what the app actually asked for.
