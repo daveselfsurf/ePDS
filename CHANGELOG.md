@@ -36,9 +36,13 @@
 
   **Affects:** Operators
 
-  **Operators:** The upstream `@atproto/oauth-provider` rejects `sec-fetch-site: same-site` on `GET /oauth/authorize`. This caused a `400 Forbidden sec-fetch-site header` error on deployments where the auth service and PDS share a registrable domain (e.g.  `auth.epds1.test.certified.app` and `epds1.test.certified.app`). Browsers send `same-site` on the 303 redirect chain from the auth subdomain to the PDS, and the upstream code does not allow it.
+  **Operators:** Fix for an unreleased bug introduced by the above consent changes in [#21](https://github.com/hypercerts-org/ePDS/pull/21). No configuration changes are needed. This is just a heads-up in case anyone deployed an ePDS from git within a small window; if you notice logins failing on your ePDS, make sure to upgrade to v0.2.2 or newer.
 
-  pds-core now includes middleware that rewrites `sec-fetch-site: same-site` to `same-origin` on `GET /oauth/authorize` when the request originates from the trusted auth subdomain. No configuration changes are needed.
+  **Technical details:**
+
+  The upstream `@atproto/oauth-provider` rejects `sec-fetch-site: same-site` on `GET /oauth/authorize`. This caused a `400 Forbidden sec-fetch-site header` error on deployments where the auth service and PDS share a registrable domain (e.g.  `auth.epds1.test.certified.app` and `epds1.test.certified.app`). Browsers send `same-site` on the 303 redirect chain from the auth subdomain to the PDS, and the upstream code does not allow it.
+
+  pds-core now includes middleware that rewrites `sec-fetch-site: same-site` to `same-origin` on `GET /oauth/authorize` when the request originates from the trusted auth subdomain.
 
   Additionally, DB migration v9 (which previously dropped the `client_logins` table) is now a no-op. The table is no longer used but is kept in place to avoid breaking emergency rollbacks to older code that still references it.
 
