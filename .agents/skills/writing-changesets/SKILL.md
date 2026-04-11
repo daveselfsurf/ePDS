@@ -92,12 +92,7 @@ One-sentence summary in the voice of the final changelog entry.
 
 **Affects:** End users, Client app developers, Operators
 
-Longer explanation with enough concrete detail that each listed
-audience can adapt their environment or code without reading the
-PR or source. Use concrete names, values, file paths, and example
-snippets where applicable. Write the per-audience sections in the
-same order as the `**Affects:**` line: end users first, then
-client app developers, then operators.
+Longer explanation with enough concrete detail that each listed audience can adapt their environment or code without reading the PR or source. Use concrete names, values, file paths, and example snippets where applicable. Write the per-audience sections in the same order as the `**Affects:**` line: end users first, then client app developers, then operators.
 ```
 
 ### Frontmatter
@@ -124,8 +119,7 @@ If a single changeset mixes a feature and a bug fix, pick `minor`
 
 Every non-trivial changeset **must** contain, in this order:
 
-1. **Summary sentence** — one line, in the voice of the final
-   changelog entry (not a commit message).
+1. **Summary sentence** — one physical line, in the voice of the final changelog entry (not a commit message).
 
    **The summary line is read by everyone listed in `**Affects:**`,
    not just the most technical audience.** It is the text that
@@ -184,6 +178,15 @@ Every non-trivial changeset **must** contain, in this order:
    and should use exact technical terms that the listed audience
    will recognise (env var names, field names, function names) —
    the plain-language rule only applies to the summary line above.
+
+   Each paragraph in the changeset body must be **unwrapped**: one
+   paragraph per physical line. Do not manually hard-wrap prose at
+   72 or 80 columns inside the changeset file. Wrapped source lines
+   are preserved by GitHub and some other Markdown renderers when
+   the release notes are rendered from generated changelog bullets,
+   which makes the published release notes look awkwardly
+   line-broken. Keep prose unwrapped so the rendered release notes
+   can wrap naturally.
 
    **Do not restate the summary in the per-audience sections.**
    The reader has already seen the summary once at the top of the
@@ -261,17 +264,9 @@ Longer sign-in codes, optionally mixing letters and numbers.
 
 **Affects:** End users, Operators
 
-**End users:** OTP codes may now be longer than 6 digits and may
-include uppercase letters if the operator has opted into the
-`alphanumeric` charset. Codes of length 8 or more are displayed
-with a space in the middle (e.g. `1234 5678`) for readability;
-copy-paste still yields the flat code.
+**End users:** OTP codes may now be longer than 6 digits and may include uppercase letters if the operator has opted into the `alphanumeric` charset. Codes of length 8 or more are displayed with a space in the middle (e.g. `1234 5678`) for readability; copy-paste still yields the flat code.
 
-**Operators:** two new environment variables on the auth service —
-`OTP_LENGTH` (integer, range 4–12, default 8) and `OTP_CHARSET`
-(`numeric` (default) or `alphanumeric`). Values outside the range
-cause the service to fail on startup. The OTP input form fields
-adapt automatically; no template changes required.
+**Operators:** two new environment variables on the auth service — `OTP_LENGTH` (integer, range 4–12, default 8) and `OTP_CHARSET` (`numeric` (default) or `alphanumeric`). Values outside the range cause the service to fail on startup. The OTP input form fields adapt automatically; no template changes required.
 ```
 
 ## What the `**Affects:**` line feeds
