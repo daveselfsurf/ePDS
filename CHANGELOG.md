@@ -5,26 +5,26 @@
 ### Who should read this release
 
 - **Everyone (end users, client app developers, operators):**
-  - [The permissions shown on the sign-in approval screen now match what the app actually asked for.](#v0.2.2-the-permissions-shown-on-the-sign-in-approval-screen-now)
-  - [Trusted apps can optionally skip the approval screen when new users sign up.](#v0.2.2-trusted-apps-can-optionally-skip-the-approval-screen)
+  - [The permissions shown on the sign-in consent screen now match what the app actually asked for.](#v0.2.2-the-permissions-shown-on-the-sign-in-consent-screen-now)
+  - [Trusted apps can optionally skip the consent screen when new users sign up.](#v0.2.2-trusted-apps-can-optionally-skip-the-consent-screen)
 - **Operators also:**
   - [Sign-in no longer fails when the login service and your data server share a domain name.](#v0.2.2-sign-in-no-longer-fails-when-the-login-service-and-your)
 
 ### Patch Changes
 
-- <a id="v0.2.2-the-permissions-shown-on-the-sign-in-approval-screen-now"></a> [#21](https://github.com/hypercerts-org/ePDS/pull/21) [`10287ca`](https://github.com/hypercerts-org/ePDS/commit/10287cad14478ef3a877abdf0b581342ce7842c8) Thanks [@aspiers](https://github.com/aspiers)! - The permissions shown on the sign-in approval screen now match what the app actually asked for.
+- <a id="v0.2.2-the-permissions-shown-on-the-sign-in-consent-screen-now"></a> [#21](https://github.com/hypercerts-org/ePDS/pull/21) [`10287ca`](https://github.com/hypercerts-org/ePDS/commit/10287cad14478ef3a877abdf0b581342ce7842c8) Thanks [@aspiers](https://github.com/aspiers)! - The permissions shown on the sign-in consent screen now match what the app actually asked for.
 
   **Affects:** End users, Client app developers, Operators
 
-  **End users:** When you sign in to a third-party app through ePDS and
-  are asked to approve what the app can do with your account, the list
-  you see now reflects the permissions that particular app actually
-  requested. Previously the screen always showed the same hard-coded
-  list ("Read and write posts", "Access your profile", "Manage your
-  follows") no matter which app you were signing in to, which was
-  misleading. The approval screen itself also now looks and behaves
-  like the standard AT Protocol consent screen used elsewhere in the
-  ecosystem.
+  **End users:** When you sign in to a third-party app through ePDS
+  and are asked to approve what the app can do with your account, the
+  list you see now reflects the permissions that particular app
+  actually requested. Previously the screen always showed the same
+  hard-coded list ("Read and write posts", "Access your profile",
+  "Manage your follows") no matter which app you were signing in to,
+  which was misleading. The consent screen itself also now looks and
+  behaves like the standard AT Protocol consent screen used elsewhere
+  in the ecosystem.
 
   **Client app developers:** The consent screen rendered at
   `/oauth/authorize` is now the stock `@atproto/oauth-provider`
@@ -34,24 +34,24 @@
   (for new users) account creation, `epds-callback` now binds the
   device session via `upsertDeviceAccount()` and redirects through
   `/oauth/authorize`, so the upstream `oauthMiddleware` runs
-  `provider.authorize()` — including `checkConsentRequired()` — against
-  the actual request. Clients that only need scopes the user has
-  already approved will now be auto-approved instead of being shown a
-  redundant consent screen. Support for branding the consent screen is
-  currently being worked on.
+  `provider.authorize()` — including `checkConsentRequired()` —
+  against the actual request. Clients that only need scopes the user
+  has already approved will now be auto-approved instead of being
+  shown a redundant consent screen. Support for branding the consent
+  screen is currently being worked on.
 
   **Operators:** No configuration changes are required. Consent state
   now lives in the upstream provider's `authorizedClients` tracking. The
   `client_logins` table is no longer used but is left in place (not
   dropped) to avoid breaking rollbacks in case they were ever needed.
 
-- <a id="v0.2.2-trusted-apps-can-optionally-skip-the-approval-screen"></a> [#21](https://github.com/hypercerts-org/ePDS/pull/21) [`5110845`](https://github.com/hypercerts-org/ePDS/commit/5110845) Thanks [@aspiers](https://github.com/aspiers)! - Trusted apps can optionally skip the approval screen when new users sign up.
+- <a id="v0.2.2-trusted-apps-can-optionally-skip-the-consent-screen"></a> [#21](https://github.com/hypercerts-org/ePDS/pull/21) [`5110845`](https://github.com/hypercerts-org/ePDS/commit/5110845) Thanks [@aspiers](https://github.com/aspiers)! - Trusted apps can optionally skip the consent screen when new users sign up.
 
   **Affects:** End users, Client app developers, Operators
 
   **End users:** When you create a new account through a trusted app,
   ePDS can now send you straight back to that app without showing a
-  separate approval screen first.
+  separate consent screen first.
 
   **Client app developers:** To opt in, your client metadata must
   include `epds_skip_consent_on_signup: true`. The skip only applies on
