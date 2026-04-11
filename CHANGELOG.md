@@ -49,7 +49,7 @@
   This bug was missed by the comprehensive E2E test suite due to an unfortunate combination of quirks:
   1. The upstream ATProto PDS does not support `sec-fetch-site: same-site`, marked as a [`@TODO`](https://github.com/bluesky-social/atproto/blob/2a9221d244a0821490458785d70d100a6943ea91/packages/oauth/oauth-provider/src/router/create-authorization-page-middleware.ts#L75-L77) in the source. Stock ATProto never encounters `same-site` because the PDS serves its own login UI on the same origin.
   2. Railway does not allow any control over generated domains for PR preview environments. Each service gets a flat `*.up.railway.app` subdomain, and `up.railway.app` is on the Public Suffix List — so cross-service requests are `cross-site` (allowed), never `same-site`. This creates a small but ultimately significant difference in DNS topology from Certified infrastructure where all services share a registrable domain.
-  3. The deliberate introduction (in PR [#21](https://github.com/hypercerts-org/ePDS/issues/21)) of a double redirect from `auth-service/auth/complete` to `pds-core/oauth/epds-callback` to `pds-core/oauth/authorize`, which sends the browser through a cross-origin hop on the same site — the exact pattern the upstream validation rejects.
+  3. The deliberate introduction (in PR [#21](https://github.com/hypercerts-org/ePDS/pull/21)) of a double redirect from `auth-service/auth/complete` to `pds-core/oauth/epds-callback` to `pds-core/oauth/authorize`, which sends the browser through a cross-origin hop on the same site — the exact pattern the upstream validation rejects.
 
 ## 0.2.1
 
