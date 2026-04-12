@@ -1,5 +1,33 @@
 # ePDS
 
+## 0.3.0
+
+### Who should read this release
+
+- **Client app developers and Operators:**
+  - [The health endpoint now reports the running ePDS version.](#v0.3.0-the-health-endpoint-now-reports-the-running-epds-version)
+  - [The upstream PDS version now appears on the stock health endpoint.](#v0.3.0-the-upstream-pds-version-now-appears-on-the-stock-health)
+
+### Minor Changes
+
+- <a id="v0.3.0-the-health-endpoint-now-reports-the-running-epds-version"></a> [#74](https://github.com/hypercerts-org/ePDS/pull/74) [`b46273a`](https://github.com/hypercerts-org/ePDS/commit/b46273a98762053069bb4a4a0ecfad5cfac4eb15) Thanks [@aspiers](https://github.com/aspiers)! - The health endpoint now reports the running ePDS version.
+
+  **Affects:** Client app developers, Operators
+
+  **Client app developers:** both `/health` endpoints (pds-core and auth-service) now include a `version` field in their JSON response (e.g. `{ "status": "ok", "service": "epds", "version": "0.2.2+f37823ee" }`). You can use this to check which ePDS release your app is running against. The demo frontend also displays the version in its page footer.
+
+  **Operators:** in Docker and Railway deployments the version is automatically set to `<package.json version>+<8-char commit SHA>` at build time. In local dev it falls back to the root `package.json` version (e.g. `0.2.2`). To override, set the `EPDS_VERSION` environment variable to any string. Docker Compose users should now build with `pnpm docker:build` instead of `docker compose build` directly — the wrapper stamps the version before building, and the build will fail if the version stamp is missing.
+
+### Patch Changes
+
+- <a id="v0.3.0-the-upstream-pds-version-now-appears-on-the-stock-health"></a> [#76](https://github.com/hypercerts-org/ePDS/pull/76) [`f709066`](https://github.com/hypercerts-org/ePDS/commit/f70906666955e4af7d64e429682b87ce941bdfd8) Thanks [@aspiers](https://github.com/aspiers)! - The upstream PDS version now appears on the stock health endpoint.
+
+  **Affects:** Client app developers, Operators
+
+  `/xrpc/_health` now returns the upstream `@atproto/pds` version in its JSON response (e.g. `{ "version": "0.4.211" }`). Previously this endpoint returned `{}`. This is independent of the ePDS version reported by `/health`.
+
+  **Operators:** no configuration is needed — the version is read from the installed `@atproto/pds` package at startup. To override, set the `PDS_VERSION` environment variable.
+
 ## 0.2.2
 
 ### Who should read this release
