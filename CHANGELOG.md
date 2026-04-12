@@ -4,10 +4,7 @@
 
 ### Who should read this release
 
-- **Client app developers:**
-  - [The health endpoint now reports the running ePDS version.](#v0.3.0-the-health-endpoint-now-reports-the-running-epds-version)
-  - [The upstream PDS version now appears on the stock health endpoint.](#v0.3.0-the-upstream-pds-version-now-appears-on-the-stock-health)
-- **Operators:**
+- **Client app developers and Operators:**
   - [The health endpoint now reports the running ePDS version.](#v0.3.0-the-health-endpoint-now-reports-the-running-epds-version)
   - [The upstream PDS version now appears on the stock health endpoint.](#v0.3.0-the-upstream-pds-version-now-appears-on-the-stock-health)
 
