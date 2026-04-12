@@ -25,6 +25,11 @@ applyPdsPortFallback()
 import type * as http from 'node:http'
 import { randomBytes, timingSafeEqual, createHash } from 'node:crypto'
 import { PDS, envToCfg, envToSecrets, readEnv } from '@atproto/pds'
+import { readFileSync } from 'node:fs'
+/* v8 ignore next 3 -- module-level init, only testable via e2e */
+const atprotoPdsPkg: { version: string } = JSON.parse(
+  readFileSync(require.resolve('@atproto/pds/package.json'), 'utf8'),
+)
 import { HandleUnavailableError } from '@atproto/oauth-provider'
 import {
   generateRandomHandle,
@@ -41,6 +46,7 @@ const logger = createLogger('pds-core')
 
 async function main() {
   const env = readEnv()
+  env.version ??= atprotoPdsPkg.version
   const cfg = envToCfg(env)
   const secrets = envToSecrets(env)
 

@@ -1,5 +1,6 @@
 export default {
   paths: [
+    'features/health.feature',
     'features/passwordless-authentication.feature',
     'features/automatic-account-creation.feature',
     'features/consent-screen.feature',
