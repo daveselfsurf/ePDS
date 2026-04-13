@@ -7,7 +7,6 @@ const tagExclusions = [
   'not @docker-only',
   'not @pending',
   'not @risk-of-disruption',
-  'not @not-implemented',
   ...(process.env.E2E_DEMO_UNTRUSTED_URL ? [] : ['not @untrusted-client']),
 ]
 

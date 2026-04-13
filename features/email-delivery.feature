@@ -1,4 +1,4 @@
-@email @not-implemented
+@email @pending
 Feature: Email delivery
   ePDS sends OTP codes and verification links via email. The test
   environment uses a mail trap (e.g. MailHog) to capture emails.

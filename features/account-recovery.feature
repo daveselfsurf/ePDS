@@ -1,4 +1,4 @@
-@not-implemented
+@pending
 Feature: Account recovery via backup emails
   Users can register backup email addresses. If they lose access to their
   primary email, they can use a backup email to recover their account via

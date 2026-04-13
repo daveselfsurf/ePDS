@@ -1,4 +1,4 @@
-@not-implemented
+@pending
 Feature: TLS certificate management via Caddy on-demand TLS
   Caddy reverse proxy provisions TLS certificates on-demand for the PDS
   hostname, auth subdomain, and all user handle subdomains. The /tls-check

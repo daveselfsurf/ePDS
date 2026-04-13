@@ -8,33 +8,33 @@ Feature: Security measures
 
   # --- CSRF protection ---
 
-  @not-implemented @pending
+  @pending
   Scenario: Forms include CSRF protection
     When the login page is loaded
     Then the response sets a CSRF cookie
     And the HTML form contains a hidden CSRF token field
 
-  @not-implemented @pending
+  @pending
   Scenario: POST without CSRF token is rejected
     When a POST request is sent to the OTP verification endpoint without a CSRF token
     Then the response status is 403
 
   # --- Rate limiting ---
 
-  @not-implemented @pending
+  @pending
   Scenario: Excessive requests from one IP are rate-limited
     When more than 60 requests are sent from the same IP within one minute
     Then subsequent requests receive a 429 Too Many Requests response
     And the response includes a Retry-After header
 
-  @not-implemented @pending
+  @pending
   Scenario: Excessive OTP requests for one email are throttled
     When OTP codes are requested for the same email many times in quick succession
     Then the rate limiter throttles further OTP sends for that email
 
   # --- Security headers ---
 
-  @not-implemented @pending
+  @pending
   Scenario: Auth service responses include security headers
     When any page is loaded from the auth service via Caddy
     Then the response includes:
@@ -44,7 +44,7 @@ Feature: Security measures
       | X-Content-Type-Options    | nosniff          |
       | Referrer-Policy           | no-referrer      |
 
-  @not-implemented @pending
+  @pending
   Scenario: Content-Security-Policy restricts inline content
     When the login page is loaded
     Then the Content-Security-Policy header is present
@@ -52,14 +52,14 @@ Feature: Security measures
 
   # --- Monitoring ---
 
-  @not-implemented @pending
+  @pending
   Scenario: Health check endpoints are available
     When GET /health is called on the auth service
     Then it returns status 200 with { "status": "ok" }
     When GET /health is called on the PDS core
     Then it returns status 200 with { "status": "ok" }
 
-  @not-implemented @pending
+  @pending
   Scenario: Metrics endpoint requires authentication
     When GET /metrics is called on the auth service without credentials
     Then the response status is 401
@@ -99,7 +99,7 @@ Feature: Security measures
 
   # --- Email privacy ---
 
-  @not-implemented @pending
+  @pending
   Scenario: Displayed emails are masked on error/status pages
     When an email address is displayed on a server-rendered page
     Then it appears masked (e.g. "j***n@example.com")
