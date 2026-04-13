@@ -27,6 +27,23 @@ const logger = createLogger('auth:better-auth')
 const AUTH_FLOW_COOKIE = 'epds_auth_flow'
 
 /**
+ * Module-level Map for headless OTP flows where there is no epds_auth_flow
+ * cookie. The headless-otp route stores the clientId here keyed by email
+ * before calling auth.api.sendVerificationOTP(), and the sendVerificationOTP
+ * callback reads it for client branding. Entries are cleared immediately after
+ * the call returns.
+ */
+const headlessClientIds = new Map<string, string>()
+
+export function setHeadlessClientId(email: string, clientId: string): void {
+  headlessClientIds.set(email, clientId)
+}
+
+export function clearHeadlessClientId(email: string): void {
+  headlessClientIds.delete(email)
+}
+
+/**
  * Build the social providers config from env vars.
  * Only includes providers where both client ID and secret are set.
  */
@@ -196,7 +213,8 @@ export function createBetterAuth(
           const did = await getDidByEmail(email, pdsUrl, internalSecret)
           const isNewUser = !did
 
-          // Try to resolve client_id from the active auth_flow via cookie
+          // Try to resolve client_id from the active auth_flow via cookie,
+          // or from the headless clientId Map (for /_internal/otp/send flows).
           let clientId: string | undefined
           try {
             const flowId = ctx?.getCookie(AUTH_FLOW_COOKIE) ?? null
@@ -212,6 +230,11 @@ export function createBetterAuth(
               { err, email },
               'Failed to resolve auth_flow for client branding',
             )
+          }
+
+          // Fallback: headless OTP flow stores clientId in a module-level Map
+          if (!clientId) {
+            clientId = headlessClientIds.get(email)
           }
 
           emailSender

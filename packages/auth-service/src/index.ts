@@ -15,6 +15,7 @@ import { createAccountLoginRouter } from './routes/account-login.js'
 import { createAccountSettingsRouter } from './routes/account-settings.js'
 import { createCompleteRouter } from './routes/complete.js'
 import { createChooseHandleRouter } from './routes/choose-handle.js'
+import { createHeadlessOtpRouter } from './routes/headless-otp.js'
 import { resolveAuthPort } from './lib/resolve-port.js'
 
 const logger = createLogger('auth-service')
@@ -41,6 +42,12 @@ export function createAuthService(config: AuthServiceConfig): {
   app.use(express.urlencoded({ extended: true }))
   app.use(express.json())
   app.use(cookieParser())
+
+  // Headless OTP endpoints (/_internal/*) are mounted before CSRF and
+  // rate-limit middleware — they are trusted server-to-server calls
+  // authenticated via x-internal-secret, not browser requests.
+  app.use(createHeadlessOtpRouter(ctx, betterAuthInstance))
+
   app.use('/static', express.static(path.resolve(__dirname, '..', 'public')))
   app.use(csrfProtection(config.csrfSecret))
   app.use(requestRateLimit({ windowMs: 60_000, maxRequests: 60 }))
