@@ -16,7 +16,7 @@
 
   **Client app developers:** both `/health` endpoints (pds-core and auth-service) now include a `version` field in their JSON response (e.g. `{ "status": "ok", "service": "epds", "version": "0.2.2+f37823ee" }`). You can use this to check which ePDS release your app is running against. The demo frontend also displays the version in its page footer.
 
-  **Operators:** in Docker and Railway deployments the version is automatically set to `<package.json version>+<8-char commit SHA>` at build time. In local dev it falls back to the root `package.json` version (e.g. `0.2.2`). To override, set the `EPDS_VERSION` environment variable to any string. Docker Compose users should now build with `pnpm docker:build` instead of `docker compose build` directly — the wrapper stamps the version before building, and the build will fail if the version stamp is missing.
+  **Operators:** in Docker and Railway deployments the version is automatically set to `<package.json version>+<8-char commit SHA>` at build time. In local dev it falls back to the root `package.json` version (e.g. `0.2.2`). To override, set the `EPDS_VERSION` environment variable on both pds-core and auth-service to any string. Docker Compose users should now build with `pnpm docker:build` instead of `docker compose build` directly — the wrapper stamps the version before building, and the build will fail if the version stamp is missing.
 
 ### Patch Changes
 
@@ -26,7 +26,7 @@
 
   `/xrpc/_health` now returns the upstream `@atproto/pds` version in its JSON response (e.g. `{ "version": "0.4.211" }`). Previously this endpoint returned `{}`. This is independent of the ePDS version reported by `/health`.
 
-  **Operators:** no configuration is needed — the version is read from the installed `@atproto/pds` package at startup. To override, set the `PDS_VERSION` environment variable.
+  **Operators:** no configuration is needed — the version is read from the installed `@atproto/pds` package at startup. To override, set the `PDS_VERSION` environment variable on pds-core.
 
 ## 0.2.2
 
@@ -58,7 +58,7 @@
 
   **Client app developers:** To opt in, your client metadata must include `epds_skip_consent_on_signup: true`. The skip only applies on initial sign-up, only for trusted clients, and only when the server is configured to allow it.
 
-  **Operators:** This feature has separate configuration from the normal consent-screen changes. To enable it, set `PDS_SIGNUP_ALLOW_CONSENT_SKIP=true`. The skip only applies to clients already trusted via `PDS_OAUTH_TRUSTED_CLIENTS` and only when the client metadata opts in with `epds_skip_consent_on_signup: true`.
+  **Operators:** This feature has separate configuration from the normal consent-screen changes. To enable it, set `PDS_SIGNUP_ALLOW_CONSENT_SKIP=true` on pds-core. The skip only applies to clients already trusted via `PDS_OAUTH_TRUSTED_CLIENTS` (also on pds-core) and only when the client metadata opts in with `epds_skip_consent_on_signup: true`.
 
 - <a id="v0.2.2-sign-in-no-longer-fails-when-the-login-service-and-your"></a> [#65](https://github.com/hypercerts-org/ePDS/pull/65) [`313c071`](https://github.com/hypercerts-org/ePDS/commit/313c07176ac04ae6f517f18cfe95cf15af1d0812) Thanks [@aspiers](https://github.com/aspiers)! - Sign-in no longer fails when the login service and your data server share a domain name.
 

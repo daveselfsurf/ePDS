@@ -20,6 +20,8 @@ auto-generate secrets. Safe to re-run — existing secrets are preserved.
 
 ## Shared variables
 
+> Set these on **both** pds-core and auth-service. In Docker Compose they come from the single top-level `.env`; on Railway, use a shared variable group or paste identical values into both services.
+
 These must have **identical values** in pds-core and auth-service. They are
 marked `[shared]` in the per-package `.env.example` files.
 
@@ -35,6 +37,8 @@ marked `[shared]` in the per-package `.env.example` files.
 | `LOG_LEVEL`            | Log verbosity: `fatal`, `error`, `warn`, `info` (default), `debug`, or `trace`. Applied to both pds-core and auth-service.                                                                                                                                   |
 
 ## PDS Core
+
+> All variables in this section are set on the **pds-core** service only (except shared variables listed above).
 
 | Variable                                    | Description                                                                                                                                           |
 | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -69,6 +73,8 @@ Optional PDS email variables:
 | `PDS_MODERATION_EMAIL_ADDRESS`  | Moderation report address                        |
 
 ## Auth Service
+
+> All variables in this section are set on the **auth-service** only.
 
 | Variable              | Description                                                                                                                                                                                                 |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -143,6 +149,8 @@ buttons appear on the login page.
 
 ## Demo
 
+> All variables in this section are set on the **demo** service only.
+
 The demo is standalone — it does not share variables with pds-core or
 auth-service.
 
@@ -161,12 +169,16 @@ Optional:
 
 ## Docker / Caddy
 
+> These variables are for the Caddy reverse-proxy container only (not applicable on Railway).
+
 | Variable        | Description                                                |
 | --------------- | ---------------------------------------------------------- |
 | `PDS_UPSTREAM`  | Override PDS reverse proxy upstream (default `core:3000`)  |
 | `AUTH_UPSTREAM` | Override auth reverse proxy upstream (default `auth:3001`) |
 
 ## Runtime
+
+> Set on **pds-core**.
 
 | Variable       | Description                    |
 | -------------- | ------------------------------ |

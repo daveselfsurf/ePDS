@@ -34,7 +34,7 @@ back to your app, and your app exchanges that redirect for a token.
 3. Your app redirects the user's browser to the ePDS auth page (with the
    same `login_hint`)
 4. ePDS immediately sends the OTP and shows the code-entry screen
-5. User reads the 8-digit code from their email and submits it
+5. User reads the code from their email and submits it
 6. ePDS verifies the code
 7. **New users only**: ePDS shows a handle picker — user chooses their handle
 8. ePDS redirects back to your app's callback URL
@@ -53,7 +53,7 @@ Flow 2 covers three input variants — all use the same code path:
 3. Library sends PAR request, stores state, returns auth URL
 4. Your app redirects the user's browser to the auth URL
 5. ePDS collects email if needed, sends the OTP, shows the code-entry screen
-6. User reads the 8-digit code from their email and submits it
+6. User reads the code from their email and submits it
 7. ePDS verifies the code
 8. **New users only**: ePDS shows a handle picker — user chooses their handle
 9. ePDS redirects back to your app's callback URL
@@ -83,7 +83,7 @@ sequenceDiagram
     Auth->>Auth: Creates auth_flow row (flow_id, request_uri)<br/>Sets epds_auth_flow cookie
     Auth->>Auth: Sends OTP to email (via better-auth, server-side JS call)
     Auth-->>User: Renders page with OTP input visible<br/>(email step hidden)
-    Auth->>Email: Sends 8-digit OTP code
+    Auth->>Email: Sends OTP code
 
     User->>Email: Reads OTP code
     User->>Auth: Submits OTP code
@@ -139,7 +139,7 @@ sequenceDiagram
     User->>Auth: Submits email address
     Auth->>Auth: Sends OTP to email (via better-auth JS call)
     Auth-->>User: Shows OTP input
-    Auth->>Email: Sends 8-digit OTP code
+    Auth->>Email: Sends OTP code
 
     User->>Email: Reads OTP code
     User->>Auth: Submits OTP code
@@ -274,7 +274,7 @@ placeholder. Supported template variables:
 
 | Variable                              | Description                               |
 | ------------------------------------- | ----------------------------------------- |
-| `{{code}}`                            | The 8-digit OTP code (required)           |
+| `{{code}}`                            | The OTP code (required)                   |
 | `{{app_name}}`                        | Value of `client_name` from your metadata |
 | `{{logo_uri}}`                        | Value of `logo_uri` from your metadata    |
 | `{{#is_new_user}}...{{/is_new_user}}` | Shown only on first sign-up               |
