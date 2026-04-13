@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       env_name:
-        description: "Railway env name, e.g. 'ePDS / ePDS-pr-48' or 'ePDS / pr-3897f1-47' (as shown in the Railway PR comment)"
+        description: "Railway env name, e.g. 'ePDS / ePDS-pr-48', 'ePDS / pr-3897f1-47', or 'ePDS / pr-base'"
         required: true
         type: string
 
@@ -518,6 +518,12 @@ jobs:
           fi
           ENV_NAME="${FULL_ENV##* / }"
           ENV_SLUG="${ENV_NAME,,}"
+          # Railway auto-generates PR env names as "ePDS-pr-<N>", but
+          # named envs (pr-base, test, …) use bare names without the
+          # project prefix. Strip "epds-" unless it's a PR env.
+          if [[ "$ENV_SLUG" == epds-* && ! "$ENV_SLUG" =~ ^epds-pr-[0-9]+$ ]]; then
+            ENV_SLUG="${ENV_SLUG#epds-}"
+          fi
           echo "  FULL_ENV = $FULL_ENV"
           echo "  ENV_NAME = $ENV_NAME"
           echo "  ENV_SLUG = $ENV_SLUG"

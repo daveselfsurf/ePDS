@@ -71,7 +71,7 @@ script — all tests are run from the root via vitest.
 ### End-to-end tests in CI
 
 The e2e suite lives in `e2e/` and its feature files in `features/`. Normally
-the `E2E tests` workflow (`.github/workflows/e2e-pr.yml`) runs itself off
+the `E2E tests` workflow (`.github/workflows/e2e-tests.yml`) runs itself off
 Railway's `deployment_status` webhook — no action needed on an ordinary PR.
 
 To manually trigger it against a Railway environment (for e2e-only changes
@@ -79,9 +79,15 @@ that don't cause a rebuild, or to re-run without a new commit), **always
 pass both `--ref` and `-f env_name`**:
 
 ```bash
-gh workflow run e2e-pr.yml \
+# Against a PR environment:
+gh workflow run e2e-tests.yml \
   --ref <your-branch> \
   -f env_name="ePDS / ePDS-pr-<N>"
+
+# Against the persistent pr-base environment (post-merge backstop):
+gh workflow run e2e-tests.yml \
+  --ref main \
+  -f env_name="ePDS / pr-base"
 ```
 
 `--ref` controls which version of the feature files, step definitions, and
