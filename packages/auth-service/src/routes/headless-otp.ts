@@ -60,12 +60,7 @@ export function createHeadlessOtpRouter(
       return
     }
 
-    if (
-      !checkAllowedOrigin(
-        apiClient.allowedOrigins,
-        req.headers.origin,
-      )
-    ) {
+    if (!checkAllowedOrigin(apiClient.allowedOrigins, req.headers.origin)) {
       res.status(403).json({ error: 'OriginNotAllowed' })
       return
     }
@@ -161,12 +156,7 @@ export function createHeadlessOtpRouter(
       return
     }
 
-    if (
-      !checkAllowedOrigin(
-        apiClient.allowedOrigins,
-        req.headers.origin,
-      )
-    ) {
+    if (!checkAllowedOrigin(apiClient.allowedOrigins, req.headers.origin)) {
       res.status(403).json({ error: 'OriginNotAllowed' })
       return
     }
