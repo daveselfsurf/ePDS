@@ -112,13 +112,24 @@ export function createClientCssInjectionMiddleware({
       if (requestUri) {
         try {
           clientId = await resolveClientIdFromRequestUri(requestUri)
-        } catch {
-          // request_uri expired or invalid — skip CSS injection
+        } catch (err) {
+          logger.warn(
+            { err, requestUri },
+            'CSS middleware: failed to resolve client_id from request_uri',
+          )
         }
       }
     }
 
     if (!clientId || !trustedClients.includes(clientId)) {
+      logger.warn(
+        {
+          clientId: clientId ?? null,
+          path: request.path,
+          hasRequestUri: !!query.request_uri,
+        },
+        'CSS middleware: skipping — no trusted client_id resolved',
+      )
       next()
       return
     }
