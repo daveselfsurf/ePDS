@@ -23,11 +23,13 @@
 import { NextResponse } from 'next/server'
 import { getBaseUrl } from '@/lib/auth'
 import { getClientPublicJwk } from '@/lib/client-jwk'
+import { getTheme } from '@/lib/theme'
 
 export const runtime = 'nodejs'
 
 export async function GET() {
   const baseUrl = getBaseUrl()
+  const theme = getTheme()
 
   const publicJwk = await getClientPublicJwk()
   const isConfidential = publicJwk !== null
@@ -51,32 +53,14 @@ export async function GET() {
           token_endpoint_auth_method: 'none',
         }),
     dpop_bound_access_tokens: true,
-    brand_color: '#2563eb',
-    background_color: '#f8f9fa',
+    brand_color: theme?.page.primary ?? '#2563eb',
+    background_color: theme?.page.bg ?? '#f8f9fa',
     ...(process.env.EPDS_SKIP_CONSENT_ON_SIGNUP === 'true' && {
       epds_skip_consent_on_signup: true,
     }),
-    branding: {
-      css: [
-        'body { background: #0f172a; color: #e2e8f0; }',
-        'h1 { color: #f1f5f9; }',
-        '.subtitle { color: #94a3b8; }',
-        '.field label { color: #cbd5e1; }',
-        '.field input { background: #1e293b; border-color: #334155; color: #f1f5f9; }',
-        '.field input:focus { border-color: #7c3aed; }',
-        '.otp-input:focus { border-color: #7c3aed !important; }',
-        '.btn-primary { background: linear-gradient(135deg, #2563eb, #7c3aed); }',
-        '.btn-primary:hover { opacity: 0.95; }',
-        '.btn-secondary { color: #94a3b8; }',
-        '.btn-social { background: #1e293b; border-color: #334155; color: #e2e8f0; }',
-        '.btn-social:hover { background: #334155; }',
-        '.divider { color: #64748b; }',
-        '.divider::before, .divider::after { background: #334155; }',
-        '.error { background: #450a0a; color: #fca5a5; }',
-        '.recovery-link { color: #64748b; }',
-        '.recovery-link:hover { color: #94a3b8; }',
-      ].join(' '),
-    },
+    ...(theme && {
+      branding: { css: theme.injectedCss },
+    }),
   }
 
   return NextResponse.json(metadata, {

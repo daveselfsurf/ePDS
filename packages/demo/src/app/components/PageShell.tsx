@@ -1,4 +1,5 @@
 import { AppLogo } from './AppLogo'
+import { getPageTheme } from '@/lib/theme'
 
 interface PageShellProps {
   children: React.ReactNode
@@ -7,8 +8,13 @@ interface PageShellProps {
 /**
  * Shared outer layout used by all demo login pages: full-viewport centred
  * container with the ePDS Demo logo and h1.
+ *
+ * When EPDS_CLIENT_THEME is set, the shell picks up the themed colours;
+ * otherwise it falls back to the light defaults (matching the untrusted demo).
  */
 export function PageShell({ children }: PageShellProps) {
+  const t = getPageTheme()
+
   return (
     <div
       style={{
@@ -18,7 +24,7 @@ export function PageShell({ children }: PageShellProps) {
         height: '100vh',
         padding: '20px',
         overflow: 'hidden',
-        background: '#f8f9fa',
+        background: t?.bg ?? '#f8f9fa',
       }}
     >
       <div
@@ -29,16 +35,16 @@ export function PageShell({ children }: PageShellProps) {
         }}
       >
         <div style={{ marginBottom: '24px' }}>
-          <AppLogo size={64} />
+          <AppLogo size={64} logoBg={t?.logoBg} />
           <h1
             style={{
               fontSize: '22px',
               fontWeight: 600,
-              color: '#1a1a2e',
+              color: t?.text ?? '#1a1a2e',
               margin: '12px 0 4px',
             }}
           >
-            ePDS Demo
+            {process.env.EPDS_CLIENT_NAME ?? 'ePDS Demo'}
           </h1>
         </div>
         {children}
@@ -47,7 +53,7 @@ export function PageShell({ children }: PageShellProps) {
             style={{
               marginTop: '32px',
               fontSize: '12px',
-              color: '#999',
+              color: t?.textHint ?? '#999',
             }}
           >
             ePDS {process.env.NEXT_PUBLIC_EPDS_VERSION}

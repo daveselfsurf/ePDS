@@ -20,7 +20,7 @@ import { waitForEmail, extractOtp, clearMailpit } from '../support/mailpit.js'
 // A short, stable fragment from the demo's branding.css. Any substring that
 // only the injected CSS would produce works — we pick the dark body bg since
 // it's also what makes the visual difference in the comparison scenario.
-const INJECTED_CSS_SIGNATURE = 'body { background: #0f172a'
+const INJECTED_CSS_SIGNATURE = 'body { background: #0f1b2d'
 
 // Default background declared in the auth-service login-page template when
 // no branding CSS is injected. Matches demo metadata's `background_color`.
