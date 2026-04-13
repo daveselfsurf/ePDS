@@ -40,24 +40,14 @@ Feature: Client branding — CSS injection and custom email templates
     And the Content-Security-Policy style-src directive includes the CSS SHA-256 hash
 
   # --- CSS injection on other auth-service pages ---
-  # These pages are rendered by the auth-service (not the stock oauth-provider)
-  # and should also receive trusted-client CSS injection. The injection code
-  # for these pages has not been written yet — tracked in Linear.
 
-  @not-implemented
-  Scenario: Trusted client's CSS is applied to the auth-service consent page
-    Given an existing user reaches the auth-service consent screen via the trusted demo client
-    Then the consent page includes the trusted client's custom CSS
-
-  @not-implemented
   Scenario: Trusted client's CSS is applied to the choose-handle page
-    Given a new user reaches the handle selection page via the trusted demo client
-    Then the choose-handle page includes the trusted client's custom CSS
+    When a new user reaches the handle selection page via the trusted demo client
+    Then the page HTML contains the trusted client's custom CSS
 
-  @not-implemented
   Scenario: Trusted client's CSS is applied to the recovery page
-    Given a user navigates to the account recovery page via the trusted demo client
-    Then the recovery page includes the trusted client's custom CSS
+    When a user navigates to the account recovery page via the trusted demo client
+    Then the page HTML contains the trusted client's custom CSS
 
   @not-implemented
   Scenario: Trusted client's CSS is applied to the account settings page

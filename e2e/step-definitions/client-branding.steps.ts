@@ -152,6 +152,70 @@ Then(
 )
 
 // ---------------------------------------------------------------------------
+// Generic HTML-level CSS assertion (works on any auth-service page)
+// ---------------------------------------------------------------------------
+
+Then(
+  "the page HTML contains the trusted client's custom CSS",
+  async function (this: EpdsWorld) {
+    const html = await getPage(this).content()
+    expect(html).toContain(INJECTED_CSS_SIGNATURE)
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Choose-handle page CSS injection
+// ---------------------------------------------------------------------------
+
+When(
+  'a new user reaches the handle selection page via the trusted demo client',
+  async function (this: EpdsWorld) {
+    if (!testEnv.mailpitPass) return 'pending'
+
+    const page = getPage(this)
+    const email = `css-handle-${Date.now()}@example.com`
+    await clearMailpit(email)
+
+    await page.goto(testEnv.demoTrustedUrl)
+    await page.fill('#email', email)
+    await page.click('button[type=submit]')
+    await expect(page.locator('#step-otp.active')).toBeVisible({
+      timeout: 30_000,
+    })
+
+    const message = await waitForEmail(`to:${email}`)
+    const otp = await extractOtp(message.ID)
+    await page.fill('#code', otp)
+    await page.click('#form-verify-otp .btn-primary')
+
+    // Wait for the choose-handle page — don't submit the handle form
+    await page.waitForURL('**/auth/choose-handle', { timeout: 30_000 })
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Recovery page CSS injection
+// ---------------------------------------------------------------------------
+
+When(
+  'a user navigates to the account recovery page via the trusted demo client',
+  async function (this: EpdsWorld) {
+    // Navigate to the auth-service login page via the trusted demo,
+    // which creates an auth flow with the trusted client_id.
+    await navigateToAuthLoginPage(this, testEnv.demoTrustedUrl)
+
+    const page = getPage(this)
+    // The recovery link is visible when the OTP step is showing
+    await expect(page.locator('#recovery-link')).toBeVisible({
+      timeout: 10_000,
+    })
+    await page.click('#recovery-link')
+    // Wait for the recovery page to load
+    await page.waitForURL('**/auth/recover**', { timeout: 30_000 })
+  },
+)
+
+// ---------------------------------------------------------------------------
 // PDS-core consent-page CSS injection (trusted client on /oauth/authorize)
 // ---------------------------------------------------------------------------
 
