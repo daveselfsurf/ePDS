@@ -97,35 +97,9 @@ See [`e2e/README.md`](e2e/README.md#running-the-ci-e2e-job-against-a-railway-env
 for details (env-name formats, URL derivation, how to handle missing Railway
 domains).
 
-#### Two demo clients
-
-The e2e suite uses **two** demo OAuth clients deployed as separate Railway
-services: `@certified-app/demo` (trusted) and `@certified-app/demo untrusted`
-(untrusted, note the space in the service name). Only the trusted demo's
-`client-metadata.json` URL is listed in `pds-core`'s `PDS_OAUTH_TRUSTED_CLIENTS`
-env var — that's where the trust check lives, not on the demos themselves.
-
-Any e2e scenario that needs to exercise trust-gated behaviour (consent-skip
-on sign-up, custom CSS branding, trusted client display name in the consent
-screen) or that needs two distinct OAuth clients in the same browser session
-(cross-client SSO / session reuse) must drive the untrusted demo via
-`testEnv.demoUntrustedUrl`. The untrusted demo only exists in `pr-base` and
-PR preview environments — not in `test`, `production`, or `dev`.
-
-Scenarios that depend on the untrusted demo are tagged
-`@untrusted-client`, and `e2e/cucumber.mjs` automatically adds
-`not @untrusted-client` to the tag exclusion expression when
-`E2E_DEMO_UNTRUSTED_URL` is unset — so scenarios skip cleanly at
-discovery time rather than failing. When adding a new scenario or
-step that drives the untrusted demo, (a) add the `@untrusted-client`
-tag to the scenario or feature, and (b) guard the step body with an
-early `if (!testEnv.demoUntrustedUrl) return 'pending'` as
-defence-in-depth for `cucumber-js --name "..."` invocations (which
-bypass tag exclusions). See
-[`e2e/README.md#two-demo-clients`](e2e/README.md#two-demo-clients)
-for the full reference and
-[`e2e/step-definitions/consent.steps.ts`](e2e/step-definitions/consent.steps.ts)
-for examples.
+The e2e suite uses two demo OAuth clients (trusted and untrusted) for
+trust-gated scenarios. See [`e2e/README.md`](e2e/README.md#two-demo-clients)
+for the full setup, tagging conventions, and step-definition patterns.
 
 ### Writing Tests
 
