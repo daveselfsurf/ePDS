@@ -11,6 +11,9 @@ import { getSessionFromCookie, SESSION_COOKIE } from '@/lib/session'
 import { AppLogo } from '../components/AppLogo'
 import { getPageTheme } from '@/lib/theme'
 
+// Force runtime rendering so EPDS_CLIENT_THEME is read at request time
+export const dynamic = 'force-dynamic'
+
 async function signOut() {
   'use server'
 

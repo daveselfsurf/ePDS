@@ -3,6 +3,9 @@ import { PageShell } from './components/PageShell'
 import { getPageTheme, type PageTheme } from '@/lib/theme'
 import { LoginForm } from './components/LoginForm'
 
+// Force runtime rendering so EPDS_CLIENT_THEME is read at request time
+export const dynamic = 'force-dynamic'
+
 /**
  * Login page — Flow 1 (email or handle).
  *
