@@ -2,7 +2,6 @@
 
 import { useSearchParams } from 'next/navigation'
 import { useState } from 'react'
-import type { PageTheme } from '@/lib/theme'
 
 const ERROR_MESSAGES: Record<string, string> = {
   auth_failed: 'Authentication failed. Please try again.',
@@ -15,7 +14,11 @@ const ERROR_MESSAGES: Record<string, string> = {
     'Login session expired or was tampered with. Please try again.',
 }
 
-export function LoginForm({ theme: t }: { theme: PageTheme | null }) {
+/**
+ * Interactive login form (client component). Picks up theme colours via
+ * CSS custom properties set by PageShell on the parent div.
+ */
+export function LoginForm() {
   const searchParams = useSearchParams()
   const errorCode = searchParams.get('error')
   const errorMessage = errorCode
@@ -34,8 +37,8 @@ export function LoginForm({ theme: t }: { theme: PageTheme | null }) {
       {errorMessage && (
         <div
           style={{
-            background: t?.errorBg ?? '#fef2f2',
-            color: t?.errorText ?? '#dc2626',
+            background: 'var(--theme-error-bg, #fef2f2)',
+            color: 'var(--theme-error-text, #dc2626)',
             padding: '12px 16px',
             borderRadius: '8px',
             fontSize: '14px',
@@ -65,7 +68,7 @@ export function LoginForm({ theme: t }: { theme: PageTheme | null }) {
               display: 'block',
               fontSize: '14px',
               fontWeight: 500,
-              color: t?.text ?? '#1a1a2e',
+              color: 'var(--theme-text, #1a1a2e)',
               marginBottom: '6px',
             }}
           >
@@ -84,14 +87,12 @@ export function LoginForm({ theme: t }: { theme: PageTheme | null }) {
                 width: '100%',
                 padding: '12px 14px',
                 fontSize: '16px',
-                border: `1px solid ${t?.inputBorder ?? '#e5e7eb'}`,
+                border: '1px solid var(--theme-input-border, #e5e7eb)',
                 borderRadius: '8px',
                 outline: 'none',
                 boxSizing: 'border-box',
-                background: submitting
-                  ? (t?.inputBg ?? '#f5f5f5')
-                  : (t?.inputBg ?? '#fff'),
-                color: t?.text ?? '#1a1a2e',
+                background: 'var(--theme-input-bg, #fff)',
+                color: 'var(--theme-text, #1a1a2e)',
               }}
             />
           ) : (
@@ -107,14 +108,12 @@ export function LoginForm({ theme: t }: { theme: PageTheme | null }) {
                 width: '100%',
                 padding: '12px 14px',
                 fontSize: '16px',
-                border: `1px solid ${t?.inputBorder ?? '#e5e7eb'}`,
+                border: '1px solid var(--theme-input-border, #e5e7eb)',
                 borderRadius: '8px',
                 outline: 'none',
                 boxSizing: 'border-box',
-                background: submitting
-                  ? (t?.inputBg ?? '#f5f5f5')
-                  : (t?.inputBg ?? '#fff'),
-                color: t?.text ?? '#1a1a2e',
+                background: 'var(--theme-input-bg, #fff)',
+                color: 'var(--theme-text, #1a1a2e)',
               }}
             />
           )}
@@ -131,7 +130,9 @@ export function LoginForm({ theme: t }: { theme: PageTheme | null }) {
             fontSize: '16px',
             fontWeight: 500,
             color: '#ffffff',
-            background: submitting ? '#4a4a4a' : (t?.primary ?? '#2563eb'),
+            background: submitting
+              ? '#4a4a4a'
+              : 'var(--theme-primary, #2563eb)',
             border: 'none',
             borderRadius: '8px',
             cursor: submitting ? 'default' : 'pointer',
@@ -165,7 +166,7 @@ export function LoginForm({ theme: t }: { theme: PageTheme | null }) {
           switchMode(mode === 'email' ? 'handle' : 'email')
         }}
         style={{
-          color: t?.textMuted ?? '#6b7280',
+          color: 'var(--theme-text-muted, #6b7280)',
           fontSize: '13px',
           cursor: 'pointer',
           marginTop: '16px',

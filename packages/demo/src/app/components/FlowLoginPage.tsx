@@ -28,7 +28,7 @@ function FlowLogin({ subtitle, handleMode, navLinks }: FlowLoginPageProps) {
       <p
         style={{
           fontSize: '13px',
-          color: '#6b7280',
+          color: 'var(--theme-text-muted, #6b7280)',
           marginBottom: '24px',
         }}
       >
@@ -38,8 +38,8 @@ function FlowLogin({ subtitle, handleMode, navLinks }: FlowLoginPageProps) {
       {error && (
         <div
           style={{
-            background: '#fef2f2',
-            color: '#dc2626',
+            background: 'var(--theme-error-bg, #fef2f2)',
+            color: 'var(--theme-error-text, #dc2626)',
             padding: '12px 16px',
             borderRadius: '8px',
             fontSize: '14px',
@@ -73,7 +73,7 @@ function FlowLogin({ subtitle, handleMode, navLinks }: FlowLoginPageProps) {
           style={{
             display: 'block',
             marginTop: '8px',
-            color: '#6b7280',
+            color: 'var(--theme-text-muted, #6b7280)',
             fontSize: '13px',
             textDecoration: 'none',
           }}

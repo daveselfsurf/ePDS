@@ -1,6 +1,5 @@
 import { Suspense } from 'react'
 import { PageShell } from './components/PageShell'
-import { getPageTheme, type PageTheme } from '@/lib/theme'
 import { LoginForm } from './components/LoginForm'
 
 // Force runtime rendering so EPDS_CLIENT_THEME is read at request time
@@ -12,25 +11,23 @@ export const dynamic = 'force-dynamic'
  * The user enters an email address or ATProto handle. The form submits to
  * /api/oauth/login which starts the OAuth flow via PAR.
  *
- * This is a server component so it can read EPDS_CLIENT_THEME. The
- * interactive form is in the LoginForm client component.
+ * This is a server component. PageShell reads EPDS_CLIENT_THEME and sets
+ * CSS custom properties; child client components pick them up via var().
  */
 export default function Home() {
-  const t = getPageTheme()
-
   return (
     <PageShell>
       <p
         style={{
           fontSize: '14px',
-          color: t?.textMuted ?? '#6b7280',
+          color: 'var(--theme-text-muted, #6b7280)',
           margin: '0 0 24px',
         }}
       >
         Sign in with your AT Protocol identity
       </p>
       <Suspense>
-        <LoginForm theme={t} />
+        <LoginForm />
       </Suspense>
 
       <a
@@ -38,7 +35,7 @@ export default function Home() {
         style={{
           display: 'block',
           marginTop: '8px',
-          color: t?.textHint ?? '#9ca3af',
+          color: 'var(--theme-text-hint, #9ca3af)',
           fontSize: '12px',
           textDecoration: 'none',
         }}
@@ -50,7 +47,7 @@ export default function Home() {
         style={{
           display: 'block',
           marginTop: '4px',
-          color: t?.textHint ?? '#9ca3af',
+          color: 'var(--theme-text-hint, #9ca3af)',
           fontSize: '12px',
           textDecoration: 'none',
         }}
@@ -62,7 +59,7 @@ export default function Home() {
         style={{
           display: 'block',
           marginTop: '4px',
-          color: t?.textHint ?? '#9ca3af',
+          color: 'var(--theme-text-hint, #9ca3af)',
           fontSize: '12px',
           textDecoration: 'none',
         }}
