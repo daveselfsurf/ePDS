@@ -2,12 +2,10 @@
 
 ## Which flow should I use?
 
-| Flow | App provides       | User experience                 | Implementation       |
-| ---- | ------------------ | ------------------------------- | -------------------- |
-| 1    | Email address      | OTP screen immediately          | Hand-rolled PAR/DPoP |
-| 2    | Nothing            | Auth server shows email form    | `NodeOAuthClient`    |
-| 3    | AT Protocol handle | Auth server resolves, sends OTP | `NodeOAuthClient`    |
-| 4    | DID                | Auth server resolves, sends OTP | `NodeOAuthClient`    |
+| Flow | App provides            | User experience              | Implementation       |
+| ---- | ----------------------- | ---------------------------- | -------------------- |
+| 1    | Email address           | OTP screen immediately       | Hand-rolled PAR/DPoP |
+| 2    | Nothing, handle, or DID | Depends on input (see below) | `NodeOAuthClient`    |
 
 **Flow 1** is the only flow that requires hand-rolled PAR and DPoP code.
 `@atproto/oauth-client-node`'s `authorize()` method explicitly omits
@@ -16,16 +14,21 @@ itself and overrides the hint. Since Flow 1 needs to pass a raw email
 as `login_hint` on the auth redirect URL (not in the PAR body), it
 cannot use the library.
 
-**Flows 2–4** should use `NodeOAuthClient`, which handles PAR, PKCE,
-DPoP, nonce retry, token exchange, and session management automatically.
+**Flow 2** should use `NodeOAuthClient`, which handles PAR, PKCE, DPoP,
+nonce retry, token exchange, and session management automatically. It
+covers three input variants — all use the same code path:
 
-All four flows end the same way: the user enters an OTP, ePDS redirects
+- **No identifier** — pass the PDS URL; auth server shows its own email form
+- **Handle** — pass `alice.pds.example.com`; auth server resolves it, sends OTP directly
+- **DID** — pass `did:plc:abc123...`; same as handle
+
+Both flows end the same way: the user enters an OTP, ePDS redirects
 back to your app, and your callback receives an authorization code to
 exchange for tokens.
 
 ---
 
-## Flows 2–4 — Using `NodeOAuthClient`
+## Flow 2 — Using `NodeOAuthClient`
 
 ### Setup
 
@@ -35,13 +38,13 @@ construction (client metadata, keyset, stores).
 ### Login handler
 
 ```typescript
-// Flow 2: no identifier — auth server shows email form
+// No identifier — auth server shows email form
 const authUrl = await client.authorize('https://pds.example.com')
 
-// Flow 3: pass a handle — auth server resolves and sends OTP
+// With a handle — auth server resolves and sends OTP
 const authUrl = await client.authorize('alice.pds.example.com')
 
-// Flow 4: pass a DID
+// With a DID — same behaviour as handle
 const authUrl = await client.authorize('did:plc:abc123...')
 ```
 
@@ -81,7 +84,7 @@ const session = await client.restore(userDid)
 // session.signOut() to end the session
 ```
 
-### Step-by-step (Flow 2 example)
+### Step-by-step (no identifier)
 
 1. User clicks "Sign in" in your app
 2. Your login handler calls `client.authorize('https://pds.example.com')`
@@ -94,9 +97,9 @@ const session = await client.restore(userDid)
 9. Your callback calls `client.callback(params)` — library handles token exchange
 10. User is logged in
 
-Flows 3 and 4 are identical except the user skips the email form (the
-auth server resolves the handle/DID to an email and sends the OTP
-directly).
+When passing a handle or DID instead of the PDS URL, the flow is
+identical except the user skips the email form (the auth server resolves
+the handle/DID to an email and sends the OTP directly).
 
 ---
 
@@ -303,7 +306,7 @@ sequenceDiagram
     App-->>User: Logged in
 ```
 
-### Flow 2 — Auth server collects email (via `NodeOAuthClient`)
+### Flow 2 — No identifier (via `NodeOAuthClient`)
 
 ```mermaid
 sequenceDiagram
@@ -339,9 +342,9 @@ sequenceDiagram
     App-->>User: Logged in
 ```
 
-### Flows 3/4 — Handle or DID (via `NodeOAuthClient`)
+### Flow 2 with handle or DID
 
-Same as Flow 2 except:
+Same as the diagram above except:
 
 - `authorize('alice.pds.example.com')` or `authorize('did:plc:abc123...')`
 - Library resolves the identity to the user's PDS

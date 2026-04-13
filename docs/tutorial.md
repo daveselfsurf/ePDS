@@ -9,24 +9,20 @@ to your app with a token you can use to make API calls on their behalf.
 
 ## Login Flows
 
-There are four ways to integrate, depending on what your app knows about
-the user at login time:
+There are two integration flows:
 
-| Flow | App provides       | User experience                 | Implementation                             |
-| ---- | ------------------ | ------------------------------- | ------------------------------------------ |
-| 1    | Email address      | OTP screen immediately          | Hand-rolled PAR/DPoP                       |
-| 2    | Nothing            | Auth server shows email form    | `@atproto/oauth-client-node` (recommended) |
-| 3    | AT Protocol handle | Auth server resolves, sends OTP | `@atproto/oauth-client-node`               |
-| 4    | DID                | Auth server resolves, sends OTP | `@atproto/oauth-client-node`               |
+| Flow | App provides            | User experience              | Implementation                             |
+| ---- | ----------------------- | ---------------------------- | ------------------------------------------ |
+| 1    | Email address           | OTP screen immediately       | Hand-rolled PAR/DPoP                       |
+| 2    | Nothing, handle, or DID | Depends on input (see below) | `@atproto/oauth-client-node` (recommended) |
 
-**Flows 2–4** use `@atproto/oauth-client-node`, which handles PAR, PKCE,
+**Flow 2** uses `@atproto/oauth-client-node`, which handles PAR, PKCE,
 DPoP, nonce retry, and token exchange automatically. **Flow 1** requires
 hand-rolled code because the library's `authorize()` method does not
 support passing a raw email as `login_hint`.
 
-All four flows end the same way: the user enters their code, ePDS
-redirects back to your app, and your app exchanges that redirect for a
-token.
+Both flows end the same way: the user enters their code, ePDS redirects
+back to your app, and your app exchanges that redirect for a token.
 
 ## Flow 1 — App passes email as `login_hint`
 
@@ -45,28 +41,24 @@ token.
 9. Your callback handler exchanges the redirect for an access token
 10. User is logged in
 
-## Flow 2 — Simple login button (via `NodeOAuthClient`)
+## Flow 2 — Using `NodeOAuthClient`
 
-1. User clicks "Sign in" in your app
-2. Your login handler calls `client.authorize('https://pds.example.com')`
+Flow 2 covers three input variants — all use the same code path:
+
+1. User clicks "Sign in" in your app (or your app already knows their handle/DID)
+2. Your login handler calls `client.authorize(input)` where `input` is:
+   - The PDS URL (no identifier — auth server shows its own email form)
+   - A handle like `alice.pds.example.com` (auth server resolves it, sends OTP directly)
+   - A DID like `did:plc:abc123...` (same as handle)
 3. Library sends PAR request, stores state, returns auth URL
 4. Your app redirects the user's browser to the auth URL
-5. ePDS shows an email input form
-6. User enters their email and submits
-7. ePDS sends the OTP and shows the code-entry screen
-8. User reads the 8-digit code from their email and submits it
-9. ePDS verifies the code
-10. **New users only**: ePDS shows a handle picker — user chooses their handle
-11. ePDS redirects back to your app's callback URL
-12. Your callback calls `client.callback(params)` — library handles token exchange
-13. User is logged in
-
-## Flows 3/4 — Handle or DID (via `NodeOAuthClient`)
-
-Same as Flow 2, except you call `client.authorize('alice.pds.example.com')`
-(Flow 3) or `client.authorize('did:plc:abc123...')` (Flow 4). The library
-resolves the identity to the user's PDS. The auth server skips the email
-form and sends the OTP directly.
+5. ePDS collects email if needed, sends the OTP, shows the code-entry screen
+6. User reads the 8-digit code from their email and submits it
+7. ePDS verifies the code
+8. **New users only**: ePDS shows a handle picker — user chooses their handle
+9. ePDS redirects back to your app's callback URL
+10. Your callback calls `client.callback(params)` — library handles token exchange
+11. User is logged in
 
 ## Sequence Diagrams
 
@@ -122,7 +114,7 @@ sequenceDiagram
     App-->>User: Logged in
 ```
 
-### Flow 2 — Simple login button (via `NodeOAuthClient`)
+### Flow 2 — No identifier (via `NodeOAuthClient`)
 
 ```mermaid
 sequenceDiagram
@@ -340,10 +332,10 @@ The skip only applies to initial sign-up — returning users go through
 normal consent handling (which may still be auto-approved if they have
 already granted the requested scopes).
 
-### Using `@atproto/oauth-client-node` (recommended for Flows 2–4)
+### Using `@atproto/oauth-client-node` (recommended for Flow 2)
 
 If your app does **not** need to pass a raw email as `login_hint` (i.e.
-you are using Flow 2, 3, or 4), the `@atproto/oauth-client-node` library
+you are using Flow 2), the `@atproto/oauth-client-node` library
 handles PAR, PKCE, DPoP, nonce retry, and token exchange automatically.
 Skip straight to [Setting up NodeOAuthClient](#setting-up-nodeoauthclient).
 
@@ -360,7 +352,7 @@ ePDS uses two standard security mechanisms to protect the login flow:
 - **DPoP** — binds the access token to your server so it can't be used by
   anyone who steals it
 
-> **Note:** If you are using `NodeOAuthClient` (Flows 2–4), the library
+> **Note:** If you are using `NodeOAuthClient` (Flow 2), the library
 > handles both of these internally. The helpers below are only needed for
 > Flow 1.
 
@@ -468,13 +460,13 @@ If the identifier doesn't match any existing account, ePDS falls back to
 its own email input form (the same form used in Flow 2), so passing a
 stale or unknown handle is safe.
 
-In Flow 2 you simply omit `login_hint` entirely. In Flows 3 and 4 you
-pass the handle or DID to `client.authorize()` and the library resolves
-it automatically.
+In Flow 2 you either omit `login_hint` entirely (pass the PDS URL to
+`client.authorize()`), or pass a handle or DID which the library resolves
+automatically.
 
 ### Setting up `NodeOAuthClient`
 
-For Flows 2, 3, and 4, create a `NodeOAuthClient` instance. The library
+For Flow 2, create a `NodeOAuthClient` instance. The library
 handles PAR, PKCE, DPoP, nonce retry, and token exchange internally:
 
 ```typescript
@@ -532,22 +524,22 @@ app.get('/client-metadata.json', (req, res) => res.json(client.clientMetadata))
 app.get('/jwks.json', (req, res) => res.json(client.jwks))
 ```
 
-#### Login handler (Flows 2–4)
+#### Login handler (Flow 2)
 
 ```typescript
-// Flow 2: no identifier — auth server shows email form
+// No identifier — auth server shows email form
 const authUrl = await client.authorize('https://pds.example.com')
 
-// Flow 3: pass a handle
+// With a handle — auth server resolves and sends OTP
 const authUrl = await client.authorize('alice.pds.example.com')
 
-// Flow 4: pass a DID
+// With a DID — same behaviour as handle
 const authUrl = await client.authorize('did:plc:abc123...')
 
 // Redirect the user's browser to authUrl
 ```
 
-#### Callback handler (Flows 2–4)
+#### Callback handler (Flow 2)
 
 ```typescript
 const { session, state } = await client.callback(
@@ -568,7 +560,7 @@ const session = await client.restore(userDid)
 
 ### Login handler — registering the login attempt (Flow 1)
 
-> **Flows 2–4:** Skip this section — `NodeOAuthClient.authorize()` handles
+> **Flow 2:** Skip this section — `NodeOAuthClient.authorize()` handles
 > PAR, DPoP, and nonce retry internally. See
 > [Setting up NodeOAuthClient](#setting-up-nodeoauthclient) above.
 
@@ -632,7 +624,7 @@ const { request_uri } = await parRes.json()
 
 ### Redirecting the user to ePDS (Flow 1)
 
-> **Flows 2–4:** Skip this section — `NodeOAuthClient.authorize()` returns
+> **Flow 2:** Skip this section — `NodeOAuthClient.authorize()` returns
 > the redirect URL directly.
 
 After registering the login attempt, redirect the user's browser to the ePDS
@@ -660,7 +652,7 @@ response.cookies.set('oauth_session', signedSessionCookie, {
 
 ### Callback handler — exchanging the redirect for a token (Flow 1)
 
-> **Flows 2–4:** Skip this section — `client.callback()` handles token
+> **Flow 2:** Skip this section — `client.callback()` handles token
 > exchange internally. See
 > [Setting up NodeOAuthClient](#setting-up-nodeoauthclient) above.
 

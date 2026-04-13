@@ -1,6 +1,6 @@
 ---
 name: epds-login
-description: Implement AT Protocol OAuth login against an ePDS instance. Covers four flows — Flow 1 (email-first, hand-rolled PAR/DPoP) and Flows 2–4 (no hint / handle / DID, via @atproto/oauth-client-node). Use when building passwordless OTP login, configuring client metadata (confidential vs public), or integrating NodeOAuthClient.
+description: Implement AT Protocol OAuth login against an ePDS instance. Covers two flows — Flow 1 (email-first, hand-rolled PAR/DPoP) and Flow 2 (via @atproto/oauth-client-node, accepting no hint / handle / DID). Use when building passwordless OTP login, configuring client metadata (confidential vs public), or integrating NodeOAuthClient.
 ---
 
 # Implementing ePDS Login
@@ -15,14 +15,12 @@ AT Protocol universe (a DID, a handle, a data repository) automatically provisio
 From your app's perspective, ePDS uses standard AT Protocol OAuth (PAR + PKCE + DPoP).
 The reference implementation is `packages/demo` in the [ePDS repository](https://github.com/hypercerts-org/ePDS).
 
-## Four Flows
+## Two Flows
 
-| Flow | App provides       | How user starts                 | Implementation       |
-| ---- | ------------------ | ------------------------------- | -------------------- |
-| 1    | Email address      | OTP screen immediately          | Hand-rolled PAR/DPoP |
-| 2    | Nothing            | Auth server shows email form    | `NodeOAuthClient`    |
-| 3    | AT Protocol handle | Auth server resolves, sends OTP | `NodeOAuthClient`    |
-| 4    | DID                | Auth server resolves, sends OTP | `NodeOAuthClient`    |
+| Flow | App provides            | How user starts              | Implementation       |
+| ---- | ----------------------- | ---------------------------- | -------------------- |
+| 1    | Email address           | OTP screen immediately       | Hand-rolled PAR/DPoP |
+| 2    | Nothing, handle, or DID | Depends on input (see below) | `NodeOAuthClient`    |
 
 **Why the split?** `@atproto/oauth-client-node`'s `authorize()` method accepts
 a handle or DID as input but explicitly omits `login_hint` from its options —
@@ -31,13 +29,19 @@ to pass a raw email as `login_hint` on the auth redirect URL (not in the PAR
 body), which the library cannot do. Flow 1 must therefore use hand-rolled
 PAR + DPoP requests.
 
+Flow 2 covers three input variants — all use the same `NodeOAuthClient` code:
+
+- **No identifier** — pass the PDS URL; auth server shows its own email form
+- **Handle** — pass an AT Protocol handle (e.g. `alice.pds.example.com`); auth server resolves it and sends OTP directly
+- **DID** — pass a DID (e.g. `did:plc:abc123...`); auth server resolves it and sends OTP directly
+
 > **Important:** `login_hint` must **never** go in the PAR body when the value
 > is an email address. The PDS core validates `login_hint` as an ATProto
 > identity (handle or DID) and rejects emails with `Invalid login_hint`. Put
 > email `login_hint` only on the **auth redirect URL** — that request goes to
 > the ePDS auth service (Better Auth layer), which accepts emails.
 
-## Quick Start — Flows 2/3/4 (recommended)
+## Quick Start — Flow 2 (recommended)
 
 Use `@atproto/oauth-client-node` for any flow that does not require passing a
 raw email as `login_hint`.
@@ -119,13 +123,13 @@ const client = new NodeOAuthClient({
 ### 3. Login handler
 
 ```typescript
-// Flow 2: no identifier — auth server shows email form
+// No identifier — auth server shows email form
 const authUrl = await client.authorize('https://pds.example.com')
 
-// Flow 3: pass a handle — auth server resolves and sends OTP
+// With a handle — auth server resolves and sends OTP
 const authUrl = await client.authorize('alice.pds.example.com')
 
-// Flow 4: pass a DID — same as handle
+// With a DID — same behaviour as handle
 const authUrl = await client.authorize('did:plc:abc123...')
 ```
 
@@ -210,5 +214,5 @@ Token: https://<pds-hostname>/oauth/token
 ## Reference Files
 
 - [Client metadata fields](references/client-metadata.md) — confidential vs public, JWKS, all fields, email branding
-- [Full flow walkthrough](references/flows.md) — sequence diagrams, Flow 1 hand-rolled code, Flows 2–4 library code
-- [PKCE and DPoP helpers](references/dpop-pkce.md) — Flow 1 only; Flows 2–4 should use `NodeOAuthClient` instead
+- [Full flow walkthrough](references/flows.md) — sequence diagrams, Flow 1 hand-rolled code, Flow 2 library code
+- [PKCE and DPoP helpers](references/dpop-pkce.md) — Flow 1 only; Flow 2 should use `NodeOAuthClient` instead
