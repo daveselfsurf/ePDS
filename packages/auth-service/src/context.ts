@@ -1,5 +1,4 @@
-import { createLogger } from '@certified-app/shared'
-import { EpdsDb } from '@certified-app/shared'
+import { createLogger, EpdsDb } from '@certified-app/shared'
 import { EmailSender } from './email/sender.js'
 
 export interface AuthServiceConfig {

@@ -9,8 +9,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
 import { EpdsDb } from '@certified-app/shared'
-import type { AuthServiceContext } from '../context.js'
-import type { AuthServiceConfig } from '../context.js'
+import type { AuthServiceContext, AuthServiceConfig } from '../context.js'
 
 // Build a minimal mock context for consent tests
 function makeMockContext(db: EpdsDb): AuthServiceContext {

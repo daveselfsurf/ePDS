@@ -1,5 +1,6 @@
 import eslint from '@eslint/js'
 import tseslint from 'typescript-eslint'
+import importPlugin from 'eslint-plugin-import'
 import prettier from 'eslint-config-prettier'
 
 export default tseslint.config(
@@ -29,6 +30,10 @@ export default tseslint.config(
 
   // TypeScript-specific overrides
   {
+    plugins: { import: importPlugin },
+    settings: {
+      'import/resolver': { typescript: true },
+    },
     languageOptions: {
       parserOptions: {
         projectService: true,
@@ -41,6 +46,9 @@ export default tseslint.config(
         'error',
         { prefer: 'type-imports', fixStyle: 'separate-type-imports' },
       ],
+
+      // Merge imports from the same module (understands import type vs import value)
+      'import/no-duplicates': ['error', { 'prefer-inline': false }],
 
       // Allow unused vars prefixed with _ (common pattern for intentional omission)
       '@typescript-eslint/no-unused-vars': [

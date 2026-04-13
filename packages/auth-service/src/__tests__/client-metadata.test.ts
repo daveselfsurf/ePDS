@@ -66,13 +66,13 @@ describe('resolveClientMetadata — SSRF-blocked URLs fall back gracefully', () 
     [
       'private IPv4 (10.x)',
       'https://10.0.0.1/client-metadata.json', // NOSONAR — intentional: testing SSRF guard
-      '10.0.0.1',
+      '10.0.0.1', // NOSONAR — intentional: testing SSRF guard
     ],
-    ['loopback IPv4', 'https://127.0.0.1/client-metadata.json', '127.0.0.1'],
+    ['loopback IPv4', 'https://127.0.0.1/client-metadata.json', '127.0.0.1'], // NOSONAR
     [
       'link-local (metadata)',
       'https://169.254.169.254/latest/meta-data/', // NOSONAR — intentional: testing SSRF guard
-      '169.254.169.254',
+      '169.254.169.254', // NOSONAR
     ],
     ['IPv6 loopback', 'https://[::1]/client-metadata.json', '[::1]'],
     [

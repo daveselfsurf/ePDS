@@ -1,12 +1,13 @@
 import * as nodemailer from 'nodemailer'
-import { createLogger, makeSafeFetch } from '@certified-app/shared'
-import type { Transporter } from 'nodemailer'
-import type { EmailConfig } from '@certified-app/shared'
 import {
+  createLogger,
+  makeSafeFetch,
   escapeHtml,
   formatOtpPlain,
   formatOtpHtmlGrouped,
 } from '@certified-app/shared'
+import type { Transporter } from 'nodemailer'
+import type { EmailConfig } from '@certified-app/shared'
 import { resolveClientMetadata } from '../lib/client-metadata.js'
 
 const logger = createLogger('auth:email')

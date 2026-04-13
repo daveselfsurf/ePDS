@@ -16,8 +16,7 @@
  */
 import { Router, type Request, type Response } from 'express'
 import type { AuthServiceContext } from '../context.js'
-import { createLogger } from '@certified-app/shared'
-import { escapeHtml, maskEmail } from '@certified-app/shared'
+import { createLogger, escapeHtml, maskEmail } from '@certified-app/shared'
 import { buildOtpInputProps } from '../otp-input.js'
 import { resolveClientBranding } from '../lib/client-metadata.js'
 import { renderOptionalStyleTag } from '../lib/page-helpers.js'
