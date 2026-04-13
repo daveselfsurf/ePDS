@@ -33,79 +33,36 @@ function mockFetchOk() {
   return mock
 }
 
+/** Create a default safeFetch instance for tests that don't need custom options. */
+function defaultSafeFetch() {
+  return makeSafeFetch()
+}
+
 // ---------------------------------------------------------------------------
-// URL validation — scheme
+// URL validation — scheme and hostname
 // ---------------------------------------------------------------------------
 
 describe('makeSafeFetch — URL validation', () => {
-  it('throws for http:// URL', async () => {
-    const safeFetch = makeSafeFetch()
-    await expect(safeFetch('http://example.com/data.json')).rejects.toThrow(
-      /only https/i,
-    )
+  it.each([
+    ['http://', 'http://example.com/data.json', /only https/i],
+    ['file://', 'file:///etc/passwd', /only https/i],
+    ['data: URI', 'data:text/plain,hello', /only https/i],
+    ['malformed URL', 'not-a-url', /invalid url/i],
+  ])('throws for %s', async (_label, url, errorPattern) => {
+    const safeFetch = defaultSafeFetch()
+    await expect(safeFetch(url)).rejects.toThrow(errorPattern)
   })
 
-  it('throws for file:// URL', async () => {
-    const safeFetch = makeSafeFetch()
-    await expect(safeFetch('file:///etc/passwd')).rejects.toThrow(/only https/i)
-  })
-
-  it('throws for data: URI', async () => {
-    const safeFetch = makeSafeFetch()
-    await expect(safeFetch('data:text/plain,hello')).rejects.toThrow(
-      /only https/i,
-    )
-  })
-
-  it('throws for a malformed URL string', async () => {
-    const safeFetch = makeSafeFetch()
-    await expect(safeFetch('not-a-url')).rejects.toThrow(/invalid url/i)
-  })
-
-  // -------------------------------------------------------------------------
-  // Local / internal hostnames
-  // -------------------------------------------------------------------------
-
-  it('throws for bare hostname (no dot)', async () => {
-    const safeFetch = makeSafeFetch()
-    await expect(safeFetch('https://myserver/path')).rejects.toThrow(
-      /not a public domain/i,
-    )
-  })
-
-  it('throws for .local TLD', async () => {
-    const safeFetch = makeSafeFetch()
-    await expect(safeFetch('https://myserver.local/path')).rejects.toThrow(
-      /not a public domain/i,
-    )
-  })
-
-  it('throws for .test TLD', async () => {
-    const safeFetch = makeSafeFetch()
-    await expect(safeFetch('https://myserver.test/path')).rejects.toThrow(
-      /not a public domain/i,
-    )
-  })
-
-  it('throws for .localhost TLD', async () => {
-    const safeFetch = makeSafeFetch()
-    await expect(safeFetch('https://myserver.localhost/path')).rejects.toThrow(
-      /not a public domain/i,
-    )
-  })
-
-  it('throws for .example TLD', async () => {
-    const safeFetch = makeSafeFetch()
-    await expect(safeFetch('https://myserver.example/path')).rejects.toThrow(
-      /not a public domain/i,
-    )
-  })
-
-  it('throws for .invalid TLD', async () => {
-    const safeFetch = makeSafeFetch()
-    await expect(safeFetch('https://myserver.invalid/path')).rejects.toThrow(
-      /not a public domain/i,
-    )
+  it.each([
+    ['bare hostname (no dot)', 'https://myserver/path'],
+    ['.local TLD', 'https://myserver.local/path'],
+    ['.test TLD', 'https://myserver.test/path'],
+    ['.localhost TLD', 'https://myserver.localhost/path'],
+    ['.example TLD', 'https://myserver.example/path'],
+    ['.invalid TLD', 'https://myserver.invalid/path'],
+  ])('throws for %s', async (_label, url) => {
+    const safeFetch = defaultSafeFetch()
+    await expect(safeFetch(url)).rejects.toThrow(/not a public domain/i)
   })
 })
 
@@ -114,74 +71,30 @@ describe('makeSafeFetch — URL validation', () => {
 // ---------------------------------------------------------------------------
 
 describe('makeSafeFetch — IP literal blocking', () => {
-  it('throws for loopback IPv4 (127.0.0.1)', async () => {
-    const safeFetch = makeSafeFetch()
-    await expect(
-      safeFetch('https://127.0.0.1/client-metadata.json'),
-    ).rejects.toThrow(/non-unicast/i)
-  })
-
-  it('throws for private RFC-1918 10.x.x.x', async () => {
-    const safeFetch = makeSafeFetch()
-    await expect(
-      safeFetch('https://10.0.0.1/client-metadata.json'),
-    ).rejects.toThrow(/non-unicast/i)
-  })
-
-  it('throws for private RFC-1918 172.16.x.x', async () => {
-    const safeFetch = makeSafeFetch()
-    await expect(
-      safeFetch('https://172.16.0.1/client-metadata.json'),
-    ).rejects.toThrow(/non-unicast/i)
-  })
-
-  it('throws for private RFC-1918 192.168.x.x', async () => {
-    const safeFetch = makeSafeFetch()
-    await expect(
-      safeFetch('https://192.168.1.1/client-metadata.json'),
-    ).rejects.toThrow(/non-unicast/i)
-  })
-
-  it('throws for link-local / cloud metadata (169.254.169.254)', async () => {
-    const safeFetch = makeSafeFetch()
-    await expect(
-      safeFetch('https://169.254.169.254/latest/meta-data/'),
-    ).rejects.toThrow(/non-unicast/i)
-  })
-
-  it('throws for IPv6 loopback ([::1])', async () => {
-    const safeFetch = makeSafeFetch()
-    await expect(
-      safeFetch('https://[::1]/client-metadata.json'),
-    ).rejects.toThrow(/non-unicast/i)
-  })
-
-  it('throws for IPv6 unique-local ([fc00::1])', async () => {
-    const safeFetch = makeSafeFetch()
-    await expect(
-      safeFetch('https://[fc00::1]/client-metadata.json'),
-    ).rejects.toThrow(/non-unicast/i)
-  })
-
-  it('throws for IPv6 link-local ([fe80::1])', async () => {
-    const safeFetch = makeSafeFetch()
-    await expect(
-      safeFetch('https://[fe80::1]/client-metadata.json'),
-    ).rejects.toThrow(/non-unicast/i)
-  })
-
-  it('throws for IPv4-mapped IPv6 ([::ffff:192.168.1.1])', async () => {
-    // This is the tricky bypass: ::ffff:192.168.1.1 is a private address
-    // wrapped in IPv6 notation. Must be unwrapped before range check.
-    const safeFetch = makeSafeFetch()
-    await expect(
-      safeFetch('https://[::ffff:192.168.1.1]/client-metadata.json'),
-    ).rejects.toThrow(/non-unicast/i)
+  it.each([
+    ['loopback IPv4 (127.0.0.1)', 'https://127.0.0.1/client-metadata.json'],
+    ['private 10.x.x.x', 'https://10.0.0.1/client-metadata.json'],
+    ['private 172.16.x.x', 'https://172.16.0.1/client-metadata.json'],
+    ['private 192.168.x.x', 'https://192.168.1.1/client-metadata.json'],
+    [
+      'link-local / cloud metadata',
+      'https://169.254.169.254/latest/meta-data/',
+    ],
+    ['IPv6 loopback ([::1])', 'https://[::1]/client-metadata.json'],
+    ['IPv6 unique-local ([fc00::1])', 'https://[fc00::1]/client-metadata.json'],
+    ['IPv6 link-local ([fe80::1])', 'https://[fe80::1]/client-metadata.json'],
+    [
+      'IPv4-mapped IPv6 ([::ffff:192.168.1.1])',
+      'https://[::ffff:192.168.1.1]/client-metadata.json',
+    ],
+  ])('throws for %s', async (_label, url) => {
+    const safeFetch = defaultSafeFetch()
+    await expect(safeFetch(url)).rejects.toThrow(/non-unicast/i)
   })
 
   it('does NOT call globalThis.fetch when an IP is blocked', async () => {
     const mock = mockFetchOk()
-    const safeFetch = makeSafeFetch()
+    const safeFetch = defaultSafeFetch()
     await expect(
       safeFetch('https://192.168.1.1/client-metadata.json'),
     ).rejects.toThrow()
@@ -196,7 +109,7 @@ describe('makeSafeFetch — IP literal blocking', () => {
 describe('makeSafeFetch — allowed URLs', () => {
   it('passes through a normal public https:// domain', async () => {
     const mock = mockFetchOk()
-    const safeFetch = makeSafeFetch()
+    const safeFetch = defaultSafeFetch()
     const res = await safeFetch('https://cool.app/client-metadata.json')
     expect(res.status).toBe(200)
     expect(mock).toHaveBeenCalledOnce()
@@ -204,7 +117,7 @@ describe('makeSafeFetch — allowed URLs', () => {
 
   it('passes through a public unicast IPv4 (1.1.1.1)', async () => {
     const mock = mockFetchOk()
-    const safeFetch = makeSafeFetch()
+    const safeFetch = defaultSafeFetch()
     const res = await safeFetch('https://1.1.1.1/data.json')
     expect(res.status).toBe(200)
     expect(mock).toHaveBeenCalledOnce()
@@ -218,7 +131,7 @@ describe('makeSafeFetch — allowed URLs', () => {
 describe('makeSafeFetch — fetch behaviour', () => {
   it('passes init headers through to underlying fetch', async () => {
     const mock = mockFetchOk()
-    const safeFetch = makeSafeFetch()
+    const safeFetch = defaultSafeFetch()
     await safeFetch('https://cool.app/data.json', {
       headers: { Accept: 'application/json' },
     })
@@ -232,7 +145,7 @@ describe('makeSafeFetch — fetch behaviour', () => {
 
   it('always passes redirect: error to underlying fetch', async () => {
     const mock = mockFetchOk()
-    const safeFetch = makeSafeFetch()
+    const safeFetch = defaultSafeFetch()
     await safeFetch('https://cool.app/data.json')
     expect(mock).toHaveBeenCalledWith(
       'https://cool.app/data.json',
@@ -242,7 +155,7 @@ describe('makeSafeFetch — fetch behaviour', () => {
 
   it('overrides caller-supplied redirect mode with error', async () => {
     const mock = mockFetchOk()
-    const safeFetch = makeSafeFetch()
+    const safeFetch = defaultSafeFetch()
     await safeFetch('https://cool.app/data.json', { redirect: 'follow' })
     expect(mock).toHaveBeenCalledWith(
       'https://cool.app/data.json',
@@ -278,7 +191,6 @@ describe('makeSafeFetch — fetch behaviour', () => {
     globalThis.fetch = vi.fn().mockImplementation(
       (_url: string, init?: RequestInit) =>
         new Promise<Response>((_resolve, reject) => {
-          // Simulate the AbortSignal being triggered
           init?.signal?.addEventListener('abort', () => {
             reject(new DOMException('The operation was aborted.', 'AbortError'))
           })
@@ -315,7 +227,7 @@ describe('makeSafeFetch — fetch behaviour', () => {
       }),
     ) as unknown as typeof fetch
 
-    const safeFetch = makeSafeFetch()
+    const safeFetch = defaultSafeFetch()
     const res = await safeFetch('https://cool.app/client-metadata.json')
     expect(res.ok).toBe(true)
     const body = await res.json()
