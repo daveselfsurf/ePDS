@@ -161,11 +161,15 @@ export function LoginForm() {
         </button>
       </form>
 
-      <p
+      <button
+        type="button"
         onClick={() => {
           switchMode(mode === 'email' ? 'handle' : 'email')
         }}
         style={{
+          background: 'none',
+          border: 'none',
+          padding: 0,
           color: 'var(--theme-text-muted, #6b7280)',
           fontSize: '13px',
           cursor: 'pointer',
@@ -175,7 +179,7 @@ export function LoginForm() {
         {mode === 'email'
           ? 'Sign in with ATProto/Bluesky'
           : 'Sign in with Certified'}
-      </p>
+      </button>
     </>
   )
 }
