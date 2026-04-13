@@ -138,6 +138,10 @@ export function createClientCssInjectionMiddleware({
       const metadata = await resolveClientMetadata(clientId)
       const css = getClientCss(clientId, metadata, trustedClients)
       if (!css) {
+        logger.warn(
+          { clientId },
+          'CSS middleware: no CSS returned by getClientCss',
+        )
         next()
         return
       }
@@ -145,12 +149,21 @@ export function createClientCssInjectionMiddleware({
       const cssHash = createHash('sha256').update(css).digest('base64')
       const styleTag = `<style>${css}</style>`
 
+      logger.warn(
+        { clientId, cssLength: css.length, cssHash },
+        'CSS middleware: wrapping res.end for CSS injection',
+      )
+
       const origSetHeader = response.setHeader.bind(response)
       response.setHeader = (name: string, value: string | string[]) => {
         if (
           name.toLowerCase() === 'content-security-policy' &&
           typeof value === 'string'
         ) {
+          logger.warn(
+            { clientId },
+            'CSS middleware: intercepted CSP header, appending style hash',
+          )
           value = appendStyleHashToCsp(value, cssHash)
         }
         return origSetHeader(name, value)
@@ -158,10 +171,39 @@ export function createClientCssInjectionMiddleware({
 
       const origEnd = response.end.bind(response)
       const wrappedEnd: EndLike = (chunk?: unknown, ...args: unknown[]) => {
+        const chunkType =
+          chunk === undefined
+            ? 'undefined'
+            : chunk === null
+              ? 'null'
+              : Buffer.isBuffer(chunk)
+                ? `Buffer(${chunk.length})`
+                : typeof chunk === 'string'
+                  ? `string(${chunk.length})`
+                  : typeof chunk
+        const hasHead =
+          typeof chunk === 'string'
+            ? chunk.includes('</head>')
+            : Buffer.isBuffer(chunk)
+              ? chunk.toString('utf-8').includes('</head>')
+              : false
+        logger.warn(
+          { clientId, chunkType, hasHead },
+          'CSS middleware: res.end called',
+        )
         const result = injectStyleTagIntoHtml(chunk, styleTag)
         if (result.rewritten) {
+          logger.warn(
+            { clientId },
+            'CSS middleware: successfully injected style tag',
+          )
           response.removeHeader('Content-Length')
           response.removeHeader('ETag')
+        } else {
+          logger.warn(
+            { clientId, chunkType },
+            'CSS middleware: res.end called but no </head> found, not injecting',
+          )
         }
         return origEnd(result.chunk, ...args)
       }
