@@ -32,6 +32,7 @@ marked `[shared]` in the per-package `.env.example` files.
 | `EPDS_INTERNAL_SECRET` | Shared secret for internal service-to-service calls (auth → PDS) — generate with `openssl rand -hex 32`                                                                                                                                                      |
 | `PDS_ADMIN_PASSWORD`   | PDS admin API password (auth-service uses it for account provisioning)                                                                                                                                                                                       |
 | `NODE_ENV`             | Set to `development` for dev mode (disables secure cookies)                                                                                                                                                                                                  |
+| `LOG_LEVEL`            | Log verbosity: `fatal`, `error`, `warn`, `info` (default), `debug`, or `trace`. Applied to both pds-core and auth-service.                                                                                                                                   |
 
 ## PDS Core
 
@@ -51,6 +52,13 @@ marked `[shared]` in the per-package `.env.example` files.
 | `PDS_BLOBSTORE_DISK_LOCATION`               | Path to blob storage directory (default `/data/blobs`)                                                                                                |
 | `EPDS_INVITE_CODE`                          | Pre-generated invite code for account creation (see [deployment.md](deployment.md#invite-codes))                                                      |
 | `PDS_INVITE_REQUIRED`                       | Whether invite codes are required for account creation (default `true`)                                                                               |
+
+### Trusted clients and consent skip
+
+| Variable                        | Description                                                                                                                                                                                                                                                                                               |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PDS_OAUTH_TRUSTED_CLIENTS`     | Comma-separated list of OAuth `client_id` URLs. Trusted clients get relaxed consent handling from the upstream `@atproto/oauth-provider` — returning users who have already granted the requested scopes skip the consent screen. Has no effect on public clients (`token_endpoint_auth_method: "none"`). |
+| `PDS_SIGNUP_ALLOW_CONSENT_SKIP` | When `true` (or `1`), trusted clients whose metadata includes `"epds_skip_consent_on_signup": true` can skip the consent screen on initial sign-up. All three conditions must be met: this env var is truthy, the client is in `PDS_OAUTH_TRUSTED_CLIENTS`, and the client metadata opts in.              |
 
 Optional PDS email variables:
 
@@ -111,20 +119,21 @@ buttons appear on the login page.
 
 ### Email
 
-| Variable                | Description                                                         |
-| ----------------------- | ------------------------------------------------------------------- |
-| `EMAIL_PROVIDER`        | Provider: `smtp`, `sendgrid`, `ses`, or `postmark` (default `smtp`) |
-| `SMTP_HOST`             | SMTP hostname (e.g. `smtp.resend.com`)                              |
-| `SMTP_PORT`             | SMTP port (e.g. `465`)                                              |
-| `SMTP_USER`             | SMTP username                                                       |
-| `SMTP_PASS`             | SMTP password / API key                                             |
-| `SMTP_FROM`             | Sender address — must be on a verified domain                       |
-| `SMTP_FROM_NAME`        | Sender display name                                                 |
-| `SENDGRID_API_KEY`      | SendGrid API key (for `EMAIL_PROVIDER=sendgrid`)                    |
-| `AWS_REGION`            | AWS region for SES (default `us-east-1`)                            |
-| `AWS_SES_SMTP_USER`     | AWS SES SMTP username                                               |
-| `AWS_SES_SMTP_PASS`     | AWS SES SMTP password                                               |
-| `POSTMARK_SERVER_TOKEN` | Postmark server token                                               |
+| Variable                         | Description                                                                                                                                                                                                            |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EMAIL_PROVIDER`                 | Provider: `smtp`, `sendgrid`, `ses`, or `postmark` (default `smtp`)                                                                                                                                                    |
+| `SMTP_HOST`                      | SMTP hostname (e.g. `smtp.resend.com`)                                                                                                                                                                                 |
+| `SMTP_PORT`                      | SMTP port (e.g. `465`)                                                                                                                                                                                                 |
+| `SMTP_USER`                      | SMTP username                                                                                                                                                                                                          |
+| `SMTP_PASS`                      | SMTP password / API key                                                                                                                                                                                                |
+| `SMTP_FROM`                      | Sender address — must be on a verified domain                                                                                                                                                                          |
+| `SMTP_FROM_NAME`                 | Sender display name                                                                                                                                                                                                    |
+| `SENDGRID_API_KEY`               | SendGrid API key (for `EMAIL_PROVIDER=sendgrid`)                                                                                                                                                                       |
+| `AWS_REGION`                     | AWS region for SES (default `us-east-1`)                                                                                                                                                                               |
+| `AWS_SES_SMTP_USER`              | AWS SES SMTP username                                                                                                                                                                                                  |
+| `AWS_SES_SMTP_PASS`              | AWS SES SMTP password                                                                                                                                                                                                  |
+| `POSTMARK_SERVER_TOKEN`          | Postmark server token                                                                                                                                                                                                  |
+| `EMAIL_TEMPLATE_ALLOWED_DOMAINS` | Optional comma-separated list of HTTPS hostnames from which `email_template_uri` can be fetched. If unset, any HTTPS URL is allowed. If set, templates hosted on unlisted domains are logged as a warning and ignored. |
 
 ### Database
 

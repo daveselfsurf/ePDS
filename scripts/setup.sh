@@ -8,32 +8,8 @@ generate_secret() {
   openssl rand -hex 32
 }
 
-# Generate an ES256 (P-256) private JWK as a compact JSON object on a
-# single line — suitable for pasting into an env var.
-#
-# Emits a string like:
-#   {"kty":"EC","crv":"P-256","d":"...","x":"...","y":"...","kid":"..."}
-#
-# Uses Node's built-in crypto module rather than openssl because
-# openssl doesn't directly emit JWK format and translating EC points
-# by hand is error-prone. Node's crypto.generateKeyPairSync +
-# privateKey.export({format:'jwk'}) is two lines and correct by
-# construction.
-#
-# The kid is a short hash of the public coordinates so the same
-# keypair always produces the same kid, matching how the runtime
-# client-jwk.ts helper derives it.
 generate_es256_private_jwk() {
-  node -e '
-    const crypto = require("crypto");
-    const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
-    const jwk = privateKey.export({ format: "jwk" });
-    const h = crypto.createHash("sha256");
-    h.update(jwk.x);
-    h.update(jwk.y);
-    jwk.kid = h.digest("base64url").slice(0, 16);
-    process.stdout.write(JSON.stringify(jwk));
-  '
+  "$(dirname "$0")/generate-es256-jwk.cjs"
 }
 
 # Portable sed in-place (works on macOS and Linux)
@@ -503,7 +479,7 @@ print_next_steps() {
   echo "  can be pasted into ONE demo service; generate a second keypair for"
   echo "  any additional demo services with:"
   echo ""
-  echo "    node -e '"'"'const c=require("crypto"); const {privateKey}=c.generateKeyPairSync("ec",{namedCurve:"P-256"}); const j=privateKey.export({format:"jwk"}); const h=c.createHash("sha256"); h.update(j.x); h.update(j.y); j.kid=h.digest("base64url").slice(0,16); console.log(JSON.stringify(j));'"'"
+  echo "    scripts/generate-es256-jwk.cjs"
   echo ""
   echo "  Paste the output as EPDS_CLIENT_PRIVATE_JWK on the second demo service."
 }

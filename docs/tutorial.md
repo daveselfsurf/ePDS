@@ -9,16 +9,20 @@ to your app with a token you can use to make API calls on their behalf.
 
 ## Login Flows
 
-There are two ways to integrate:
+There are two integration flows:
 
-**Flow 1** — your app has its own email input. You pass the email to ePDS and
-the user lands directly on the code-entry screen.
+| Flow | App provides            | User experience              | Implementation                             |
+| ---- | ----------------------- | ---------------------------- | ------------------------------------------ |
+| 1    | Email address           | OTP screen immediately       | Hand-rolled PAR/DPoP                       |
+| 2    | Nothing, handle, or DID | Depends on input (see below) | `@atproto/oauth-client-node` (recommended) |
 
-**Flow 2** — your app has a simple "Sign in" button. ePDS shows the email form
-itself.
+**Flow 2** uses `@atproto/oauth-client-node`, which handles PAR, PKCE,
+DPoP, nonce retry, and token exchange automatically. **Flow 1** requires
+hand-rolled code because the library's `authorize()` method does not
+support passing a raw email as `login_hint`.
 
-Both flows end the same way: the user enters their code, ePDS redirects back to
-your app, and your app exchanges that redirect for a token.
+Both flows end the same way: the user enters their code, ePDS redirects
+back to your app, and your app exchanges that redirect for a token.
 
 ## Flow 1 — App has its own email form
 
@@ -39,18 +43,22 @@ your app, and your app exchanges that redirect for a token.
 
 ## Flow 2 — App has a simple login button
 
-1. User clicks "Sign in" in your app
-2. Your login handler registers the login attempt with ePDS
-3. Your app redirects the user's browser to the ePDS auth page
-4. ePDS shows an email input form
-5. User enters their email and submits
-6. ePDS sends the OTP and shows the code-entry screen
-7. User reads the 8-digit code from their email and submits it
-8. ePDS verifies the code
-9. **New users only**: ePDS shows a handle picker — user chooses their handle
-10. ePDS redirects back to your app's callback URL
-11. Your callback handler exchanges the redirect for an access token
-12. User is logged in
+Flow 2 covers three input variants — all use the same code path:
+
+1. User clicks "Sign in" in your app (or your app already knows their handle/DID)
+2. Your login handler calls `client.authorize(input)` where `input` is:
+   - The PDS URL (no identifier — auth server shows its own email form)
+   - A handle like `alice.pds.example.com` (auth server resolves it, sends OTP directly)
+   - A DID like `did:plc:abc123...` (same as handle)
+3. Library sends PAR request, stores state, returns auth URL
+4. Your app redirects the user's browser to the auth URL
+5. ePDS collects email if needed, sends the OTP, shows the code-entry screen
+6. User reads the 8-digit code from their email and submits it
+7. ePDS verifies the code
+8. **New users only**: ePDS shows a handle picker — user chooses their handle
+9. ePDS redirects back to your app's callback URL
+10. Your callback calls `client.callback(params)` — library handles token exchange
+11. User is logged in
 
 ## Sequence Diagrams
 
@@ -66,7 +74,7 @@ sequenceDiagram
 
     User->>App: Enters email, clicks Login
     App->>App: Generates DPoP key pair, PKCE verifier
-    App->>PDS: POST /oauth/par<br/>(client_id, redirect_uri, login_hint=email, DPoP proof)
+    App->>PDS: POST /oauth/par<br/>(client_id, redirect_uri, DPoP proof)
     PDS-->>App: { request_uri }
     App->>App: Stores state in signed session cookie
     App-->>User: 302 redirect to /oauth/authorize<br/>?request_uri=...&login_hint=email
@@ -106,22 +114,23 @@ sequenceDiagram
     App-->>User: Logged in
 ```
 
-### Flow 2 — App has a simple login button
+### Flow 2 — App has a simple login button (via `NodeOAuthClient`)
 
 ```mermaid
 sequenceDiagram
     actor User
     participant App as Client App
+    participant Lib as NodeOAuthClient
     participant PDS as PDS Core
     participant Auth as Auth Service
     participant Email as User's Inbox
 
     User->>App: Clicks Login
-    App->>App: Generates DPoP key pair, PKCE verifier
-    App->>PDS: POST /oauth/par<br/>(client_id, redirect_uri, no login_hint, DPoP proof)
-    PDS-->>App: { request_uri }
-    App->>App: Stores state in signed session cookie
-    App-->>User: 302 redirect to /oauth/authorize?request_uri=...
+    App->>Lib: authorize('https://pds.example.com')
+    Lib->>PDS: POST /oauth/par (auto DPoP + PKCE)
+    PDS-->>Lib: { request_uri }
+    Lib-->>App: auth URL
+    App-->>User: 302 redirect to auth URL
 
     User->>Auth: GET /oauth/authorize?request_uri=...
     Auth->>Auth: Creates auth_flow row (flow_id, request_uri)<br/>Sets epds_auth_flow cookie
@@ -155,8 +164,10 @@ sequenceDiagram
     PDS-->>User: 302 redirect to client redirect_uri?code=...&state=...
 
     User->>App: GET /api/oauth/callback?code=...&state=...
-    App->>PDS: POST /oauth/token<br/>(code, code_verifier, DPoP proof)
-    PDS-->>App: { access_token, refresh_token, sub (DID) }
+    App->>Lib: callback(params)
+    Lib->>PDS: POST /oauth/token (auto DPoP)
+    PDS-->>Lib: { tokens }
+    Lib-->>App: { session, state }
     App->>App: Creates user session
     App-->>User: Logged in
 ```
@@ -182,14 +193,68 @@ The file must be served with `Content-Type: application/json`:
   "scope": "atproto transition:generic",
   "grant_types": ["authorization_code", "refresh_token"],
   "response_types": ["code"],
-  "token_endpoint_auth_method": "none",
+  "token_endpoint_auth_method": "private_key_jwt",
+  "token_endpoint_auth_signing_alg": "ES256",
+  "jwks_uri": "https://yourapp.example.com/jwks.json",
   "dpop_bound_access_tokens": true
 }
 ```
 
-The last four fields are fixed values required by the AT Protocol — copy them
-as-is. The only things you need to change are `client_id`, `client_name`,
-`client_uri`, `logo_uri`, and `redirect_uris`.
+The fields from `scope` onward are fixed values required by the AT
+Protocol — copy them as-is. The only things you need to change are
+`client_id`, `client_name`, `client_uri`, `logo_uri`, and `redirect_uris`
+(plus the key fields described below).
+
+#### Confidential vs public clients
+
+The example above uses `"token_endpoint_auth_method": "private_key_jwt"`,
+which makes your app a **confidential client**. This is the recommended
+setting for any app users will sign in to more than once, because the PDS
+remembers consent — returning users skip the consent screen.
+
+The alternative is `"token_endpoint_auth_method": "none"` (a **public
+client**), which is simpler (no key management, no JWKS, no
+`token_endpoint_auth_signing_alg`) but forces a consent screen on every
+login. This is a deliberate AT Protocol security property for clients that
+cannot prove their identity. Use `"none"` only for local development or
+apps where per-login consent is acceptable.
+
+For confidential clients, you must provide the public half of your ES256
+signing key. There are two mutually exclusive ways to do this:
+
+- **`jwks_uri`** — a URL that serves a `{"keys": [...]}` document. Easier
+  to rotate keys (update the endpoint, no metadata redeploy).
+- **`jwks`** — an inline `{"keys": [...]}` object embedded directly in
+  the client metadata JSON. Simpler setup (no extra endpoint), but key
+  rotation requires redeploying the metadata file.
+
+Generate a key pair using the ePDS helper script or `@atproto/jwk-jose`:
+
+```bash
+pnpm jwk:generate
+# Outputs: {"kty":"EC","crv":"P-256","x":"...","y":"...","d":"...","kid":"..."}
+```
+
+Or programmatically:
+
+```typescript
+import { JoseKey } from '@atproto/jwk-jose'
+
+const key = await JoseKey.generate(['ES256'])
+const privateJwk = key.privateJwk // store securely (env var, secret manager)
+```
+
+If using `jwks_uri`, serve the public half at that URL:
+
+```typescript
+app.get('/jwks.json', (req, res) => {
+  const { d, ...publicJwk } = privateJwk // strip private component
+  res.json({ keys: [publicJwk] })
+})
+```
+
+If using inline `jwks`, embed the public key (without `d`) directly in
+your client metadata JSON instead.
 
 #### Optional branding
 
@@ -246,12 +311,46 @@ match wins:
 If you need to override per request — e.g. for a specific signup
 campaign — add `epds_handle_mode=picker` (or any other accepted value) as
 an additional query parameter when you build the `/oauth/authorize` URL
-in [_Redirecting the user to ePDS_](#redirecting-the-user-to-epds) below.
+in [_Redirecting the user to ePDS_](#redirecting-the-user-to-epds-flow-1) below.
 The `/oauth/authorize` URL already carries `client_id` and `request_uri`,
 so use `&epds_handle_mode=...`, not `?`. Unknown or invalid values are
 silently ignored and fall through to the next source.
 
-### Security helpers
+#### Optional: skip consent on signup (trusted clients)
+
+If your app is listed in the PDS operator's `PDS_OAUTH_TRUSTED_CLIENTS`
+and the operator has enabled `PDS_SIGNUP_ALLOW_CONSENT_SKIP=true`, you
+can request that the consent screen be skipped when a new user signs up
+through your app. Add this to your client metadata:
+
+```json
+{
+  "epds_skip_consent_on_signup": true
+}
+```
+
+All three conditions must be met for the skip to take effect:
+
+1. The PDS has `PDS_SIGNUP_ALLOW_CONSENT_SKIP=true`
+2. Your `client_id` is in the PDS's `PDS_OAUTH_TRUSTED_CLIENTS` list
+3. Your client metadata includes `"epds_skip_consent_on_signup": true`
+
+The skip only applies to initial sign-up — returning users go through
+normal consent handling (which may still be auto-approved if they have
+already granted the requested scopes).
+
+### Using `@atproto/oauth-client-node` (recommended for Flow 2)
+
+If your app does **not** need to pass a raw email as `login_hint` (i.e.
+you are using Flow 2), the `@atproto/oauth-client-node` library
+handles PAR, PKCE, DPoP, nonce retry, and token exchange automatically.
+Skip straight to [Setting up NodeOAuthClient](#setting-up-nodeoauthclient).
+
+If your app collects emails and passes them as `login_hint` (Flow 1),
+the library cannot help — its `authorize()` method does not support
+raw email hints. You need the hand-rolled helpers below.
+
+### Security helpers (Flow 1 only)
 
 ePDS uses two standard security mechanisms to protect the login flow:
 
@@ -260,9 +359,12 @@ ePDS uses two standard security mechanisms to protect the login flow:
 - **DPoP** — binds the access token to your server so it can't be used by
   anyone who steals it
 
-You don't need to understand the details — just copy these helper functions
-(from [packages/demo](../packages/demo)) and call them as shown in the code
-examples below:
+> **Note:** If you are using `NodeOAuthClient` (Flow 2), the library
+> handles both of these internally. The helpers below are only needed for
+> Flow 1.
+
+Copy these helper functions (from [packages/demo](../packages/demo)) and
+call them as shown in the Flow 1 code examples below:
 
 ```typescript
 import * as crypto from 'node:crypto'
@@ -365,9 +467,109 @@ If the identifier doesn't match any existing account, ePDS falls back to
 its own email input form (the same form used in Flow 2), so passing a
 stale or unknown handle is safe.
 
-In Flow 2 you simply omit `login_hint` entirely.
+In Flow 2 you either omit `login_hint` entirely (pass the PDS URL to
+`client.authorize()`), or pass a handle or DID which the library resolves
+automatically.
 
-### Login handler — registering the login attempt
+### Setting up `NodeOAuthClient`
+
+For Flow 2, create a `NodeOAuthClient` instance. The library
+handles PAR, PKCE, DPoP, nonce retry, and token exchange internally:
+
+```typescript
+import { NodeOAuthClient } from '@atproto/oauth-client-node'
+import { JoseKey } from '@atproto/jwk-jose'
+
+const privateJwk = JSON.parse(process.env.OAUTH_PRIVATE_KEY!)
+
+const client = new NodeOAuthClient({
+  clientMetadata: {
+    client_id: 'https://yourapp.example.com/client-metadata.json',
+    client_name: 'Your App',
+    redirect_uris: ['https://yourapp.example.com/api/oauth/callback'],
+    scope: 'atproto transition:generic',
+    grant_types: ['authorization_code', 'refresh_token'],
+    response_types: ['code'],
+    token_endpoint_auth_method: 'private_key_jwt',
+    token_endpoint_auth_signing_alg: 'ES256',
+    jwks_uri: 'https://yourapp.example.com/jwks.json',
+    dpop_bound_access_tokens: true,
+  },
+  keyset: [await JoseKey.fromImportable(privateJwk, privateJwk.kid)],
+
+  // Implement these with your database, Redis, or other persistent store
+  stateStore: {
+    async set(key, value) {
+      /* store */
+    },
+    async get(key) {
+      /* retrieve */
+    },
+    async del(key) {
+      /* delete */
+    },
+  },
+  sessionStore: {
+    async set(key, value) {
+      /* store */
+    },
+    async get(key) {
+      /* retrieve */
+    },
+    async del(key) {
+      /* delete */
+    },
+  },
+})
+```
+
+Serve the library's endpoints so ePDS can fetch your client metadata and
+JWKS:
+
+```typescript
+app.get('/client-metadata.json', (req, res) => res.json(client.clientMetadata))
+app.get('/jwks.json', (req, res) => res.json(client.jwks))
+```
+
+#### Login handler (Flow 2)
+
+```typescript
+// No identifier — auth server shows email form
+const authUrl = await client.authorize('https://pds.example.com')
+
+// With a handle — auth server resolves and sends OTP
+const authUrl = await client.authorize('alice.pds.example.com')
+
+// With a DID — same behaviour as handle
+const authUrl = await client.authorize('did:plc:abc123...')
+
+// Redirect the user's browser to authUrl
+```
+
+#### Callback handler (Flow 2)
+
+```typescript
+const { session, state } = await client.callback(
+  new URLSearchParams(callbackQueryString),
+)
+
+const userDid = session.did // e.g. "did:plc:abc123..."
+// Use session.fetchHandler() for authenticated AT Protocol API calls
+```
+
+#### Restoring a session
+
+```typescript
+const session = await client.restore(userDid)
+// session.fetchHandler() — authenticated fetch
+// session.signOut() — end the session
+```
+
+### Login handler — registering the login attempt (Flow 1)
+
+> **Flow 2:** Skip this section — `NodeOAuthClient.authorize()` handles
+> PAR, DPoP, and nonce retry internally. See
+> [Setting up NodeOAuthClient](#setting-up-nodeoauthclient) above.
 
 Your login handler calls ePDS's `/oauth/par` endpoint to register the login
 attempt. ePDS returns a short-lived token (`request_uri`) that identifies this
@@ -427,20 +629,18 @@ if (!parRes.ok) {
 const { request_uri } = await parRes.json()
 ```
 
-### Redirecting the user to ePDS
+### Redirecting the user to ePDS (Flow 1)
+
+> **Flow 2:** Skip this section — `NodeOAuthClient.authorize()` returns
+> the redirect URL directly.
 
 After registering the login attempt, redirect the user's browser to the ePDS
-auth page. For Flow 1, include the same `login_hint` you passed to `/oauth/par`
-so ePDS skips its own email form and goes straight to OTP entry. The
-identifier may be an email, an AT Protocol handle, or a DID — see
-[Identifying the user](#identifying-the-user):
+auth page. Include the `login_hint` so ePDS skips its own email form and
+goes straight to OTP entry. The identifier may be an email, an AT Protocol
+handle, or a DID — see [Identifying the user](#identifying-the-user):
 
 ```typescript
-// Flow 1
 const authUrl = `${authEndpoint}?client_id=${encodeURIComponent(clientId)}&request_uri=${encodeURIComponent(request_uri)}&login_hint=${encodeURIComponent(identifier)}`
-
-// Flow 2
-const authUrl = `${authEndpoint}?client_id=${encodeURIComponent(clientId)}&request_uri=${encodeURIComponent(request_uri)}`
 ```
 
 Store the DPoP private key, `codeVerifier`, and `state` in a signed HttpOnly
@@ -457,7 +657,11 @@ response.cookies.set('oauth_session', signedSessionCookie, {
 })
 ```
 
-### Callback handler — exchanging the redirect for a token
+### Callback handler — exchanging the redirect for a token (Flow 1)
+
+> **Flow 2:** Skip this section — `client.callback()` handles token
+> exchange internally. See
+> [Setting up NodeOAuthClient](#setting-up-nodeoauthclient) above.
 
 After the user authenticates, ePDS redirects them back to your callback URL
 with a short-lived code. Your callback handler checks it's a genuine redirect

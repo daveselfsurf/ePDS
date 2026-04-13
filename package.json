@@ -33,7 +33,8 @@
     "version-packages": "changeset version && node scripts/changelog-audience-summary.mjs",
     "release": "changeset tag",
     "stamp-version": "./scripts/stamp-version.sh",
-    "docker:build": "./scripts/docker-build.sh"
+    "docker:build": "./scripts/docker-build.sh",
+    "jwk:generate": "./scripts/generate-es256-jwk.cjs"
   },
   "dependencies": {
     "pino": "^10.3.1"
