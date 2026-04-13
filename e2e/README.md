@@ -120,7 +120,7 @@ or scenarios and loads step definitions via `--import`.
 
 ## Running the CI e2e job against a Railway environment
 
-The `E2E tests` GitHub Actions workflow (`.github/workflows/e2e-pr.yml`) normally
+The `E2E tests` GitHub Actions workflow (`.github/workflows/e2e-tests.yml`) normally
 runs itself: whenever Railway successfully deploys a PR preview environment, it
 posts a `deployment_status` webhook that triggers the workflow against the
 environment it just deployed. For everyday PR work you don't need to do anything.
@@ -136,7 +136,7 @@ You do need to trigger it manually in two situations:
 Use `gh workflow run` with **both** `--ref` and `-f env_name`:
 
 ```bash
-gh workflow run e2e-pr.yml \
+gh workflow run e2e-tests.yml \
   --ref <your-branch> \
   -f env_name="ePDS / <railway-env-name>"
 ```
@@ -147,16 +147,17 @@ gh workflow run e2e-pr.yml \
   so your local changes won't be exercised — the workflow will run against
   old test code and produce confusing results.
 - `-f env_name="..."` is the display name shown in the Railway PR comment.
-  Use the exact string you see there. Both formats are accepted:
+  Use the exact string you see there. Accepted formats:
   - `ePDS / ePDS-pr-<N>` — standard PR environment name.
   - `ePDS / pr-<hash>-<N>` — Railway's collision-avoidance fallback, seen
     after a close/reopen or force-push inside the env-cleanup window.
     See [Railway discussion](https://station.railway.com/questions/pr-environment-name-format-change-causin-9aaa904f).
+  - `ePDS / pr-base` — the persistent post-merge backstop environment.
 
 Example:
 
 ```bash
-gh workflow run e2e-pr.yml \
+gh workflow run e2e-tests.yml \
   --ref fix/consent-use-upstream-oauth-ui \
   -f env_name="ePDS / ePDS-pr-21"
 ```
@@ -164,7 +165,7 @@ gh workflow run e2e-pr.yml \
 After dispatching, watch the run:
 
 ```bash
-gh run list --workflow=e2e-pr.yml --event=workflow_dispatch --limit 1
+gh run list --workflow=e2e-tests.yml --event=workflow_dispatch --limit 1
 gh run watch <run-id>
 ```
 
