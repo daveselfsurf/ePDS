@@ -140,11 +140,12 @@ function derToRaw(der: Buffer): Buffer {
 }
 ```
 
-## Nonce retry pattern
+## Nonce retry pattern (Flow 1 only)
 
 ePDS always rejects the first DPoP proof with a `400` and a `dpop-nonce`
-header. This is standard behaviour — wrap every PAR and token request in
-this retry loop:
+header. This is standard behaviour. For Flow 1 (hand-rolled), wrap every
+PAR and token request in this retry loop. Flows 2–4 do not need this —
+`NodeOAuthClient` handles nonce retry internally.
 
 ```typescript
 async function fetchWithDpopRetry(

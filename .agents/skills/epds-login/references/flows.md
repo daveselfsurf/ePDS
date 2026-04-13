@@ -331,7 +331,7 @@ sequenceDiagram
     User->>Auth: Submits OTP code
     Auth-->>User: Redirect to callback URL
 
-    User->>App: GET /api/oauth/callback?code=...
+    User->>App: GET /api/oauth/callback?code=...&state=...
     App->>Lib: callback(params)
     Lib->>PDS: POST /oauth/token (auto DPoP)
     PDS-->>Lib: { tokens }
