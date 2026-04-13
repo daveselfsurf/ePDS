@@ -84,4 +84,5 @@ token exchange, client metadata, and both login flows.
 
 ## License
 
-MIT
+MIT and/or Apache 2.0 see original License: [https://github.com/bluesky-social/pds/blob/main/LICENSE.txt
+](https://github.com/bluesky-social/pds/blob/main/LICENSE.txt)
