@@ -141,7 +141,7 @@ export function createRecoveryRouter(
 
         logger.info({ email }, 'Recovery OTP sent via better-auth')
         res.send(
-          renderOtpForm({
+          renderRecoveryOtpForm({
             email,
             csrfToken: res.locals.csrfToken,
             requestUri,
@@ -154,7 +154,7 @@ export function createRecoveryRouter(
       } catch (err) {
         logger.error({ err }, 'Failed to send recovery OTP')
         res.status(500).send(
-          renderOtpForm({
+          renderRecoveryOtpForm({
             email,
             csrfToken: res.locals.csrfToken,
             requestUri,
@@ -169,7 +169,7 @@ export function createRecoveryRouter(
     } else {
       // No backup email found, but show OTP form anyway (anti-enumeration)
       res.send(
-        renderOtpForm({
+        renderRecoveryOtpForm({
           email,
           csrfToken: res.locals.csrfToken,
           requestUri,
@@ -227,7 +227,7 @@ export function createRecoveryRouter(
           : 'Verification failed. Please try again.'
       const { customCss, backUri } = await getFlowCss(req)
       res.send(
-        renderOtpForm({
+        renderRecoveryOtpForm({
           email,
           csrfToken: res.locals.csrfToken,
           requestUri,
@@ -244,7 +244,7 @@ export function createRecoveryRouter(
   return router
 }
 
-function renderRecoveryForm(opts: {
+export function renderRecoveryForm(opts: {
   requestUri: string
   csrfToken: string
   error?: string
@@ -284,7 +284,7 @@ function renderRecoveryForm(opts: {
 </html>`
 }
 
-function renderOtpForm(opts: {
+export function renderRecoveryOtpForm(opts: {
   email: string
   csrfToken: string
   requestUri: string

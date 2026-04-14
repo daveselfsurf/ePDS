@@ -78,6 +78,22 @@ tag closure. The CSP `style-src` directive is updated with a SHA-256
 hash of the injected CSS. Untrusted clients never get CSS injection
 regardless of what their metadata contains.
 
+#### Iterating on `branding.css` via auth-service preview routes
+
+Set `AUTH_PREVIEW_ROUTES=1` on the auth-service to expose a set of
+static `/preview/*` URLs that render each auth-service page with
+fixture data (no real OAuth flow, no OTP emails). Pass
+`?client_id=<URL-of-your-client-metadata.json>` to inject that
+client's `branding.css`, subject to the same `PDS_OAUTH_TRUSTED_CLIENTS`
+check as real flows. Visit `/preview` on the auth-service for an
+index. Intended for preview envs and dev instances — the routes
+short-circuit real auth state and have no effect on real flows, but
+are a developer-only surface and shouldn't be left on in production.
+See `packages/auth-service/.env.example` for details. The pds-core
+consent page (from `@atproto/oauth-provider-ui`) is not yet covered
+by a preview route — that needs a separate mechanism for the SPA's
+hydration data.
+
 Optional PDS email variables:
 
 | Variable                        | Description                                      |

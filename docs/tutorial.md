@@ -269,6 +269,15 @@ You can customise the OTP email and login page colours:
 }
 ```
 
+For full control over the auth-service pages (login, OTP entry,
+choose-handle, recovery) and the PDS consent page, trusted clients can
+also supply a `branding.css` string in a `branding` object inside their
+client metadata. See the
+[CSS branding injection](./configuration.md#css-branding-injection)
+section for the full reference, including how to iterate on your CSS
+without walking through the full OAuth flow each time via the
+auth-service's `/preview/*` routes.
+
 The email template must be an HTML file containing at minimum a `{{code}}`
 placeholder. Supported template variables:
 
