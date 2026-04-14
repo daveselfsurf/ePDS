@@ -16,6 +16,16 @@ const logger = createLogger('auth:email')
 const templateCache = new Map<string, { html: string; fetchedAt: number }>()
 const TEMPLATE_CACHE_TTL = 10 * 60 * 1000 // 10 minutes
 
+/** Seed the template cache. Intended for tests only. */
+export function _seedTemplateCacheForTest(uri: string, html: string): void {
+  templateCache.set(uri, { html, fetchedAt: Date.now() })
+}
+
+/** Clear the template cache. Intended for tests only. */
+export function _clearTemplateCacheForTest(): void {
+  templateCache.clear()
+}
+
 const MAX_TEMPLATE_SIZE = 100_000 // 100KB
 
 // SSRF-hardened fetch for email templates: requires HTTPS, blocks private/

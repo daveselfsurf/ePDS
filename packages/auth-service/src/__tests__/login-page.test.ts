@@ -11,7 +11,11 @@ import { randomBytes } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
-import { EpdsDb, clearClientMetadataCache } from '@certified-app/shared'
+import {
+  EpdsDb,
+  clearClientMetadataCache,
+  _seedClientMetadataCacheForTest,
+} from '@certified-app/shared'
 import type { HandleMode } from '@certified-app/shared'
 import {
   resolveHandleMode,
@@ -390,16 +394,15 @@ describe('safeResolveClientMetadata', () => {
     expect(result).toEqual({ client_name: 'app.example.com' })
   })
 
-  it('returns metadata when fetch succeeds', async () => {
+  it('returns metadata when cache is seeded', async () => {
     const mockMetadata: ClientMetadata = {
       client_name: 'Test App',
       brand_color: '#123456',
     }
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      headers: { get: () => null },
-      json: () => Promise.resolve(mockMetadata),
-    }) as unknown as typeof fetch
+    _seedClientMetadataCacheForTest(
+      'https://test-app.coolapp.dev',
+      mockMetadata,
+    )
     const result = await safeResolveClientMetadata(
       'https://test-app.coolapp.dev',
     )

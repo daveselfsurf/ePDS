@@ -61,6 +61,14 @@ export function clearClientMetadataCache(): void {
   cache.clear()
 }
 
+/** Seed the metadata cache. Intended for tests only. */
+export function _seedClientMetadataCacheForTest(
+  clientId: string,
+  metadata: ClientMetadata,
+): void {
+  cache.set(clientId, { metadata, expiresAt: Date.now() + CACHE_TTL_MS })
+}
+
 const safeFetch = makeSafeFetch({ timeoutMs: 5_000 })
 
 export async function resolveClientName(clientId: string): Promise<string> {

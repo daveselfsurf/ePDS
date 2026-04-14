@@ -42,6 +42,7 @@ export {
   escapeCss,
   getClientCss,
   clearClientMetadataCache,
+  _seedClientMetadataCacheForTest,
 } from './client-metadata.js'
 export type { ClientMetadata, ClientBranding } from './client-metadata.js'
 export { getEpdsVersion } from './version.js'

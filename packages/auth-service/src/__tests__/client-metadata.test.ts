@@ -7,51 +7,21 @@
  * file only tests auth-service-specific additions (resolveClientBranding)
  * and verifies that the safeFetch SSRF guards produce graceful fallbacks
  * through the re-export layer.
+ *
+ * Tests seed the metadata cache directly via _seedClientMetadataCacheForTest
+ * because the SSRF-hardened safeFetch (backed by @atproto-labs/fetch-node)
+ * uses a custom undici dispatcher that bypasses globalThis.fetch mocks.
  */
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  afterEach,
-  type Mock,
-} from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import {
   resolveClientMetadata,
   resolveClientBranding,
   clearClientMetadataCache,
 } from '../lib/client-metadata.js'
-
-// ── fetch mock helpers ─────────────────────────────────────────────────────
-
-function installFetchMock(impl: Mock): Mock {
-  globalThis.fetch = impl as unknown as typeof fetch
-  return impl
-}
-
-function mockFetchOk(body: Record<string, unknown>): Mock {
-  return installFetchMock(
-    vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(body), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    ),
-  )
-}
-
-// ── setup / teardown ───────────────────────────────────────────────────────
-
-const originalFetch = globalThis.fetch
+import { _seedClientMetadataCacheForTest } from '@certified-app/shared'
 
 beforeEach(() => {
-  globalThis.fetch = originalFetch
   clearClientMetadataCache()
-})
-
-afterEach(() => {
-  globalThis.fetch = originalFetch
 })
 
 // ── SSRF fallback via re-export layer ──────────────────────────────────────
@@ -81,11 +51,8 @@ describe('resolveClientMetadata — SSRF-blocked URLs fall back gracefully', () 
       '[::ffff:c0a8:101]',
     ],
   ])('falls back to domain for %s', async (_label, url, expectedDomain) => {
-    const mockFetch = installFetchMock(vi.fn())
-
     const metadata = await resolveClientMetadata(url)
     expect(metadata.client_name).toBe(expectedDomain)
-    expect(mockFetch).not.toHaveBeenCalled()
   })
 })
 
@@ -93,7 +60,9 @@ describe('resolveClientMetadata — SSRF-blocked URLs fall back gracefully', () 
 
 describe('resolveClientBranding', () => {
   it('returns clientMeta, clientName, and null customCss for untrusted client', async () => {
-    mockFetchOk({ client_name: 'My App' })
+    _seedClientMetadataCacheForTest('https://myapp.dev/client-metadata.json', {
+      client_name: 'My App',
+    })
 
     const result = await resolveClientBranding(
       'https://myapp.dev/client-metadata.json',
@@ -106,7 +75,7 @@ describe('resolveClientBranding', () => {
   })
 
   it('falls back to domain for clientName when client_name is missing', async () => {
-    mockFetchOk({})
+    _seedClientMetadataCacheForTest('https://cool.app/client-metadata.json', {})
 
     const result = await resolveClientBranding(
       'https://cool.app/client-metadata.json',

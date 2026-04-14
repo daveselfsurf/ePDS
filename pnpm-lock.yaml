@@ -168,15 +168,15 @@ importers:
 
   packages/shared:
     dependencies:
+      '@atproto-labs/fetch-node':
+        specifier: ^0.2.0
+        version: 0.2.0
       '@atproto/syntax':
         specifier: 0.4.3
         version: 0.4.3
       better-sqlite3:
         specifier: ^12.0.0
         version: 12.6.2
-      ipaddr.js:
-        specifier: ^2.3.0
-        version: 2.3.0
       pino:
         specifier: ^10.3.1
         version: 10.3.1
