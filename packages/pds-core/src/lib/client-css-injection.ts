@@ -105,6 +105,34 @@ export function findInsertionIndex(
   return 0
 }
 
+type ExpressAppLike = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Express app.use() accepts broad middleware signatures
+  use: (middleware: (...args: any[]) => any) => void
+}
+
+/**
+ * Create and install the CSS injection middleware into an Express app's
+ * stack, positioned after the compression middleware.
+ */
+export function installCssInjectionMiddleware(
+  app: ExpressAppLike,
+  stack: Array<{ name?: string }> | undefined,
+  deps: ClientCssInjectionDeps,
+): void {
+  if (deps.trustedClients.length === 0) return
+  const middleware = createClientCssInjectionMiddleware(deps)
+  app.use(middleware)
+  const layer = stack?.pop()
+  if (stack && layer) {
+    const insertIdx = findInsertionIndex(stack)
+    stack.splice(insertIdx, 0, layer)
+    deps.logger.info(
+      { trustedClients: deps.trustedClients, insertIdx },
+      'CSS injection middleware installed for trusted OAuth clients',
+    )
+  }
+}
+
 export function createClientCssInjectionMiddleware({
   trustedClients,
   resolveClientMetadata,

@@ -42,10 +42,7 @@ import {
   getEpdsVersion,
 } from '@certified-app/shared'
 import { shouldRewriteSecFetchSite } from './lib/sec-fetch-site-rewrite.js'
-import {
-  createClientCssInjectionMiddleware,
-  findInsertionIndex,
-} from './lib/client-css-injection.js'
+import { installCssInjectionMiddleware } from './lib/client-css-injection.js'
 
 const logger = createLogger('pds-core')
 
@@ -572,36 +569,21 @@ async function main() {
     .map((s) => s.trim())
     .filter(Boolean)
 
-  if (trustedClients.length > 0) {
-    const cssInjectionMiddleware = createClientCssInjectionMiddleware({
-      trustedClients,
-      resolveClientMetadata,
-      getClientCss,
-      resolveClientIdFromRequestUri: provider
-        ? async (requestUri: string) => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @atproto/oauth-provider requestManager not exported
-            const requestData = await (provider.requestManager as any).get(
-              requestUri,
-            )
-            return requestData?.clientId as string | undefined
-          }
-        : undefined,
-      logger,
-    })
-
-    // Insert after compression so our res.end wrapper sees uncompressed
-    // HTML (see findInsertionIndex JSDoc for the full explanation).
-    pds.app.use(cssInjectionMiddleware)
-    const cssLayer = stack?.pop()
-    if (stack && cssLayer) {
-      const insertIdx = findInsertionIndex(stack)
-      stack.splice(insertIdx, 0, cssLayer)
-      logger.info(
-        { trustedClients, insertIdx },
-        'CSS injection middleware installed for trusted OAuth clients',
-      )
-    }
-  }
+  installCssInjectionMiddleware(pds.app, stack, {
+    trustedClients,
+    resolveClientMetadata,
+    getClientCss,
+    resolveClientIdFromRequestUri: provider
+      ? async (requestUri: string) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @atproto/oauth-provider requestManager not exported
+          const requestData = await (provider.requestManager as any).get(
+            requestUri,
+          )
+          return requestData?.clientId as string | undefined
+        }
+      : undefined,
+    logger,
+  })
 
   // =========================================================================
   // Internal endpoints
