@@ -38,11 +38,21 @@ issues before merging.
 
 ## NOSONAR annotations
 
-Test data that intentionally uses private IPs, `http://` URLs, or
-other patterns Sonar would flag as security hotspots should have
-`// NOSONAR` at the end of the line, with a brief reason:
+When Sonar flags a line as a false positive (security hotspot, bug,
+or code smell that is intentional), add `// NOSONAR` at the end of
+the line with a brief reason:
 
 ```ts
 ['http://', 'http://example.com/data.json', /only https/i], // NOSONAR — testing SSRF guard
 ['private 10.x', 'https://10.0.0.1/path'], // NOSONAR — testing SSRF guard
+const html = `<script>${userCode}</script>` // NOSONAR — sanitised by escapeHtml() above
 ```
+
+Common cases: test data with private IPs or `http://` URLs,
+intentional use of patterns Sonar considers risky (inline scripts,
+hardcoded credentials in test fixtures, etc.).
+
+**Do not use NOSONAR to suppress legitimate issues.** Every
+annotation must have a reason that explains why the flagged pattern
+is safe in this specific context. If you can't articulate why it's
+a false positive, fix the code instead.
