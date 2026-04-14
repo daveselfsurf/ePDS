@@ -269,15 +269,6 @@ You can customise the OTP email and login page colours:
 }
 ```
 
-For full control over the auth-service pages (login, OTP entry,
-choose-handle, recovery) and the PDS consent page, trusted clients can
-also supply a `branding.css` string in a `branding` object inside their
-client metadata. See the
-[CSS branding injection](./configuration.md#css-branding-injection)
-section for the full reference, including how to iterate on your CSS
-without walking through the full OAuth flow each time via the
-auth-service's `/preview/*` routes.
-
 The email template must be an HTML file containing at minimum a `{{code}}`
 placeholder. Supported template variables:
 
@@ -347,6 +338,68 @@ All three conditions must be met for the skip to take effect:
 The skip only applies to initial sign-up — returning users go through
 normal consent handling (which may still be auto-approved if they have
 already granted the requested scopes).
+
+#### Optional: custom CSS for ePDS pages (trusted clients)
+
+If your app is in the PDS operator's `PDS_OAUTH_TRUSTED_CLIENTS`, you can
+supply a `branding.css` string in your client metadata and ePDS will inject
+it into every page it renders during sign-in — login, OTP entry,
+choose-handle, account recovery, and the consent screen. This gives
+trusted clients full control over the look of those pages, not just the
+two hex colours in `brand_color` / `background_color`.
+
+```json
+{
+  "branding": {
+    "css": "body { background: #1a1208; color: #fef3c7; } .btn-primary { background: #f59e0b; color: #1a1208; } /* ... */"
+  }
+}
+```
+
+Constraints:
+
+- CSS is size-capped at 32 KB (measured in escaped UTF-8 bytes).
+- `</style>` sequences are escaped so the CSS can't break out of its
+  `<style>` tag.
+- The CSP `style-src` directive is updated with a SHA-256 hash of the
+  injected CSS, so there's no CSP loophole.
+- Clients **not** in `PDS_OAUTH_TRUSTED_CLIENTS` never get CSS injection,
+  regardless of what their metadata contains.
+
+##### Iterating on `branding.css`
+
+Walking through the full OAuth flow every time you want to tweak a colour
+is tedious — especially the consent screen, which is the last page of the
+flow. When the operator sets `AUTH_PREVIEW_ROUTES=1` on the auth-service
+(typically on preview envs, `pr-base`, and dev — not production), the
+auth-service exposes a set of static preview URLs that render each of its
+pages with fixture data. Pass your `client_id` as a query param to inject
+your `branding.css`, subject to the same `PDS_OAUTH_TRUSTED_CLIENTS` check
+as real flows. Omit `client_id` to see the un-branded baseline.
+
+| Route                        | Page it renders                                            |
+| ---------------------------- | ---------------------------------------------------------- |
+| `GET /preview`               | Index linking to each route below                          |
+| `GET /preview/login`         | Login — email entry step                                   |
+| `GET /preview/login-otp`     | Login — OTP code entry step                                |
+| `GET /preview/choose-handle` | Choose-handle page (`?error=<msg>` shows the error banner) |
+| `GET /preview/recovery`      | Account recovery — email entry step                        |
+| `GET /preview/recovery-otp`  | Account recovery — OTP code entry step                     |
+
+Typical URL to iterate on the login page:
+
+```
+https://<auth-service-host>/preview/login?client_id=<URL-of-your-client-metadata.json>
+```
+
+Edit `branding.css` in your metadata, re-host, reload the preview URL — no
+OTP emails, no walking through the full flow. Browser devtools work
+normally so you can inspect, tweak in the Styles panel, and copy the
+winning rules back into your `branding.css`.
+
+The pds-core consent page (rendered by `@atproto/oauth-provider-ui`) is not
+yet covered by a preview route — for now, testing consent-page CSS still
+requires going through a real OAuth flow once per iteration.
 
 ### Using `@atproto/oauth-client-node` (recommended for Flow 2)
 
