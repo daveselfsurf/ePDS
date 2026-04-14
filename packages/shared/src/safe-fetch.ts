@@ -134,16 +134,43 @@ export function makeSafeFetch(options: SafeFetchOptions = {}) {
           : controller.signal,
       })
 
-      // 6. Enforce Content-Length cap before the caller reads the body
+      // 6. Enforce body size cap — check Content-Length header first
+      // (fast reject), then wrap the body stream to count actual bytes
+      // (protects against servers that omit or lie about Content-Length).
       const cl = res.headers.get('content-length')
-      if (cl !== null && parseInt(cl, 10) > maxBodyBytes) {
+      if (cl !== null && Number.parseInt(cl, 10) > maxBodyBytes) {
         await res.body?.cancel()
         throw new Error(
           `Response too large: Content-Length ${cl} exceeds ${maxBodyBytes} bytes`,
         )
       }
 
-      return res
+      if (!res.body) return res
+
+      let bytesRead = 0
+      const sizeLimit = maxBodyBytes
+      const limitedBody = res.body.pipeThrough(
+        new TransformStream<Uint8Array, Uint8Array>({
+          transform(chunk, controller) {
+            bytesRead += chunk.byteLength
+            if (bytesRead > sizeLimit) {
+              controller.error(
+                new Error(
+                  `Response body exceeds ${sizeLimit} bytes (read ${bytesRead})`,
+                ),
+              )
+              return
+            }
+            controller.enqueue(chunk)
+          },
+        }),
+      )
+
+      return new Response(limitedBody, {
+        status: res.status,
+        statusText: res.statusText,
+        headers: res.headers,
+      })
     } finally {
       clearTimeout(timer)
     }
