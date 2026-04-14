@@ -143,6 +143,9 @@ importers:
       '@atproto/oauth-provider':
         specifier: ^0.15.9
         version: 0.15.10
+      '@atproto/oauth-provider-ui':
+        specifier: ^0.4.3
+        version: 0.4.3
       '@atproto/pds':
         specifier: ^0.4.209
         version: 0.4.211

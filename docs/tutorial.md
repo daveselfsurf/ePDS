@@ -370,12 +370,19 @@ Constraints:
 
 Walking through the full OAuth flow every time you want to tweak a colour
 is tedious — especially the consent screen, which is the last page of the
-flow. When the operator sets `AUTH_PREVIEW_ROUTES=1` on the auth-service
-(typically on preview envs, `pr-base`, and dev — not production), the
-auth-service exposes a set of static preview URLs that render each of its
-pages with fixture data. Pass your `client_id` as a query param to inject
-your `branding.css`, subject to the same `PDS_OAUTH_TRUSTED_CLIENTS` check
-as real flows. Omit `client_id` to see the un-branded baseline.
+flow. Both services expose a set of static preview routes that render the
+pages they own with fixture data, so you can iterate on your
+`branding.css` without going through a real flow. Pass your `client_id` as
+a query param to see the CSS injected, subject to the same
+`PDS_OAUTH_TRUSTED_CLIENTS` check as real flows. Omit `client_id` to see
+the un-branded baseline.
+
+Routes are enabled per-service by the operator — `AUTH_PREVIEW_ROUTES=1`
+for auth-service pages, `PDS_PREVIEW_ROUTES=1` for the pds-core consent
+page. Both are typical on preview envs, `pr-base`, and dev; neither is
+enabled in production.
+
+**auth-service** (login / OTP / choose-handle / recovery):
 
 | Route                        | Page it renders                                            |
 | ---------------------------- | ---------------------------------------------------------- |
@@ -386,20 +393,24 @@ as real flows. Omit `client_id` to see the un-branded baseline.
 | `GET /preview/recovery`      | Account recovery — email entry step                        |
 | `GET /preview/recovery-otp`  | Account recovery — OTP code entry step                     |
 
-Typical URL to iterate on the login page:
+**pds-core** (consent):
+
+| Route                  | Page it renders                                                                                                                    |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /preview`         | Index page for the pds-core preview                                                                                                |
+| `GET /preview/consent` | OAuth consent page (the same `@atproto/oauth-provider-ui` SPA used by `/oauth/authorize`, rendered against fixture hydration data) |
+
+Typical URLs:
 
 ```
 https://<auth-service-host>/preview/login?client_id=<URL-of-your-client-metadata.json>
+https://<pds-host>/preview/consent?client_id=<URL-of-your-client-metadata.json>
 ```
 
 Edit `branding.css` in your metadata, re-host, reload the preview URL — no
 OTP emails, no walking through the full flow. Browser devtools work
 normally so you can inspect, tweak in the Styles panel, and copy the
 winning rules back into your `branding.css`.
-
-The pds-core consent page (rendered by `@atproto/oauth-provider-ui`) is not
-yet covered by a preview route — for now, testing consent-page CSS still
-requires going through a real OAuth flow once per iteration.
 
 ### Using `@atproto/oauth-client-node` (recommended for Flow 2)
 

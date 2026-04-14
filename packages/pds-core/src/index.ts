@@ -43,6 +43,10 @@ import {
 } from '@certified-app/shared'
 import { shouldRewriteSecFetchSite } from './lib/sec-fetch-site-rewrite.js'
 import { installCssInjectionMiddleware } from './lib/client-css-injection.js'
+import {
+  createPreviewConsentHandler,
+  renderPreviewIndex,
+} from './lib/preview-consent.js'
 
 const logger = createLogger('pds-core')
 
@@ -584,6 +588,34 @@ async function main() {
       : undefined,
     logger,
   })
+
+  // =========================================================================
+  // Preview routes for iterating on branding.css
+  // =========================================================================
+  //
+  // Gated by PDS_PREVIEW_ROUTES=1. Renders the OAuth consent page with
+  // fixture hydration data so client-app developers can iterate on their
+  // branding.css without walking through the full OAuth flow. The CSS
+  // injection middleware above intercepts /preview/consent responses
+  // exactly like /oauth/authorize — the trusted-clients gate still
+  // applies. See docs/tutorial.md for the full reference.
+
+  const previewConsentHandler = createPreviewConsentHandler({
+    trustedClients,
+    resolveClientMetadata,
+    getClientCss,
+    logger,
+  })
+  if (previewConsentHandler) {
+    pds.app.get('/preview', (_req, res) => {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8')
+      res.send(renderPreviewIndex())
+    })
+    pds.app.get('/preview/consent', previewConsentHandler)
+    logger.info(
+      'Preview routes installed (PDS_PREVIEW_ROUTES=1): /preview, /preview/consent',
+    )
+  }
 
   // =========================================================================
   // Internal endpoints

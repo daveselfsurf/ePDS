@@ -123,10 +123,11 @@ key generation and serving details.
 
 ## Iterating on `branding.css`
 
-The auth-service exposes static `/preview/*` routes (when the operator sets
-`AUTH_PREVIEW_ROUTES=1`, typically on preview envs and `pr-base`) that render
-each page with fixture data so client devs can iterate without going through
-a real OAuth flow. See
+Both auth-service and pds-core expose static `/preview/*` routes (when the
+operator sets `AUTH_PREVIEW_ROUTES=1` / `PDS_PREVIEW_ROUTES=1`, typically on
+preview envs and `pr-base`) that render each page with fixture data so client
+devs can iterate without going through a real OAuth flow. auth-service covers
+login / OTP / choose-handle / recovery; pds-core covers the consent page. See
 [the client tutorial's "Iterating on `branding.css`" section](../../../../docs/tutorial.md#iterating-on-brandingcss)
 for the route list and example URLs.
 
