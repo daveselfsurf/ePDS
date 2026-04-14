@@ -15,7 +15,7 @@
 
 ### Minor Changes
 
-- <a id="v0.4.0-trusted-apps-can-now-style-the-sign-in-and-consent-pages-to"></a> [#48](https://github.com/hypercerts-org/ePDS/pull/48) [`0c275e4`](https://github.com/hypercerts-org/ePDS/commit/0c275e44c4d60b194ba330ec92b501f1f14d5358) Thanks [@Kzoeps](https://github.com/Kzoeps)! - Trusted apps can now style the sign-in and consent pages to match their own brand.
+- <a id="v0.4.0-trusted-apps-can-now-style-the-sign-in-and-consent-pages-to"></a> [#48](https://github.com/hypercerts-org/ePDS/pull/48) [`0c275e4`](https://github.com/hypercerts-org/ePDS/commit/0c275e44c4d60b194ba330ec92b501f1f14d5358) Thanks [@Kzoeps](https://github.com/Kzoeps) & [@aspiers](https://github.com/aspiers)! - Trusted apps can now style the sign-in and consent pages to match their own brand.
 
   **Affects:** End users, Client app developers, Operators
 
