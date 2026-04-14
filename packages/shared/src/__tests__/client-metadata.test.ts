@@ -168,6 +168,20 @@ describe('getClientCss', () => {
     expect(result).toContain('\\u003c/style>')
   })
 
+  it('escapes </style/> self-closing variant', () => {
+    const result = getClientCss(
+      CLIENT_ID,
+      {
+        branding: {
+          css: 'body { content: "</style/><script>bad</script>"; }',
+        },
+      },
+      TRUSTED,
+    )
+    expect(result).not.toContain('</style')
+    expect(result).toContain('\\u003c/style>')
+  })
+
   it('returns null when CSS exceeds 32 KB', () => {
     const oversized = 'a'.repeat(32_769)
     const result = getClientCss(

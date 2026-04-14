@@ -148,7 +148,7 @@ function extractDomain(urlStr: string): string | null {
  * oauth-provider/src/lib/html/escapers.ts.
  */
 export function escapeCss(css: string): string {
-  return css.replace(/<\/style\s*>/gi, '\\u003c/style>')
+  return css.replace(/<\/style[^>]*>/gi, '\\u003c/style>')
 }
 
 /** Maximum allowed size for injected CSS. Values above this are dropped. */
