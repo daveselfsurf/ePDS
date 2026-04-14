@@ -1,12 +1,13 @@
 import * as nodemailer from 'nodemailer'
-import { createLogger } from '@certified-app/shared'
-import type { Transporter } from 'nodemailer'
-import type { EmailConfig } from '@certified-app/shared'
 import {
+  createLogger,
+  makeSafeFetch,
   escapeHtml,
   formatOtpPlain,
   formatOtpHtmlGrouped,
 } from '@certified-app/shared'
+import type { Transporter } from 'nodemailer'
+import type { EmailConfig } from '@certified-app/shared'
 import { resolveClientMetadata } from '../lib/client-metadata.js'
 
 const logger = createLogger('auth:email')
@@ -15,13 +16,30 @@ const logger = createLogger('auth:email')
 const templateCache = new Map<string, { html: string; fetchedAt: number }>()
 const TEMPLATE_CACHE_TTL = 10 * 60 * 1000 // 10 minutes
 
+/** Seed the template cache. Intended for tests only. */
+export function _seedTemplateCacheForTest(uri: string, html: string): void {
+  templateCache.set(uri, { html, fetchedAt: Date.now() })
+}
+
+/** Clear the template cache. Intended for tests only. */
+export function _clearTemplateCacheForTest(): void {
+  templateCache.clear()
+}
+
 const MAX_TEMPLATE_SIZE = 100_000 // 100KB
 
-async function fetchTemplate(uri: string): Promise<string | null> {
-  // Only allow HTTPS
-  if (!uri.startsWith('https://')) return null
+// SSRF-hardened fetch for email templates: requires HTTPS, blocks private/
+// reserved IPs, enforces a 5s timeout and 100KB Content-Length cap.
+const safeFetch = makeSafeFetch({
+  timeoutMs: 5_000,
+  maxBodyBytes: MAX_TEMPLATE_SIZE,
+})
 
-  // Optional domain allowlist via env var (comma-separated)
+async function fetchTemplate(uri: string): Promise<string | null> {
+  // Optional domain allowlist via env var (comma-separated).
+  // safeFetch already enforces HTTPS and blocks private IPs; this is an
+  // additional opt-in restriction for operators who want to lock down
+  // which domains can supply email templates.
   const allowedDomains = process.env.EMAIL_TEMPLATE_ALLOWED_DOMAINS
   if (allowedDomains) {
     try {
@@ -44,16 +62,12 @@ async function fetchTemplate(uri: string): Promise<string | null> {
     return cached.html
   }
   try {
-    const res = await fetch(uri, { signal: AbortSignal.timeout(5000) })
+    // safeFetch validates the URL (HTTPS only, no private IPs, timeout, size cap)
+    const res = await safeFetch(uri)
     if (!res.ok) return null
 
-    // Reject oversized responses
-    const contentLength = res.headers.get('content-length')
-    if (contentLength && parseInt(contentLength, 10) > MAX_TEMPLATE_SIZE) {
-      logger.warn({ uri, contentLength }, 'Email template too large, ignoring')
-      return null
-    }
-
+    // Reject oversized responses (post-read defence-in-depth — safeFetch
+    // already checks Content-Length; this catches chunked responses)
     const html = await res.text()
     if (html.length > MAX_TEMPLATE_SIZE) {
       logger.warn(

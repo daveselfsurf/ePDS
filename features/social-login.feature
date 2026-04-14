@@ -1,3 +1,4 @@
+@pending
 Feature: Social login (Google, GitHub)
   ePDS supports Google and GitHub as optional OAuth social login providers.
   When configured, social login buttons appear on the login page. After

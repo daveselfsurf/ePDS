@@ -28,6 +28,8 @@ import { fromNodeHeaders } from 'better-auth/node'
 import { getDidByEmail } from '../lib/get-did-by-email.js'
 import { pingParRequest } from '../lib/ping-par-request.js'
 import { requireInternalEnv } from '../lib/require-internal-env.js'
+import { resolveClientBranding } from '../lib/client-metadata.js'
+import { renderOptionalStyleTag } from '../lib/page-helpers.js'
 
 const logger = createLogger('auth:choose-handle')
 
@@ -55,6 +57,7 @@ export function createChooseHandleRouter(
     flow: {
       requestUri: string
       handleMode: HandleMode | null
+      clientId: string | null
     }
     email: string
   } | null> {
@@ -175,6 +178,14 @@ export function createChooseHandleRouter(
       ? (KNOWN_ERROR_MESSAGES[rawError] ?? rawError)
       : undefined
     const showRandomButton = result.flow.handleMode === 'picker-with-random'
+
+    // CSS injection for trusted clients — clientId is already in the flow row
+    const clientId = result.flow.clientId
+    const customCss = clientId
+      ? (await resolveClientBranding(clientId, ctx.config.trustedClients))
+          .customCss
+      : null
+
     res
       .type('html')
       .send(
@@ -183,6 +194,7 @@ export function createChooseHandleRouter(
           error,
           res.locals.csrfToken,
           showRandomButton,
+          customCss,
         ),
       )
   })
@@ -207,6 +219,12 @@ export function createChooseHandleRouter(
     }
 
     const showRandomButton = flow.handleMode === 'picker-with-random'
+
+    // CSS injection for trusted clients
+    const customCss = flow.clientId
+      ? (await resolveClientBranding(flow.clientId, ctx.config.trustedClients))
+          .customCss
+      : null
 
     // Guard: if PDS account already exists, bounce back to /auth/complete
     // (mirrors the same check in the GET handler — prevents signing a
@@ -252,6 +270,7 @@ export function createChooseHandleRouter(
             'Invalid handle format. Use 5-20 lowercase letters, numbers, or hyphens.',
             res.locals.csrfToken,
             showRandomButton,
+            customCss,
           ),
         )
       return
@@ -284,6 +303,7 @@ export function createChooseHandleRouter(
               'Could not verify handle availability. Please try again.',
               res.locals.csrfToken,
               showRandomButton,
+              customCss,
             ),
           )
         return
@@ -298,6 +318,7 @@ export function createChooseHandleRouter(
             'Could not verify handle availability. Please try again.',
             res.locals.csrfToken,
             showRandomButton,
+            customCss,
           ),
         )
       return
@@ -312,6 +333,7 @@ export function createChooseHandleRouter(
             'That handle is already taken.',
             res.locals.csrfToken,
             showRandomButton,
+            customCss,
           ),
         )
       return
@@ -414,6 +436,7 @@ function renderChooseHandlePage(
   error?: string,
   csrfToken?: string,
   showRandomButton?: boolean,
+  customCss?: string | null,
 ): string {
   const errorHtml = error
     ? `<div class="error" id="error-msg">${escapeHtml(error)}</div>`
@@ -455,7 +478,7 @@ function renderChooseHandlePage(
     .btn-secondary { width: 100%; padding: 10px; background: white; color: #0f1828; border: 1px solid #0f1828; border-radius: 8px; font-size: 15px; font-weight: 500; cursor: pointer; margin-top: 8px; }
     .btn-secondary:hover:not(:disabled) { background: #f0f2f5; }
     .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
-  </style>
+  </style>${renderOptionalStyleTag(customCss)}
 </head>
 <body>
   <div class="container">

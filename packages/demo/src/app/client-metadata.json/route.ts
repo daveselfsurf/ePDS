@@ -23,11 +23,13 @@
 import { NextResponse } from 'next/server'
 import { getBaseUrl } from '@/lib/auth'
 import { getClientPublicJwk } from '@/lib/client-jwk'
+import { getTheme } from '@/lib/theme'
 
 export const runtime = 'nodejs'
 
 export async function GET() {
   const baseUrl = getBaseUrl()
+  const theme = getTheme()
 
   const publicJwk = await getClientPublicJwk()
   const isConfidential = publicJwk !== null
@@ -51,10 +53,13 @@ export async function GET() {
           token_endpoint_auth_method: 'none',
         }),
     dpop_bound_access_tokens: true,
-    brand_color: '#2563eb',
-    background_color: '#f8f9fa',
+    brand_color: theme?.page.primary ?? '#2563eb',
+    background_color: theme?.page.bg ?? '#f8f9fa',
     ...(process.env.EPDS_SKIP_CONSENT_ON_SIGNUP === 'true' && {
       epds_skip_consent_on_signup: true,
+    }),
+    ...(theme && {
+      branding: { css: theme.injectedCss },
     }),
   }
 

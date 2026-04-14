@@ -26,6 +26,7 @@ import type { AuthServiceContext } from '../context.js'
 import {
   resolveClientMetadata,
   resolveClientName,
+  getClientCss,
   type ClientMetadata,
 } from '../lib/client-metadata.js'
 import {
@@ -41,6 +42,7 @@ import {
   fetchParLoginHint,
 } from '../lib/resolve-login-hint.js'
 import { ensurePdsUrl } from '../lib/pds-url.js'
+import { renderOptionalStyleTag } from '../lib/page-helpers.js'
 
 const logger = createLogger('auth:login-page')
 
@@ -91,7 +93,16 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
       return
     }
 
-    const clientMeta = await safeResolveClientMetadata(clientId)
+    // Look up any existing flow for this request_uri early so we can fall back
+    // to its stored clientId when the query string omits client_id (e.g. when
+    // the user navigates back from the recovery page via a bare request_uri link).
+    // The persisted flow's clientId takes precedence over the query-string
+    // client_id — the flow was stored from a validated PAR request server-side,
+    // whereas client_id on the query string is user-controlled.
+    const existingFlow = ctx.db.getAuthFlowByRequestUri(requestUri)
+    const effectiveClientId = existingFlow?.clientId ?? clientId ?? undefined
+
+    const clientMeta = await safeResolveClientMetadata(effectiveClientId)
     const handleMode = resolveHandleMode(
       req.query.epds_handle_mode as string | undefined,
       clientMeta,
@@ -114,7 +125,6 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
     // than creating a second row (and triggering a second OTP send). This protects
     // against duplicate GETs from browser extensions, prefetch, or StayFocusd.
     let flowId: string
-    const existingFlow = ctx.db.getAuthFlowByRequestUri(requestUri)
     if (existingFlow) {
       flowId = existingFlow.flowId
       logger.warn(
@@ -156,7 +166,18 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
 
     const clientName =
       clientMeta.client_name ??
-      (clientId ? await resolveClientName(clientId) : 'an application')
+      (effectiveClientId
+        ? await resolveClientName(effectiveClientId)
+        : 'an application')
+
+    // CSS injection for trusted clients
+    const customCss = effectiveClientId
+      ? getClientCss(effectiveClientId, clientMeta, ctx.config.trustedClients)
+      : null
+    logger.debug(
+      { clientId: effectiveClientId, trusted: customCss !== null },
+      'client CSS trust check',
+    )
 
     // Pillar 1 — State Determination: decide which step to render based on
     // login_hint presence. No method-assuming side effects in the GET handler.
@@ -216,9 +237,10 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
     res.type('html').send(
       renderLoginPage({
         flowId,
-        clientId: clientId ?? '',
+        clientId: effectiveClientId ?? '',
         clientName,
         branding: clientMeta,
+        customCss,
         loginHint: emailHint,
         initialStep,
         otpAlreadySent,
@@ -239,6 +261,7 @@ function renderLoginPage(opts: {
   clientId: string
   clientName: string
   branding: ClientMetadata
+  customCss: string | null
   loginHint: string
   initialStep: 'email' | 'otp'
   otpAlreadySent: boolean
@@ -330,7 +353,7 @@ function renderLoginPage(opts: {
     .step-email.hidden { display: none; }
     .recovery-link { display: block; margin-top: 16px; color: #888; font-size: 13px; text-decoration: none; }
     .recovery-link:hover { color: #555; }
-  </style>
+  </style>${renderOptionalStyleTag(opts.customCss)}
 </head>
 <body>
   <div class="container">
