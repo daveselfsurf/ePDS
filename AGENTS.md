@@ -281,6 +281,11 @@ import { AuthServiceContext } from './context.js'
 
 ## Security
 
+- **Never hand-roll security code.** Use upstream or established libraries
+  for SSRF protection, crypto, auth, input sanitization, etc. If a library
+  integration has issues (e.g. test incompatibility), fix the integration —
+  do not reimplement the security logic. If the integration truly can't
+  work, stop and ask before proceeding with any alternative.
 - All epds-callback redirects must be HMAC-SHA256 signed using
   `signCallback()` / `verifyCallback()` from `@certified-app/shared`.
 - Use `timingSafeEqual()` for all secret/token comparisons.
