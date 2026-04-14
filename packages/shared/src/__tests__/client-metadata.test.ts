@@ -154,8 +154,8 @@ describe('getClientCss', () => {
     expect(result).toContain('\\u003c/style>')
   })
 
-  it('returns null when CSS exceeds 8 KB', () => {
-    const oversized = 'a'.repeat(8_193)
+  it('returns null when CSS exceeds 32 KB', () => {
+    const oversized = 'a'.repeat(32_769)
     const result = getClientCss(
       CLIENT_ID,
       { branding: { css: oversized } },
@@ -164,8 +164,8 @@ describe('getClientCss', () => {
     expect(result).toBeNull()
   })
 
-  it('returns CSS exactly at the 8 KB limit', () => {
-    const atLimit = 'a'.repeat(8_192)
+  it('returns CSS exactly at the 32 KB limit', () => {
+    const atLimit = 'a'.repeat(32_768)
     const result = getClientCss(
       CLIENT_ID,
       { branding: { css: atLimit } },

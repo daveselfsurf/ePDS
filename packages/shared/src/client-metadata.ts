@@ -152,7 +152,7 @@ export function escapeCss(css: string): string {
 }
 
 /** Maximum allowed size for injected CSS. Values above this are dropped. */
-const MAX_CSS_BYTES = 8_192 // 8 KB
+const MAX_CSS_BYTES = 32_768 // 32 KB
 
 /**
  * Returns escaped CSS for injection if the client is trusted, or null.
@@ -168,8 +168,9 @@ export function getClientCss(
   if (!trustedClients.includes(clientId)) return null
   const raw = metadata.branding?.css
   if (!raw) return null
-  if (raw.length > MAX_CSS_BYTES) return null
-  return escapeCss(raw)
+  const escaped = escapeCss(raw)
+  if (Buffer.byteLength(escaped, 'utf8') > MAX_CSS_BYTES) return null
+  return escaped
 }
 
 // Cleanup expired cache entries periodically

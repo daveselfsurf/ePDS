@@ -300,12 +300,18 @@ Then(
     // We compute the same hash from the known CSS signature to verify.
     const html = await page.content()
 
-    // Extract the full injected <style> content
-    const styleMatch = /<style[^>]*>([\s\S]*?)<\/style>/i.exec(html)
-    if (!styleMatch) {
-      throw new Error('No <style> tag found in consent page HTML')
+    // Find the injected <style> tag (not the first one, which may be
+    // the upstream oauth-provider's own styles)
+    const styleMatches = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)]
+    const injectedStyle = styleMatches.find(([, css]) =>
+      css.includes(INJECTED_CSS_SIGNATURE),
+    )
+    if (!injectedStyle) {
+      throw new Error(
+        'Injected client CSS <style> tag not found in consent page HTML',
+      )
     }
-    const cssContent = styleMatch[1]
+    const cssContent = injectedStyle[1]
 
     // Compute SHA-256 hash the same way the middleware does
     const hash = crypto.createHash('sha256').update(cssContent).digest('base64')

@@ -137,7 +137,7 @@ export function getTheme(): Theme | null {
 
 /**
  * Returns just the page-level style values, or `null`.
- * Safe to call from client components via NEXT_PUBLIC_.
+ * Server-only — reads EPDS_CLIENT_THEME at call time.
  */
 export function getPageTheme(): PageTheme | null {
   return getTheme()?.page ?? null

@@ -251,8 +251,9 @@ function renderRecoveryForm(opts: {
   customCss?: string | null
   backUri?: string | null
 }): string {
-  const backHref = opts.backUri
-    ? `/oauth/authorize?request_uri=${encodeURIComponent(opts.backUri)}`
+  const requestUriForBack = opts.backUri ?? opts.requestUri
+  const backHref = requestUriForBack
+    ? `/oauth/authorize?request_uri=${encodeURIComponent(requestUriForBack)}`
     : '/oauth/authorize'
   return `<!DOCTYPE html>
 <html lang="en">
@@ -294,8 +295,9 @@ function renderOtpForm(opts: {
   backUri?: string | null
 }): string {
   const maskedEmail = maskEmail(opts.email)
-  const backHref = opts.backUri
-    ? `/oauth/authorize?request_uri=${encodeURIComponent(opts.backUri)}`
+  const requestUriForBack = opts.backUri ?? opts.requestUri
+  const backHref = requestUriForBack
+    ? `/oauth/authorize?request_uri=${encodeURIComponent(requestUriForBack)}`
     : '/oauth/authorize'
   const inputProps = buildOtpInputProps(opts.otpLength, opts.otpCharset)
 

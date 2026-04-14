@@ -62,7 +62,7 @@ For OTP scenarios you also need a local Mailpit instance (see
 | ------------------------ | -------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `E2E_PDS_URL`            | Yes      | —         | PDS core base URL                                                                                                                                       |
 | `E2E_AUTH_URL`           | Yes      | —         | Auth service base URL                                                                                                                                   |
-| `E2E_DEMO_URL`           | Yes      | —         | Trusted demo client base URL (listed in `pds-core`'s `PDS_OAUTH_TRUSTED_CLIENTS`)                                                                       |
+| `E2E_DEMO_URL`           | Yes      | —         | Trusted demo client base URL (its `client_id` URL, i.e. `<base>/client-metadata.json`, is listed in `pds-core`'s `PDS_OAUTH_TRUSTED_CLIENTS`)           |
 | `E2E_DEMO_UNTRUSTED_URL` | No       | —         | Untrusted demo client base URL. When unset, scenarios tagged `@untrusted-client` are automatically excluded. See [Two demo clients](#two-demo-clients). |
 | `E2E_MAILPIT_URL`        | No       | —         | Mailpit base URL. Required for OTP scenarios.                                                                                                           |
 | `E2E_MAILPIT_USER`       | No       | `karma`   | Mailpit HTTP basic auth username                                                                                                                        |

@@ -74,6 +74,12 @@ SonarCloud runs on every PR. Check results and fix issues before
 merging. See [`.agents/reference/SonarCloud.md`](.agents/reference/SonarCloud.md)
 for API commands and quality gate thresholds.
 
+### PR review comments
+
+Check for and address unresolved review comments after every push.
+See [`.agents/reference/github-pr-comments.md`](.agents/reference/github-pr-comments.md)
+for API commands.
+
 ### End-to-end tests in CI
 
 The e2e suite lives in `e2e/` and its feature files in `features/`. Normally
