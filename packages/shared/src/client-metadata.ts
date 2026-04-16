@@ -14,7 +14,10 @@
  */
 
 import type { HandleMode } from './handle.js'
+import { createLogger } from './logger.js'
 import { makeSafeFetch } from './safe-fetch.js'
+
+const logger = createLogger('shared:client-metadata')
 
 export interface ClientBranding {
   css?: string
@@ -76,8 +79,19 @@ export async function resolveClientName(clientId: string): Promise<string> {
   return metadata.client_name || extractDomain(clientId) || 'an application'
 }
 
+export interface ResolveClientMetadataOptions {
+  /**
+   * When true, ignore any existing cache entry for this clientId and
+   * refetch from the network. A successful fetch still populates the
+   * cache. Intended for preview/dev loops where the upstream metadata
+   * JSON is being edited live.
+   */
+  noCache?: boolean
+}
+
 export async function resolveClientMetadata(
   clientId: string,
+  options: ResolveClientMetadataOptions = {},
 ): Promise<ClientMetadata> {
   // Only attempt a fetch for URL-shaped client IDs
   let parsedUrl: URL
@@ -90,10 +104,11 @@ export async function resolveClientMetadata(
     return { client_name: clientId }
   }
 
-  // Check cache
-  const cached = cache.get(clientId)
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.metadata
+  if (!options.noCache) {
+    const cached = cache.get(clientId)
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.metadata
+    }
   }
 
   try {
@@ -104,6 +119,10 @@ export async function resolveClientMetadata(
     })
 
     if (!res.ok) {
+      logger.warn(
+        { clientId, status: res.status },
+        'Client metadata fetch returned non-OK status; using fallback',
+      )
       return fallback(clientId)
     }
 
@@ -116,7 +135,15 @@ export async function resolveClientMetadata(
     })
 
     return metadata
-  } catch {
+  } catch (err) {
+    // Previously swallowed silently — meant a transient boot-time fetch
+    // failure would cache a branding-less fallback for 60s with no audit
+    // trail. Logging keeps the "don't throw" ergonomics for callers while
+    // making the negative cache diagnosable.
+    logger.warn(
+      { err, clientId },
+      'Client metadata fetch failed; using fallback',
+    )
     return fallback(clientId)
   }
 }

@@ -31,7 +31,15 @@ function mockRes(): CapturedRes {
 }
 
 describe('createPreviewConsentHandler', () => {
-  const originalEnv = process.env.PDS_PREVIEW_ROUTES
+  // Snapshot + restore per-test so a mid-test throw cannot leak env state
+  // between tests (process.env is process-global, unlike Vitest's module
+  // isolation).
+  let originalEnv: string | undefined
+
+  beforeEach(() => {
+    originalEnv = process.env.PDS_PREVIEW_ROUTES
+    delete process.env.PDS_PREVIEW_ROUTES
+  })
 
   afterEach(() => {
     if (originalEnv === undefined) delete process.env.PDS_PREVIEW_ROUTES
@@ -40,7 +48,7 @@ describe('createPreviewConsentHandler', () => {
   })
 
   it('returns null when PDS_PREVIEW_ROUTES is unset', () => {
-    delete process.env.PDS_PREVIEW_ROUTES
+    // beforeEach already deleted it; explicit here is redundant but harmless
     const handler = createPreviewConsentHandler({
       trustedClients: [],
       resolveClientMetadata: () => Promise.resolve({}),
@@ -113,7 +121,9 @@ describe('createPreviewConsentHandler', () => {
       const res = mockRes()
       await handler({ query: { client_id: trusted } }, res)
 
-      expect(resolveClientMetadata).toHaveBeenCalledWith(trusted)
+      expect(resolveClientMetadata).toHaveBeenCalledWith(trusted, {
+        noCache: false,
+      })
       expect(getClientCss).toHaveBeenCalledWith(
         trusted,
         { client_name: 'Trusted App' },
@@ -179,6 +189,80 @@ describe('createPreviewConsentHandler', () => {
       // Default fixture client: no resolution attempted
       expect(resolveClientMetadata).not.toHaveBeenCalled()
       expect(res.body).toContain('preview.example/client-metadata.json')
+    })
+
+    it('escapes `</script>` in attacker-controlled clientId so it cannot break out of the hydration <script>', async () => {
+      const handler = createPreviewConsentHandler({
+        trustedClients: [],
+        resolveClientMetadata: () => Promise.resolve({}),
+        getClientCss: () => null,
+        logger: mockLogger(),
+      })!
+      const res = mockRes()
+      await handler(
+        {
+          query: {
+            client_id:
+              'https://x.example/</script><img src=x onerror=alert(1)>',
+          },
+        },
+        res,
+      )
+      // Pull out the hydration script and assert the breakout payload is escaped.
+      // The browser only terminates <script> on a literal `</script>`; as long as
+      // the unescaped sequence never appears inside the script block we're safe.
+      const body = res.body!
+      const scriptMatch = body.match(
+        /<script>(window\["__authorizeData"\][\s\S]*?document\.currentScript\.remove\(\);)<\/script>/,
+      )
+      expect(scriptMatch).not.toBeNull()
+      const scriptBody = scriptMatch![1]
+      expect(scriptBody).not.toMatch(/<\/script/i)
+      // serialize-javascript escapes `<` → `\u003C` (uppercase C)
+      expect(scriptBody).toContain('\\u003C\\u002Fscript')
+    })
+
+    it('passes noCache=true to resolveClientMetadata when ?no_cache=1', async () => {
+      const resolveClientMetadata = vi.fn(() => Promise.resolve({}))
+      const handler = createPreviewConsentHandler({
+        trustedClients: [],
+        resolveClientMetadata,
+        getClientCss: () => null,
+        logger: mockLogger(),
+      })!
+      const res = mockRes()
+      await handler(
+        {
+          query: {
+            client_id: 'https://x.example/client-metadata.json',
+            no_cache: '1',
+          },
+        },
+        res,
+      )
+      expect(resolveClientMetadata).toHaveBeenCalledWith(
+        'https://x.example/client-metadata.json',
+        { noCache: true },
+      )
+    })
+
+    it('passes noCache=false by default', async () => {
+      const resolveClientMetadata = vi.fn(() => Promise.resolve({}))
+      const handler = createPreviewConsentHandler({
+        trustedClients: [],
+        resolveClientMetadata,
+        getClientCss: () => null,
+        logger: mockLogger(),
+      })!
+      const res = mockRes()
+      await handler(
+        { query: { client_id: 'https://x.example/client-metadata.json' } },
+        res,
+      )
+      expect(resolveClientMetadata).toHaveBeenCalledWith(
+        'https://x.example/client-metadata.json',
+        { noCache: false },
+      )
     })
 
     it('HTML-escapes the client id in the <title>', async () => {

@@ -25,15 +25,19 @@
  *
  * - Hydration format matches `declareHydrationData` in
  *   @atproto/oauth-provider/lib/html/hydration-data.js: each value is
- *   JSON-stringified twice (once for the value, once for a string
- *   literal inside the script) and assigned to `window[key]`. The script
- *   then removes itself so later scripts can't read the globals.
+ *   serialised and assigned to `window[key]`. The script then removes
+ *   itself so later scripts can't read the globals. We use
+ *   `serialize-javascript` rather than hand-rolling the escape so that
+ *   `</script>`, `U+2028`, `U+2029`, and other JS-string-literal hazards
+ *   in attacker-controllable fields (e.g. `clientId`) cannot break out
+ *   of the inline script.
  *
  * - CSP: we use `script-src 'self' 'unsafe-inline'` rather than sha256-
  *   pinning the hydration script, matching the auth-service preview
  *   routes' relaxed CSP.
  */
-import type { ClientMetadata } from '@certified-app/shared'
+import { escapeHtml, type ClientMetadata } from '@certified-app/shared'
+import serialize from 'serialize-javascript'
 
 // Use structural request/response types rather than importing from
 // express — pds-core doesn't depend on express's types directly and
@@ -88,28 +92,22 @@ async function loadAssetRefs(): Promise<{
 
 const ASSETS_URL_PREFIX = '/@atproto/oauth-provider/~assets/'
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
 function assetUrl(filename: string): string {
   return `${ASSETS_URL_PREFIX}${encodeURIComponent(filename)}`
 }
 
 function renderHydration(values: Record<string, unknown>): string {
-  // Mirrors @atproto/oauth-provider's declareHydrationData: each value is
-  // stringified once (to JSON), then that string is JSON-stringified again
-  // to produce a safely-embedded JS string literal. The script removes
-  // itself so subsequent scripts can't read the globals off window.
+  // Mirrors @atproto/oauth-provider's declareHydrationData. We delegate the
+  // actual escaping to serialize-javascript so `</script>`, U+2028/2029,
+  // and other inline-script hazards in attacker-controllable values (e.g.
+  // `clientId`) can't break out. `isJSON: true` tells serialize-javascript
+  // the value is plain JSON-safe data (no Date/Function/RegExp round-trip
+  // needed), which makes the output a drop-in for the SPA's JSON.parse.
   const lines: string[] = []
   for (const [key, val] of Object.entries(values)) {
-    const payload = JSON.stringify(JSON.stringify(val))
-    lines.push(`window[${JSON.stringify(key)}]=JSON.parse(${payload});`)
+    const keyLit = serialize(key, { isJSON: true })
+    const valLit = serialize(JSON.stringify(val), { isJSON: true })
+    lines.push(`window[${keyLit}]=JSON.parse(${valLit});`)
   }
   lines.push('document.currentScript.remove();')
   return lines.join('')
@@ -212,7 +210,10 @@ async function renderConsentHtml(opts: {
 
 interface PreviewConsentDeps {
   trustedClients: string[]
-  resolveClientMetadata: (clientId: string) => Promise<ClientMetadata>
+  resolveClientMetadata: (
+    clientId: string,
+    options?: { noCache?: boolean },
+  ) => Promise<ClientMetadata>
   getClientCss: (
     clientId: string,
     metadata: ClientMetadata,
@@ -239,12 +240,18 @@ export function createPreviewConsentHandler(
         ? rawClientId
         : FIXTURE_DEFAULT_CLIENT_ID
 
+    // `?no_cache=1` bypasses the 10-minute `resolveClientMetadata` cache
+    // so CSS edits on the client's metadata JSON show up on the next
+    // refresh. Without it, devs can spend 10 minutes staring at a stale
+    // branding.css wondering why their change didn't land.
+    const noCache = req.query.no_cache === '1'
+
     let metadata: ClientMetadata = {}
     let injectedCss: string | null = null
 
     if (clientId !== FIXTURE_DEFAULT_CLIENT_ID) {
       try {
-        metadata = await deps.resolveClientMetadata(clientId)
+        metadata = await deps.resolveClientMetadata(clientId, { noCache })
         injectedCss = deps.getClientCss(clientId, metadata, deps.trustedClients)
       } catch (err) {
         deps.logger.warn(
@@ -305,6 +312,7 @@ export function renderPreviewIndex(): string {
   <h1>pds-core preview routes</h1>
   <p>Renders the OAuth consent page with fixture hydration data, so you can iterate on your client's <code>branding.css</code> without walking through the full OAuth flow.</p>
   <p>Pass <code>?client_id=&lt;URL-of-your-client-metadata.json&gt;</code> to inject that client's CSS. The trusted-clients check still applies: your <code>client_id</code> must be on <code>PDS_OAUTH_TRUSTED_CLIENTS</code> for its CSS to be injected. Without <code>client_id</code> the page renders unbranded (baseline).</p>
+  <p>Append <code>&amp;no_cache=1</code> to bypass the 10-minute metadata cache — useful when you've just edited <code>branding.css</code> on the upstream client and want to see the change immediately.</p>
   <ul>
     <li><a href="/preview/consent">Consent page</a></li>
   </ul>

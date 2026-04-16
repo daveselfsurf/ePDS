@@ -15,10 +15,12 @@
     "@atproto/pds": "^0.4.209",
     "@certified-app/shared": "workspace:*",
     "@did-plc/lib": "^0.0.4",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.3.1",
+    "serialize-javascript": "^7.0.5"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "@types/serialize-javascript": "^5.0.4",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3"
   }

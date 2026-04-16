@@ -402,7 +402,7 @@ enabled in production.
 
 Typical URLs:
 
-```
+```text
 https://<auth-service-host>/preview/login?client_id=<URL-of-your-client-metadata.json>
 https://<pds-host>/preview/consent?client_id=<URL-of-your-client-metadata.json>
 ```
@@ -411,6 +411,11 @@ Edit `branding.css` in your metadata, re-host, reload the preview URL — no
 OTP emails, no walking through the full flow. Browser devtools work
 normally so you can inspect, tweak in the Styles panel, and copy the
 winning rules back into your `branding.css`.
+
+Metadata is cached for 10 minutes per `client_id`. Append `&no_cache=1`
+to bypass the cache and force a re-fetch — handy when you've just edited
+and re-hosted `branding.css` and want to see the change on the next
+refresh.
 
 ### Using `@atproto/oauth-client-node` (recommended for Flow 2)
 

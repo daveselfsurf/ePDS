@@ -44,13 +44,14 @@ function fakeCsrfToken(): string {
 async function resolvePreviewBranding(
   clientId: string | undefined,
   trustedClients: string[],
+  noCache: boolean,
 ): Promise<{ clientId: string; metadata: ClientMetadata; css: string | null }> {
   const defaultClientId = 'https://preview.example/client-metadata.json'
   if (!clientId) {
     return { clientId: defaultClientId, metadata: {}, css: null }
   }
   try {
-    const metadata = await resolveClientMetadata(clientId)
+    const metadata = await resolveClientMetadata(clientId, { noCache })
     // Preview respects the real trusted-clients gate: CSS is only
     // injected when clientId is on PDS_OAUTH_TRUSTED_CLIENTS, exactly
     // as it is during a real OAuth flow. This keeps preview useful as
@@ -85,6 +86,7 @@ function renderIndex(): string {
   <h1>auth-service preview routes</h1>
   <p>Each link below renders one of the auth-service pages with fixture data, so you can iterate on your client's <code>branding.css</code> without going through a real OAuth flow.</p>
   <p>Pass <code>?client_id=&lt;URL-of-your-client-metadata.json&gt;</code> to inject that client's CSS. The trusted-clients check still applies: your client_id must be on <code>PDS_OAUTH_TRUSTED_CLIENTS</code> for its CSS to be injected, exactly as in a real OAuth flow. Untrusted clients still render the page but with no branding.</p>
+  <p>Append <code>&amp;no_cache=1</code> to bypass the 10-minute metadata cache — useful when you've just edited <code>branding.css</code> on the upstream client and want to see the change immediately.</p>
   <ul>
     <li><a href="/preview/login">Login — email step</a></li>
     <li><a href="/preview/login-otp">Login — OTP step</a></li>
@@ -120,6 +122,7 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
     const { clientId, metadata, css } = await resolvePreviewBranding(
       req.query.client_id as string | undefined,
       ctx.config.trustedClients,
+      req.query.no_cache === '1',
     )
     const html = renderLoginPage({
       flowId: FAKE_FLOW_ID,
@@ -144,6 +147,7 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
     const { clientId, metadata, css } = await resolvePreviewBranding(
       req.query.client_id as string | undefined,
       ctx.config.trustedClients,
+      req.query.no_cache === '1',
     )
     const html = renderLoginPage({
       flowId: FAKE_FLOW_ID,
@@ -168,6 +172,7 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
     const { css } = await resolvePreviewBranding(
       req.query.client_id as string | undefined,
       ctx.config.trustedClients,
+      req.query.no_cache === '1',
     )
     const error =
       typeof req.query.error === 'string' ? req.query.error : undefined
@@ -186,6 +191,7 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
     const { css } = await resolvePreviewBranding(
       req.query.client_id as string | undefined,
       ctx.config.trustedClients,
+      req.query.no_cache === '1',
     )
     const error =
       typeof req.query.error === 'string' ? req.query.error : undefined
@@ -204,6 +210,7 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
     const { css } = await resolvePreviewBranding(
       req.query.client_id as string | undefined,
       ctx.config.trustedClients,
+      req.query.no_cache === '1',
     )
     const error =
       typeof req.query.error === 'string' ? req.query.error : undefined
