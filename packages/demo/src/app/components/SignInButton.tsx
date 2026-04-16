@@ -6,6 +6,8 @@ interface SignInButtonProps {
 
 /**
  * Shared "Sign in with Certified" button used across all demo login pages.
+ * Picks up --theme-primary from PageShell's CSS custom properties when a
+ * theme is active; falls back to blue (#2563eb) otherwise.
  */
 export function SignInButton({
   submitting,
@@ -25,7 +27,7 @@ export function SignInButton({
         fontSize: '16px',
         fontWeight: 500,
         color: '#ffffff',
-        background: submitting ? '#4a4a4a' : '#2563eb',
+        background: submitting ? '#4a4a4a' : 'var(--theme-primary, #2563eb)',
         border: 'none',
         borderRadius: '8px',
         cursor: submitting ? 'default' : 'pointer',

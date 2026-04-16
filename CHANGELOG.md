@@ -1,5 +1,58 @@
 # ePDS
 
+## 0.4.0
+
+### Who should read this release
+
+- **End users:**
+  - [Trusted apps can now style the sign-in and consent pages to match their own brand.](#v0.4.0-trusted-apps-can-now-style-the-sign-in-and-consent-pages-to)
+- **Client app developers:**
+  - [Trusted apps can now style the sign-in and consent pages to match their own brand.](#v0.4.0-trusted-apps-can-now-style-the-sign-in-and-consent-pages-to)
+  - [Generate ES256 keypairs with `pnpm jwk:generate` instead of re-running full setup.](#v0.4.0-generate-es256-keypairs-with-instead-of-re-running-full)
+  - [Updated login integration docs to recommend `@atproto/oauth-client-node` and confidential clients.](#v0.4.0-updated-login-integration-docs-to-recommend-and)
+- **Operators:**
+  - [Trusted apps can now style the sign-in and consent pages to match their own brand.](#v0.4.0-trusted-apps-can-now-style-the-sign-in-and-consent-pages-to)
+
+### Minor Changes
+
+- <a id="v0.4.0-trusted-apps-can-now-style-the-sign-in-and-consent-pages-to"></a> [#48](https://github.com/hypercerts-org/ePDS/pull/48) [`0c275e4`](https://github.com/hypercerts-org/ePDS/commit/0c275e44c4d60b194ba330ec92b501f1f14d5358) Thanks [@Kzoeps](https://github.com/Kzoeps) & [@aspiers](https://github.com/aspiers)! - Trusted apps can now style the sign-in and consent pages to match their own brand.
+
+  **Affects:** End users, Client app developers, Operators
+
+  **End users:** When signing in through an app that your ePDS operator has approved for branding, the login page, code entry page, handle picker, account recovery page, and consent page will display that app's colour scheme instead of the default look. The pages still work exactly the same way — only the visual appearance changes.
+
+  **Client app developers:** Add a `branding.css` field inside a `branding` object in your `client-metadata.json`. The CSS is injected as a `<style>` tag into every auth-service page and the PDS stock consent page (`/oauth/authorize`) when your `client_id` is listed in the operator's `PDS_OAUTH_TRUSTED_CLIENTS`. The CSS is size-capped at 32 KB (measured in escaped UTF-8 bytes) and sanitised to prevent `</style>` tag closure. The CSP `style-src` directive is updated with a SHA-256 hash of the injected CSS. Example metadata:
+
+  ```json
+  {
+    "client_id": "https://app.example/client-metadata.json",
+    "client_name": "My App",
+    "branding": {
+      "css": "body { background: #0f1b2d; color: #e2e8f0; } .btn-primary { background: #3b82f6; }"
+    }
+  }
+  ```
+
+  Untrusted clients (not in `PDS_OAUTH_TRUSTED_CLIENTS`) never get CSS injection, regardless of what their metadata contains.
+
+  **Operators:** CSS branding injection is controlled by the existing `PDS_OAUTH_TRUSTED_CLIENTS` env var on pds-core. No new env vars are required on pds-core or auth-service. The auth-service reads the same `PDS_OAUTH_TRUSTED_CLIENTS` list to decide whether to inject CSS on its pages (login, OTP, choose-handle, recovery). See `docs/configuration.md` for the full reference.
+
+  For the demo app, a new optional `EPDS_CLIENT_THEME` env var selects a named theme preset (e.g. `ocean`) that applies consistent styling to both the demo's own pages and the CSS served in its client metadata. When unset, the demo uses the default light theme with no branding CSS. See `packages/demo/.env.example` for details.
+
+### Patch Changes
+
+- <a id="v0.4.0-generate-es256-keypairs-with-instead-of-re-running-full"></a> [#77](https://github.com/hypercerts-org/ePDS/pull/77) [`b3c779a`](https://github.com/hypercerts-org/ePDS/commit/b3c779a0df0e0a15c5dd8633835816eeb729d249) Thanks [@aspiers](https://github.com/aspiers)! - Generate ES256 keypairs with `pnpm jwk:generate` instead of re-running full setup.
+
+  **Affects:** Client app developers
+
+  **Client app developers:** A new `pnpm jwk:generate` command outputs a compact ES256 private JWK (with auto-derived `kid`) on stdout. Use this when you need a keypair for `private_key_jwt` client authentication without running the full `scripts/setup.sh`. The output is suitable for the `EPDS_CLIENT_PRIVATE_JWK` environment variable (used by the bundled demo app in `packages/demo`, not by third-party client apps) or for embedding the public half in any client metadata's `jwks` field.
+
+- <a id="v0.4.0-updated-login-integration-docs-to-recommend-and"></a> [#77](https://github.com/hypercerts-org/ePDS/pull/77) [`0eaded0`](https://github.com/hypercerts-org/ePDS/commit/0eaded0760cb62b3e617756726ce7bd92ac17b88) Thanks [@aspiers](https://github.com/aspiers)! - Updated login integration docs to recommend `@atproto/oauth-client-node` and confidential clients.
+
+  **Affects:** Client app developers
+
+  **Client app developers:** The tutorial and skill reference now recommend `@atproto/oauth-client-node`'s `NodeOAuthClient` for Flow 2 (no hint, handle, or DID input), which handles PAR, PKCE, DPoP, and token exchange automatically. Flow 1 (email `login_hint`) remains hand-rolled. The default client metadata example has been flipped from `"token_endpoint_auth_method": "none"` to `"private_key_jwt"` with `jwks_uri` or inline `jwks` for publishing the public key. A new "Confidential vs public clients" section explains the trade-offs — notably that public clients force a consent screen on every login. New sections cover JWKS key generation, publishing, and rotation.
+
 ## 0.3.0
 
 ### Who should read this release

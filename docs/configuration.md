@@ -59,10 +59,24 @@ marked `[shared]` in the per-package `.env.example` files.
 
 ### Trusted clients and consent skip
 
-| Variable                        | Description                                                                                                                                                                                                                                                                                               |
-| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PDS_OAUTH_TRUSTED_CLIENTS`     | Comma-separated list of OAuth `client_id` URLs. Trusted clients get relaxed consent handling from the upstream `@atproto/oauth-provider` — returning users who have already granted the requested scopes skip the consent screen. Has no effect on public clients (`token_endpoint_auth_method: "none"`). |
-| `PDS_SIGNUP_ALLOW_CONSENT_SKIP` | When `true` (or `1`), trusted clients whose metadata includes `"epds_skip_consent_on_signup": true` can skip the consent screen on initial sign-up. All three conditions must be met: this env var is truthy, the client is in `PDS_OAUTH_TRUSTED_CLIENTS`, and the client metadata opts in.              |
+| Variable                        | Description                                                                                                                                                                                                                                                                                  |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PDS_OAUTH_TRUSTED_CLIENTS`     | Comma-separated list of OAuth `client_id` URLs. Trusted clients get relaxed consent handling and [CSS branding injection](#css-branding-injection). Has no effect on public clients (`token_endpoint_auth_method: "none"`).                                                                  |
+| `PDS_SIGNUP_ALLOW_CONSENT_SKIP` | When `true` (or `1`), trusted clients whose metadata includes `"epds_skip_consent_on_signup": true` can skip the consent screen on initial sign-up. All three conditions must be met: this env var is truthy, the client is in `PDS_OAUTH_TRUSTED_CLIENTS`, and the client metadata opts in. |
+
+### CSS branding injection
+
+Trusted clients (listed in `PDS_OAUTH_TRUSTED_CLIENTS`) can provide
+custom CSS in their `client-metadata.json` under `branding.css`. When
+present, ePDS injects a `<style>` tag into:
+
+- auth-service pages: login, OTP, choose-handle, recovery
+- PDS stock consent page (`/oauth/authorize`)
+
+The CSS is size-capped at 32 KB and sanitised to prevent `</style>`
+tag closure. The CSP `style-src` directive is updated with a SHA-256
+hash of the injected CSS. Untrusted clients never get CSS injection
+regardless of what their metadata contains.
 
 Optional PDS email variables:
 
@@ -163,9 +177,11 @@ auth-service.
 
 Optional:
 
-| Variable            | Description                                                                  |
-| ------------------- | ---------------------------------------------------------------------------- |
-| `PLC_DIRECTORY_URL` | PLC directory for DID-to-handle resolution (default `https://plc.directory`) |
+| Variable            | Description                                                                                                                                                                                     |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EPDS_CLIENT_THEME` | Named theme preset for the demo's own pages. When set, the demo renders with the preset's colour scheme and serves matching `branding.css` in its client metadata. Unset = default light theme. |
+| `EPDS_CLIENT_NAME`  | Display name shown in the demo UI header (default `ePDS Demo`).                                                                                                                                 |
+| `PLC_DIRECTORY_URL` | PLC directory for DID-to-handle resolution (default `https://plc.directory`).                                                                                                                   |
 
 ## Docker / Caddy
 

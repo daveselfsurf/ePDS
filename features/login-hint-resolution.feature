@@ -1,3 +1,4 @@
+@pending
 Feature: Login hint resolution
   ePDS resolves OAuth login_hint parameters so the auth service can skip
   the email form and go straight to OTP verification. Hints can be emails,

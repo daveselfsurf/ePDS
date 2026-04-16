@@ -68,6 +68,18 @@ pnpm vitest run packages/shared
 Tests live in `packages/<name>/src/__tests__/`. There is no per-package test
 script — all tests are run from the root via vitest.
 
+### SonarCloud
+
+SonarCloud runs on every PR. Check results and fix issues before
+merging. See [`.agents/reference/SonarCloud.md`](.agents/reference/SonarCloud.md)
+for API commands and quality gate thresholds.
+
+### PR review comments
+
+Check for and address unresolved review comments after every push.
+See [`.agents/reference/github-pr-comments.md`](.agents/reference/github-pr-comments.md)
+for API commands.
+
 ### End-to-end tests in CI
 
 The e2e suite lives in `e2e/` and its feature files in `features/`. Normally
@@ -96,6 +108,10 @@ workflow YAML get checked out. Without it, `gh workflow run` defaults to
 See [`e2e/README.md`](e2e/README.md#running-the-ci-e2e-job-against-a-railway-environment)
 for details (env-name formats, URL derivation, how to handle missing Railway
 domains).
+
+The e2e suite uses two demo OAuth clients (trusted and untrusted) for
+trust-gated scenarios. See [`e2e/README.md`](e2e/README.md#two-demo-clients)
+for the full setup, tagging conventions, and step-definition patterns.
 
 ### Writing Tests
 
@@ -271,6 +287,11 @@ import { AuthServiceContext } from './context.js'
 
 ## Security
 
+- **Never hand-roll security code.** Use upstream or established libraries
+  for SSRF protection, crypto, auth, input sanitization, etc. If a library
+  integration has issues (e.g. test incompatibility), fix the integration —
+  do not reimplement the security logic. If the integration truly can't
+  work, stop and ask before proceeding with any alternative.
 - All epds-callback redirects must be HMAC-SHA256 signed using
   `signCallback()` / `verifyCallback()` from `@certified-app/shared`.
 - Use `timingSafeEqual()` for all secret/token comparisons.
@@ -289,10 +310,16 @@ import { AuthServiceContext } from './context.js'
 ## Releases & Changesets
 
 ePDS uses [Changesets](https://github.com/changesets/changesets) for versioning
-and release notes. The repo is treated as a **single release unit** even though
-the source is split across `packages/*`, via a `"workspaces": ["."]` field in
-the root `package.json` that scopes Changesets to the root `ePDS` package only.
-One `CHANGELOG.md` at the repo root, one `v<version>` git tag per release, one
+and release notes. `CHANGELOG.md` is **prepend-only** — the tooling adds new
+sections at the top and never modifies old ones. See
+[`.agents/reference/release-notes.md`](.agents/reference/release-notes.md) for
+how the release workflow operates and how to fix attribution on Version Packages
+PRs.
+
+The repo is treated as a **single release unit** even though the source is split
+across `packages/*`, via a `"workspaces": ["."]` field in the root
+`package.json` that scopes Changesets to the root `ePDS` package only. One
+`CHANGELOG.md` at the repo root, one `v<version>` git tag per release, one
 GitHub Release per release.
 
 - **When to add a changeset:** any user-facing or operator-facing change to the

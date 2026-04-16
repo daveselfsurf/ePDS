@@ -38,9 +38,11 @@ import {
   escapeHtml,
   validateLocalPart,
   resolveClientMetadata,
+  getClientCss,
   getEpdsVersion,
 } from '@certified-app/shared'
 import { shouldRewriteSecFetchSite } from './lib/sec-fetch-site-rewrite.js'
+import { installCssInjectionMiddleware } from './lib/client-css-injection.js'
 
 const logger = createLogger('pds-core')
 
@@ -560,6 +562,35 @@ async function main() {
   }
 
   // =========================================================================
+  // CSS injection for trusted OAuth clients
+  // =========================================================================
+  //
+  // The npm @atproto/oauth-provider pre-computes CSS at factory init time.
+  // We intercept /oauth/authorize responses to inject a <style> tag with
+  // client-provided CSS and add the SHA256 hash to the CSP style-src.
+
+  const trustedClients = (process.env.PDS_OAUTH_TRUSTED_CLIENTS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+
+  installCssInjectionMiddleware(pds.app, stack, {
+    trustedClients,
+    resolveClientMetadata,
+    getClientCss,
+    resolveClientIdFromRequestUri: provider
+      ? async (requestUri: string) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @atproto/oauth-provider requestManager not exported
+          const requestData = await (provider.requestManager as any).get(
+            requestUri,
+          )
+          return requestData?.clientId as string | undefined
+        }
+      : undefined,
+    logger,
+  })
+
+  // =========================================================================
   // Internal endpoints
   // =========================================================================
 
@@ -627,7 +658,7 @@ async function main() {
   // Returns only { exists: boolean } — never returns email, DID, or other account data.
   pds.app.get('/_internal/check-handle', async (req, res) => {
     if (!verifyInternalSecret(req.headers['x-internal-secret'])) {
-      res.status(403).json({ error: 'forbidden' })
+      res.status(401).json({ error: 'Unauthorized' })
       return
     }
     const handle = ((req.query.handle as string) || '').trim()

@@ -27,7 +27,7 @@ npx playwright install chromium
 cp e2e/.env.example e2e/.env
 ```
 
-Open `e2e/.env` and fill in the three required service URLs. See
+Open `e2e/.env` and fill in the required service URLs. See
 [Environment variables](#environment-variables) for the full reference.
 
 ### 3. Point the tests at a stack
@@ -48,6 +48,9 @@ Run the services locally with `pnpm dev` (see
 E2E_PDS_URL=http://localhost:3000
 E2E_AUTH_URL=http://localhost:3001
 E2E_DEMO_URL=http://localhost:3002
+# Optional — only needed for scenarios that exercise the trusted vs.
+# untrusted client distinction. See "Two demo clients" below.
+# E2E_DEMO_UNTRUSTED_URL=http://localhost:3003
 ```
 
 For OTP scenarios you also need a local Mailpit instance (see
@@ -55,15 +58,118 @@ For OTP scenarios you also need a local Mailpit instance (see
 
 ## Environment variables
 
-| Variable           | Required | Default   | Description                                                          |
-| ------------------ | -------- | --------- | -------------------------------------------------------------------- |
-| `E2E_PDS_URL`      | Yes      | —         | PDS core base URL                                                    |
-| `E2E_AUTH_URL`     | Yes      | —         | Auth service base URL                                                |
-| `E2E_DEMO_URL`     | Yes      | —         | Demo frontend base URL                                               |
-| `E2E_MAILPIT_URL`  | No       | —         | Mailpit base URL. Required for OTP scenarios.                        |
-| `E2E_MAILPIT_USER` | No       | `karma`   | Mailpit HTTP basic auth username                                     |
-| `E2E_MAILPIT_PASS` | No       | _(empty)_ | Mailpit HTTP basic auth password. Leave empty to skip OTP scenarios. |
-| `E2E_HEADLESS`     | No       | `false`   | Set to `true` to run without a visible browser window                |
+| Variable                 | Required | Default   | Description                                                                                                                                             |
+| ------------------------ | -------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `E2E_PDS_URL`            | Yes      | —         | PDS core base URL                                                                                                                                       |
+| `E2E_AUTH_URL`           | Yes      | —         | Auth service base URL                                                                                                                                   |
+| `E2E_DEMO_URL`           | Yes      | —         | Trusted demo client base URL (its `client_id` URL, i.e. `<base>/client-metadata.json`, is listed in `pds-core`'s `PDS_OAUTH_TRUSTED_CLIENTS`)           |
+| `E2E_DEMO_UNTRUSTED_URL` | No       | —         | Untrusted demo client base URL. When unset, scenarios tagged `@untrusted-client` are automatically excluded. See [Two demo clients](#two-demo-clients). |
+| `E2E_MAILPIT_URL`        | No       | —         | Mailpit base URL. Required for OTP scenarios.                                                                                                           |
+| `E2E_MAILPIT_USER`       | No       | `karma`   | Mailpit HTTP basic auth username                                                                                                                        |
+| `E2E_MAILPIT_PASS`       | No       | _(empty)_ | Mailpit HTTP basic auth password. Leave empty to skip OTP scenarios.                                                                                    |
+| `E2E_HEADLESS`           | No       | `false`   | Set to `true` to run without a visible browser window                                                                                                   |
+
+## Two demo clients
+
+The e2e suite uses **two** demo OAuth clients deployed as separate Railway
+services in the `ePDS` project:
+
+| Service name                    | Role          | Listed in `PDS_OAUTH_TRUSTED_CLIENTS` |
+| ------------------------------- | ------------- | ------------------------------------- |
+| `@certified-app/demo`           | **Trusted**   | Yes                                   |
+| `@certified-app/demo untrusted` | **Untrusted** | No                                    |
+
+Both demos are deployed from the same source — the only meaningful
+differences are (a) different OAuth client identities (separate private
+JWKs and `client-metadata.json` URLs, hence different `client_id` values)
+and (b) only the trusted demo's `client-metadata.json` URL is listed in
+the `PDS_OAUTH_TRUSTED_CLIENTS` env var on `pds-core`. **The trust check
+happens on `pds-core`, not on the demos themselves** — so flipping a demo
+between trusted and untrusted is a config change on `pds-core`, not a
+code change on the demo.
+
+### Where the untrusted demo exists
+
+The untrusted demo lives in **`pr-base`** and every PR preview environment
+forked from it (`ePDS-pr-<N>` / `pr-<hash>-<N>`). It does **not** exist in
+the `test`, `production`, or `dev` Railway environments. If you want a
+local untrusted demo for development, you need to start a second instance
+of the demo app yourself with a different `client_id` and point
+`E2E_DEMO_UNTRUSTED_URL` at it.
+
+### Why two clients
+
+Two distinct categories of e2e scenarios need an untrusted client:
+
+1. **Negative trust tests** — proving that features which require trust
+   do not function for untrusted clients. Examples: consent-skip on
+   sign-up (only the trusted demo skips consent automatically), custom
+   client display name in the consent screen (untrusted clients show
+   their URL host instead), CSS branding injection (only injected for
+   trusted clients).
+2. **Multi-client scenarios** — anything that needs two distinct OAuth
+   clients in the same browser session. The canonical example is
+   cross-client SSO / session reuse (HYPER-268), where the test
+   fundamentally cannot be expressed with a single client.
+
+### How to use it from a step definition
+
+The trusted demo URL is exposed as `testEnv.demoTrustedUrl` (also
+available under the back-compat alias `testEnv.demoUrl`); the untrusted
+demo URL is exposed as `testEnv.demoUntrustedUrl`.
+
+The shared sign-up helpers in [`e2e/support/flows.ts`](support/flows.ts)
+take an explicit `demoUrl` parameter:
+
+```ts
+import {
+  createAccountViaOAuth,
+  startSignUpAwaitingConsent,
+} from '../support/flows.js'
+
+// Default trusted-demo sign-up:
+await createAccountViaOAuth(world, email)
+
+// Drive the untrusted demo (e.g. negative consent-skip test):
+await createAccountViaOAuth(world, email, testEnv.demoUntrustedUrl)
+
+// Sign up but stop on the consent screen — only meaningful for the
+// untrusted demo, since trusted clients skip consent on sign-up:
+await startSignUpAwaitingConsent(world, email, testEnv.demoUntrustedUrl)
+```
+
+`testEnv.demoUntrustedUrl` is typed as `string | undefined`. Any step
+that reads it must guard against the unset case with an early
+`if (!testEnv.demoUntrustedUrl) return 'pending'` at the top of the
+step body — the same pattern as the `E2E_MAILPIT_PASS` check in
+mailpit-dependent steps. See `e2e/step-definitions/consent.steps.ts`
+for examples.
+
+### Skipping untrusted-client scenarios when the var is unset
+
+Scenarios (or whole features) that depend on the untrusted demo are
+tagged `@untrusted-client`. When `E2E_DEMO_UNTRUSTED_URL` is unset,
+`e2e/cucumber.mjs` automatically adds `not @untrusted-client` to the
+tag exclusion expression, so the affected scenarios are skipped
+cleanly at discovery time rather than failing at run time.
+
+The step-level `return 'pending'` guards described above are
+defence-in-depth for `cucumber-js --name "..."` invocations, which
+bypass tag exclusions entirely — if you run a single scenario by
+name against an environment without an untrusted demo, its steps
+will return `'pending'` one by one and cucumber will mark the
+scenario as pending.
+
+### Existing consumers
+
+For prior art when adding new untrusted-client scenarios, see:
+
+- [`e2e/step-definitions/consent.steps.ts`](step-definitions/consent.steps.ts)
+  — sign-up consent-skip scenarios that compare trusted vs. untrusted
+  client behaviour and assert the consent screen displays the URL host
+  for untrusted clients.
+- [`e2e/support/flows.ts`](support/flows.ts) — `startSignUpAwaitingConsent`
+  is documented as intended for untrusted clients specifically.
 
 ## Running the tests
 
@@ -178,7 +284,7 @@ For an env named `ePDS-pr-21` it expects:
 - `certified-apppds-core-epds-pr-21.up.railway.app`
 - `certified-appauth-service-epds-pr-21.up.railway.app`
 - `certified-appdemo-epds-pr-21.up.railway.app`
-- `certified-appdemo-untrusted-epds-pr-21.up.railway.app`
+- `certified-appdemo-untrusted-epds-pr-21.up.railway.app` (see [Two demo clients](#two-demo-clients))
 - `mailpit-epds-pr-21.up.railway.app`
 
 If any of these return a 404 "Application not found", the service probably

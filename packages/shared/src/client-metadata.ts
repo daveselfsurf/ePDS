@@ -7,10 +7,18 @@
  * independently and preserves ePDS extension fields (brand_color,
  * epds_handle_mode, epds_skip_consent_on_signup, etc.).
  *
+ * Shared between pds-core (CSS injection middleware) and auth-service
+ * (login/consent page branding).
+ *
  * Results are cached for 10 minutes to avoid repeated fetches.
  */
 
 import type { HandleMode } from './handle.js'
+import { makeSafeFetch } from './safe-fetch.js'
+
+export interface ClientBranding {
+  css?: string
+}
 
 export interface ClientMetadata {
   client_name?: string
@@ -22,6 +30,7 @@ export interface ClientMetadata {
   email_subject_template?: string
   brand_color?: string
   background_color?: string
+  branding?: ClientBranding
   /**
    * ePDS extension — declares the default handle assignment mode for new users.
    * Accepted values: 'random' | 'picker' | 'picker-with-random'.
@@ -44,9 +53,23 @@ interface CacheEntry {
 }
 
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
-const FETCH_TIMEOUT_MS = 5000
 
 const cache = new Map<string, CacheEntry>()
+
+/** Clears the in-memory cache. Intended for use in tests only. */
+export function clearClientMetadataCache(): void {
+  cache.clear()
+}
+
+/** Seed the metadata cache. Intended for tests only. */
+export function _seedClientMetadataCacheForTest(
+  clientId: string,
+  metadata: ClientMetadata,
+): void {
+  cache.set(clientId, { metadata, expiresAt: Date.now() + CACHE_TTL_MS })
+}
+
+const safeFetch = makeSafeFetch({ timeoutMs: 5_000 })
 
 export async function resolveClientName(clientId: string): Promise<string> {
   const metadata = await resolveClientMetadata(clientId)
@@ -56,8 +79,14 @@ export async function resolveClientName(clientId: string): Promise<string> {
 export async function resolveClientMetadata(
   clientId: string,
 ): Promise<ClientMetadata> {
-  // Only fetch if client_id looks like a URL
-  if (!clientId.startsWith('http://') && !clientId.startsWith('https://')) {
+  // Only attempt a fetch for URL-shaped client IDs
+  let parsedUrl: URL
+  try {
+    parsedUrl = new URL(clientId)
+  } catch {
+    return { client_name: clientId }
+  }
+  if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
     return { client_name: clientId }
   }
 
@@ -68,17 +97,11 @@ export async function resolveClientMetadata(
   }
 
   try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => {
-      controller.abort()
-    }, FETCH_TIMEOUT_MS)
-
-    const res = await fetch(clientId, {
-      signal: controller.signal,
+    // safeFetch enforces HTTPS, blocks private/reserved IPs, and applies a
+    // timeout — throws for any blocked or failed request
+    const res = await safeFetch(clientId, {
       headers: { Accept: 'application/json' },
     })
-
-    clearTimeout(timeout)
 
     if (!res.ok) {
       return fallback(clientId)
@@ -116,6 +139,38 @@ function extractDomain(urlStr: string): string | null {
   } catch {
     return null
   }
+}
+
+/**
+ * Escape CSS for safe embedding in an HTML <style> tag.
+ * Replaces `</style>` (case-insensitive) with `\u003c/style>` to prevent
+ * premature tag closure / HTML injection. Matches the upstream pattern in
+ * oauth-provider/src/lib/html/escapers.ts.
+ */
+export function escapeCss(css: string): string {
+  return css.replace(/<\/style[^>]*>/gi, '\\u003c/style>')
+}
+
+/** Maximum allowed size for injected CSS. Values above this are dropped. */
+const MAX_CSS_BYTES = 32_768 // 32 KB
+
+/**
+ * Returns escaped CSS for injection if the client is trusted, or null.
+ *
+ * TODO: add CSS sanitization to strip dangerous primitives (@import, url(),
+ * expression(), javascript:, behavior:, -moz-binding) before injection.
+ */
+export function getClientCss(
+  clientId: string,
+  metadata: ClientMetadata,
+  trustedClients: string[],
+): string | null {
+  if (!trustedClients.includes(clientId)) return null
+  const raw = metadata.branding?.css
+  if (!raw) return null
+  const escaped = escapeCss(raw)
+  if (Buffer.byteLength(escaped, 'utf8') > MAX_CSS_BYTES) return null
+  return escaped
 }
 
 // Cleanup expired cache entries periodically

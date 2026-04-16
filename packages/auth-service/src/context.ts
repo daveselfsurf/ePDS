@@ -1,5 +1,4 @@
-import { createLogger } from '@certified-app/shared'
-import { EpdsDb } from '@certified-app/shared'
+import { createLogger, EpdsDb } from '@certified-app/shared'
 import { EmailSender } from './email/sender.js'
 
 export interface AuthServiceConfig {
@@ -23,6 +22,8 @@ export interface AuthServiceConfig {
   dbLocation: string
   otpLength: number
   otpCharset: 'numeric' | 'alphanumeric'
+  /** OAuth client_id URLs trusted for CSS branding injection. */
+  trustedClients: string[]
 }
 
 const logger = createLogger('auth-service')
