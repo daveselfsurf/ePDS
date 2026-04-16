@@ -22,7 +22,12 @@
 import { Router, type Request, type Response } from 'express'
 import { randomBytes } from 'node:crypto'
 import type { AuthServiceContext } from '../context.js'
-import { resolveClientMetadata, getClientCss } from '../lib/client-metadata.js'
+import {
+  resolveClientMetadata,
+  getClientCss,
+  getClientFaviconUrl,
+  getClientFaviconUrlDark,
+} from '../lib/client-metadata.js'
 import {
   createLogger,
   getClientMetadataCacheStatus,
@@ -65,27 +70,50 @@ function hostnameToUrl(hostname: string): string {
 async function resolvePreviewBranding(
   clientId: string | undefined,
   trustedClients: string[],
-): Promise<{ clientId: string; metadata: ClientMetadata; css: string | null }> {
+): Promise<{
+  clientId: string
+  metadata: ClientMetadata
+  css: string | null
+  faviconUrl: string | null
+  faviconUrlDark: string | null
+}> {
   const defaultClientId = 'https://preview.example/client-metadata.json'
   if (!clientId) {
-    return { clientId: defaultClientId, metadata: {}, css: null }
+    return {
+      clientId: defaultClientId,
+      metadata: {},
+      css: null,
+      faviconUrl: null,
+      faviconUrlDark: null,
+    }
   }
   try {
     // Preview routes always bypass the 10-minute cache so devs see
-    // branding.css edits on the next refresh.
+    // branding edits on the next refresh.
     const metadata = await resolveClientMetadata(clientId, { noCache: true })
-    // Preview respects the real trusted-clients gate: CSS is only
-    // injected when clientId is on PDS_OAUTH_TRUSTED_CLIENTS, exactly
-    // as it is during a real OAuth flow. This keeps preview useful as
-    // a pre-production check ("does my CSS actually load once I'm
-    // added to the trusted list?") without letting arbitrary clients
-    // inject CSS onto a preview instance just by being typed into a
-    // URL.
+    // Preview respects the real trusted-clients gate: CSS and favicon
+    // are only injected when clientId is on PDS_OAUTH_TRUSTED_CLIENTS,
+    // exactly as during a real OAuth flow. This keeps preview useful
+    // as a pre-production check without letting arbitrary clients
+    // inject branding onto a preview instance just by being typed
+    // into a URL.
     const css = getClientCss(clientId, metadata, trustedClients)
-    return { clientId, metadata, css }
+    const faviconUrl = getClientFaviconUrl(clientId, metadata, trustedClients)
+    const faviconUrlDark = getClientFaviconUrlDark(
+      clientId,
+      metadata,
+      trustedClients,
+    )
+    return { clientId, metadata, css, faviconUrl, faviconUrlDark }
   } catch (err) {
     logger.warn({ err, clientId }, 'Preview: failed to resolve client metadata')
-    return { clientId, metadata: {}, css: null }
+    return {
+      clientId,
+      metadata: {},
+      css: null,
+      faviconUrl: null,
+      faviconUrlDark: null,
+    }
   }
 }
 
@@ -167,7 +195,8 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
   })
 
   router.get('/preview/login', async (req: Request, res: Response) => {
-    const { clientId, metadata, css } = await getBranding(req)
+    const { clientId, metadata, css, faviconUrl, faviconUrlDark } =
+      await getBranding(req)
     sendHtml(
       res,
       renderLoginPage({
@@ -176,6 +205,8 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
         clientName: metadata.client_name || 'Preview Client',
         branding: metadata,
         customCss: css,
+        customFaviconUrl: faviconUrl,
+        customFaviconUrlDark: faviconUrlDark,
         loginHint: '',
         initialStep: 'email',
         otpAlreadySent: false,
@@ -189,7 +220,8 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
   })
 
   router.get('/preview/login-otp', async (req: Request, res: Response) => {
-    const { clientId, metadata, css } = await getBranding(req)
+    const { clientId, metadata, css, faviconUrl, faviconUrlDark } =
+      await getBranding(req)
     sendHtml(
       res,
       renderLoginPage({
@@ -198,6 +230,8 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
         clientName: metadata.client_name || 'Preview Client',
         branding: metadata,
         customCss: css,
+        customFaviconUrl: faviconUrl,
+        customFaviconUrlDark: faviconUrlDark,
         loginHint: FAKE_EMAIL,
         initialStep: 'otp',
         otpAlreadySent: true,
@@ -211,7 +245,7 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
   })
 
   router.get('/preview/choose-handle', async (req: Request, res: Response) => {
-    const { metadata, css } = await getBranding(req)
+    const { metadata, css, faviconUrl, faviconUrlDark } = await getBranding(req)
     // Resolve handle-mode the same way real flows do: query >
     // metadata > env default. The Auto choice on the index emits no
     // ?epds_handle_mode= so the metadata value (or env fallback)
@@ -229,12 +263,14 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
         fakeCsrfToken(),
         showRandomButton,
         css,
+        faviconUrl,
+        faviconUrlDark,
       ),
     )
   })
 
   router.get('/preview/recovery', async (req: Request, res: Response) => {
-    const { css } = await getBranding(req)
+    const { css, faviconUrl, faviconUrlDark } = await getBranding(req)
     sendHtml(
       res,
       renderRecoveryForm({
@@ -242,13 +278,15 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
         csrfToken: fakeCsrfToken(),
         error: queryString(req, 'error'),
         customCss: css,
+        customFaviconUrl: faviconUrl,
+        customFaviconUrlDark: faviconUrlDark,
         backUri: FAKE_REQUEST_URI,
       }),
     )
   })
 
   router.get('/preview/recovery-otp', async (req: Request, res: Response) => {
-    const { css } = await getBranding(req)
+    const { css, faviconUrl, faviconUrlDark } = await getBranding(req)
     sendHtml(
       res,
       renderRecoveryOtpForm({
@@ -259,6 +297,8 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
         otpCharset: ctx.config.otpCharset,
         error: queryString(req, 'error'),
         customCss: css,
+        customFaviconUrl: faviconUrl,
+        customFaviconUrlDark: faviconUrlDark,
         backUri: FAKE_REQUEST_URI,
       }),
     )

@@ -27,6 +27,8 @@ import {
   resolveClientMetadata,
   resolveClientName,
   getClientCss,
+  getClientFaviconUrl,
+  getClientFaviconUrlDark,
   type ClientMetadata,
 } from '../lib/client-metadata.js'
 import {
@@ -42,7 +44,10 @@ import {
   fetchParLoginHint,
 } from '../lib/resolve-login-hint.js'
 import { ensurePdsUrl } from '../lib/pds-url.js'
-import { renderOptionalStyleTag } from '../lib/page-helpers.js'
+import {
+  renderOptionalStyleTag,
+  renderFaviconTag,
+} from '../lib/page-helpers.js'
 import { renderError } from '../lib/render-error.js'
 import {
   appendOrphanDeviceCookieClearHeaders,
@@ -307,13 +312,32 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
         ? await resolveClientName(effectiveClientId)
         : 'an application')
 
-    // CSS injection for trusted clients
+    // Branding injection for trusted clients
     const customCss = effectiveClientId
       ? getClientCss(effectiveClientId, clientMeta, ctx.config.trustedClients)
       : null
+    const customFaviconUrl = effectiveClientId
+      ? getClientFaviconUrl(
+          effectiveClientId,
+          clientMeta,
+          ctx.config.trustedClients,
+        )
+      : null
+    const customFaviconUrlDark = effectiveClientId
+      ? getClientFaviconUrlDark(
+          effectiveClientId,
+          clientMeta,
+          ctx.config.trustedClients,
+        )
+      : null
     logger.debug(
-      { clientId: effectiveClientId, trusted: customCss !== null },
-      'client CSS trust check',
+      {
+        clientId: effectiveClientId,
+        cssTrusted: customCss !== null,
+        faviconTrusted: customFaviconUrl !== null,
+        faviconDarkTrusted: customFaviconUrlDark !== null,
+      },
+      'client branding trust check',
     )
 
     // Pillar 1 — State Determination: decide which step to render based on
@@ -356,6 +380,8 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
         clientName,
         branding: clientMeta,
         customCss,
+        customFaviconUrl,
+        customFaviconUrlDark,
         loginHint: emailHint,
         initialStep,
         otpAlreadySent,
@@ -377,6 +403,8 @@ export function renderLoginPage(opts: {
   clientName: string
   branding: ClientMetadata
   customCss: string | null
+  customFaviconUrl: string | null
+  customFaviconUrlDark: string | null
   loginHint: string
   initialStep: 'email' | 'otp'
   otpAlreadySent: boolean
@@ -459,8 +487,7 @@ export function renderLoginPage(opts: {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" href="/static/favicon.svg" media="(prefers-color-scheme: light)" type="image/svg+xml">
-  <link rel="icon" href="/static/favicon-dark.svg" media="(prefers-color-scheme: dark)" type="image/svg+xml">
+  ${renderFaviconTag(opts.customFaviconUrl, opts.customFaviconUrlDark)}
   <title>Sign in to ${escapeHtml(appName)}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }

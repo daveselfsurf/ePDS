@@ -375,32 +375,58 @@ Constraints:
 - If `epds_handle_login_url` is unset or invalid, the button is not
   rendered. Existing clients see no behaviour change.
 
-#### Optional: custom CSS for ePDS pages (trusted clients)
+#### Optional: custom CSS and favicon for ePDS pages (trusted clients)
 
 If your app is in the PDS operator's `PDS_OAUTH_TRUSTED_CLIENTS`, you can
-supply a `branding.css` string in your client metadata and ePDS will inject
-it into every page it renders during sign-in — login, OTP entry,
-choose-handle, account recovery, and the consent screen. This gives
-trusted clients full control over the look of those pages, not just the
-two hex colours in `brand_color` / `background_color`.
+supply a `branding.css` string and/or a `branding.favicon_url` in your
+client metadata. ePDS injects the CSS into every page it renders during
+sign-in (login, OTP entry, choose-handle, account recovery, and the
+consent screen) and replaces the default ePDS favicon on those pages
+with the one you supply. This gives trusted clients full control over
+the look of those pages — not just the two hex colours in
+`brand_color` / `background_color`.
 
 ```json
 {
   "branding": {
-    "css": "body { background: #1a1208; color: #fef3c7; } .btn-primary { background: #f59e0b; color: #1a1208; } /* ... */"
+    "css": "body { background: #1a1208; color: #fef3c7; } .btn-primary { background: #f59e0b; color: #1a1208; } /* ... */",
+    "favicon_url": "https://myapp.example/favicon.svg",
+    "favicon_url_dark": "https://myapp.example/favicon-dark.svg"
   }
 }
 ```
 
-Constraints:
+`favicon_url_dark` is optional. Supply it to ship a separate icon for browsers in dark mode — ePDS emits two `<link rel="icon" media="(prefers-color-scheme: ...)">` tags so each browser picks whichever matches its OS theme. With only `favicon_url` set, a single bare `<link>` is emitted and the browser uses it for both schemes.
+
+CSS constraints:
 
 - CSS is size-capped at 32 KB (measured in escaped UTF-8 bytes).
 - `</style>` sequences are escaped so the CSS can't break out of its
   `<style>` tag.
 - The CSP `style-src` directive is updated with a SHA-256 hash of the
   injected CSS, so there's no CSP loophole.
-- Clients **not** in `PDS_OAUTH_TRUSTED_CLIENTS` never get CSS injection,
-  regardless of what their metadata contains.
+
+Favicon constraints (apply to both `favicon_url` and `favicon_url_dark`):
+
+- Must be an absolute `https://` URL (no `http://`, no `data:` URIs,
+  no `javascript:`, no userinfo credentials).
+- Must be at most 2048 chars after URL normalisation (the URL parser
+  may percent-encode non-ASCII path bytes or punycode-encode IDN
+  hostnames, expanding the string).
+- **Must share an origin (scheme + host + port) with your `client_id`.**
+  The auth-service Content-Security-Policy only widens `img-src` to the
+  `client_id` origin, so a cross-origin favicon (e.g. on a separate CDN)
+  would be silently blocked by the browser. Host or proxy your favicons
+  under the same hostname that serves your client metadata.
+- `favicon_url_dark` is independent of `favicon_url` — set neither, only
+  `favicon_url`, or both. Setting only `favicon_url_dark` is meaningless
+  and ignored (no fallback to dark-only).
+
+Both forms of branding fall back silently if validation fails — the page
+falls back to the default ePDS look / icon, and a warning is logged
+server-side identifying the offending `client_id`. Clients **not** in
+`PDS_OAUTH_TRUSTED_CLIENTS` never get either form of injection,
+regardless of what their metadata contains.
 
 ##### Iterating on `branding.css`
 

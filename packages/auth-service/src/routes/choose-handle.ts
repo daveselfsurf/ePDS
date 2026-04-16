@@ -30,7 +30,10 @@ import { pingParRequest } from '../lib/ping-par-request.js'
 import { requireInternalEnv } from '../lib/require-internal-env.js'
 import { renderError } from '../lib/render-error.js'
 import { resolveClientBranding } from '../lib/client-metadata.js'
-import { renderOptionalStyleTag } from '../lib/page-helpers.js'
+import {
+  renderOptionalStyleTag,
+  renderFaviconTag,
+} from '../lib/page-helpers.js'
 
 const logger = createLogger('auth:choose-handle')
 
@@ -180,12 +183,11 @@ export function createChooseHandleRouter(
       : undefined
     const showRandomButton = result.flow.handleMode === 'picker-with-random'
 
-    // CSS injection for trusted clients — clientId is already in the flow row
+    // Branding injection for trusted clients — clientId is already in the flow row
     const clientId = result.flow.clientId
-    const customCss = clientId
-      ? (await resolveClientBranding(clientId, ctx.config.trustedClients))
-          .customCss
-      : null
+    const branding = clientId
+      ? await resolveClientBranding(clientId, ctx.config.trustedClients)
+      : { customCss: null, customFaviconUrl: null, customFaviconUrlDark: null }
 
     res
       .type('html')
@@ -195,7 +197,9 @@ export function createChooseHandleRouter(
           error,
           res.locals.csrfToken,
           showRandomButton,
-          customCss,
+          branding.customCss,
+          branding.customFaviconUrl,
+          branding.customFaviconUrlDark,
         ),
       )
   })
@@ -221,11 +225,10 @@ export function createChooseHandleRouter(
 
     const showRandomButton = flow.handleMode === 'picker-with-random'
 
-    // CSS injection for trusted clients
-    const customCss = flow.clientId
-      ? (await resolveClientBranding(flow.clientId, ctx.config.trustedClients))
-          .customCss
-      : null
+    // Branding injection for trusted clients — clientId is already in the flow row
+    const branding = flow.clientId
+      ? await resolveClientBranding(flow.clientId, ctx.config.trustedClients)
+      : { customCss: null, customFaviconUrl: null, customFaviconUrlDark: null }
 
     // Guard: if PDS account already exists, bounce back to /auth/complete
     // (mirrors the same check in the GET handler — prevents signing a
@@ -271,7 +274,9 @@ export function createChooseHandleRouter(
             'Invalid handle format. Use 5-20 lowercase letters, numbers, or hyphens.',
             res.locals.csrfToken,
             showRandomButton,
-            customCss,
+            branding.customCss,
+            branding.customFaviconUrl,
+            branding.customFaviconUrlDark,
           ),
         )
       return
@@ -304,7 +309,9 @@ export function createChooseHandleRouter(
               'Could not verify handle availability. Please try again.',
               res.locals.csrfToken,
               showRandomButton,
-              customCss,
+              branding.customCss,
+              branding.customFaviconUrl,
+              branding.customFaviconUrlDark,
             ),
           )
         return
@@ -319,7 +326,9 @@ export function createChooseHandleRouter(
             'Could not verify handle availability. Please try again.',
             res.locals.csrfToken,
             showRandomButton,
-            customCss,
+            branding.customCss,
+            branding.customFaviconUrl,
+            branding.customFaviconUrlDark,
           ),
         )
       return
@@ -334,7 +343,9 @@ export function createChooseHandleRouter(
             'That handle is already taken.',
             res.locals.csrfToken,
             showRandomButton,
-            customCss,
+            branding.customCss,
+            branding.customFaviconUrl,
+            branding.customFaviconUrlDark,
           ),
         )
       return
@@ -438,6 +449,8 @@ export function renderChooseHandlePage(
   csrfToken?: string,
   showRandomButton?: boolean,
   customCss?: string | null,
+  customFaviconUrl?: string | null,
+  customFaviconUrlDark?: string | null,
 ): string {
   const errorHtml = error
     ? `<div class="error" id="error-msg">${escapeHtml(error)}</div>`
@@ -448,8 +461,7 @@ export function renderChooseHandlePage(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" href="/static/favicon.svg" media="(prefers-color-scheme: light)" type="image/svg+xml">
-  <link rel="icon" href="/static/favicon-dark.svg" media="(prefers-color-scheme: dark)" type="image/svg+xml">
+  ${renderFaviconTag(customFaviconUrl, customFaviconUrlDark)}
   <title>Choose your handle</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }

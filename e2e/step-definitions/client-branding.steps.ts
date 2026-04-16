@@ -216,6 +216,89 @@ When(
 )
 
 // ---------------------------------------------------------------------------
+// Favicon injection — trusted client's branding.favicon_url
+// ---------------------------------------------------------------------------
+
+// Default favicon links emitted by renderFaviconTag() when no custom
+// favicon is supplied. Mirrors the constants in the favicon unit test
+// and `e2e/step-definitions/favicon.steps.ts`.
+const DEFAULT_FAVICON_LIGHT =
+  '<link rel="icon" href="/static/favicon.svg" media="(prefers-color-scheme: light)" type="image/svg+xml">'
+const DEFAULT_FAVICON_DARK =
+  '<link rel="icon" href="/static/favicon-dark.svg" media="(prefers-color-scheme: dark)" type="image/svg+xml">'
+
+// Custom favicon paths served by the demo container (see
+// packages/demo/public/favicon-demo*.svg). The advertised
+// `branding.favicon_url` and `branding.favicon_url_dark` resolve to
+// ${PUBLIC_URL}/favicon-demo.svg and ${PUBLIC_URL}/favicon-demo-dark.svg,
+// so the rendered <link rel="icon" ...> tags contain these substrings on
+// trusted flows. Browsers may normalise href to the absolute form; the
+// path-only substring match is robust to that.
+const TRUSTED_CLIENT_FAVICON_PATH = '/favicon-demo.svg'
+const TRUSTED_CLIENT_FAVICON_DARK_PATH = '/favicon-demo-dark.svg'
+
+Then(
+  "the login page HTML contains the trusted client's custom favicon",
+  async function (this: EpdsWorld) {
+    await waitForLoginPage(this)
+    const html = await getPage(this).content()
+    expect(html).toContain(TRUSTED_CLIENT_FAVICON_PATH)
+    // When both light and dark are advertised, the light <link> carries
+    // the prefers-color-scheme: light media query — assert the gating is
+    // present so this step fails if the page emits a single bare <link>
+    // (which would happen if the dark URL silently dropped).
+    expect(html).toContain('media="(prefers-color-scheme: light)"')
+  },
+)
+
+Then(
+  "the login page HTML contains the trusted client's dark-theme favicon",
+  async function (this: EpdsWorld) {
+    await waitForLoginPage(this)
+    const html = await getPage(this).content()
+    expect(html).toContain(TRUSTED_CLIENT_FAVICON_DARK_PATH)
+    expect(html).toContain('media="(prefers-color-scheme: dark)"')
+  },
+)
+
+Then(
+  "the login page HTML does not contain the trusted client's custom favicon",
+  async function (this: EpdsWorld) {
+    await waitForLoginPage(this)
+    const html = await getPage(this).content()
+    expect(html).not.toContain(TRUSTED_CLIENT_FAVICON_PATH)
+  },
+)
+
+Then(
+  'the login page HTML does not contain the default ePDS favicon links',
+  async function (this: EpdsWorld) {
+    await waitForLoginPage(this)
+    const html = await getPage(this).content()
+    expect(html).not.toContain(DEFAULT_FAVICON_LIGHT)
+    expect(html).not.toContain(DEFAULT_FAVICON_DARK)
+  },
+)
+
+Then(
+  'the login page HTML contains the default ePDS favicon links',
+  async function (this: EpdsWorld) {
+    await waitForLoginPage(this)
+    const html = await getPage(this).content()
+    expect(html).toContain(DEFAULT_FAVICON_LIGHT)
+    expect(html).toContain(DEFAULT_FAVICON_DARK)
+  },
+)
+
+Then(
+  "the page HTML contains the trusted client's custom favicon",
+  async function (this: EpdsWorld) {
+    const html = await getPage(this).content()
+    expect(html).toContain(TRUSTED_CLIENT_FAVICON_PATH)
+  },
+)
+
+// ---------------------------------------------------------------------------
 // PDS-core consent-page CSS injection (trusted client on /oauth/authorize)
 // ---------------------------------------------------------------------------
 

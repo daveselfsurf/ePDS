@@ -21,6 +21,19 @@ const logger = createLogger('shared:client-metadata')
 
 export interface ClientBranding {
   css?: string
+  /** Light-theme / default favicon. Same-origin as client_id. */
+  favicon_url?: string
+  /**
+   * Optional dark-theme favicon. When set, the auth-service emits a second
+   * `<link rel="icon" media="(prefers-color-scheme: dark)">` alongside the
+   * light variant so browsers pick whichever matches the user's OS theme.
+   * When omitted, the light favicon is used for both schemes.
+   *
+   * Subject to the same validation as `favicon_url` (HTTPS, ≤2048 chars
+   * post-normalisation, no userinfo, no other schemes, same-origin as
+   * client_id).
+   */
+  favicon_url_dark?: string
 }
 
 export interface ClientMetadata {
@@ -247,6 +260,106 @@ export function getClientCss(
   const escaped = escapeCss(raw)
   if (Buffer.byteLength(escaped, 'utf8') > MAX_CSS_BYTES) return null
   return escaped
+}
+
+/** Maximum URL length accepted for a custom favicon (post-normalisation). */
+const MAX_FAVICON_URL_LENGTH = 2048
+
+/**
+ * Shared validation for `branding.favicon_url` and `branding.favicon_url_dark`.
+ *
+ * Only absolute HTTPS URLs are accepted — no data: URIs (SVG data URIs can smuggle
+ * scripts even when referenced via <link rel="icon">), no http:// (mixed content),
+ * and no URLs carrying userinfo credentials. The favicon must additionally share an
+ * origin with the client_id, because the auth-service CSP only widens `img-src` to
+ * the client_id origin — a cross-origin favicon would be silently dropped by the
+ * browser, leaving the operator with no server-side breadcrumb.
+ *
+ * `clientOrigin` is the parsed `new URL(clientId).origin`. The caller is
+ * expected to compute it once when validating both light and dark URLs.
+ * `fieldName` is interpolated into the warning log so operators can tell
+ * which field tripped the same-origin check.
+ */
+function validateFaviconUrl(
+  raw: string | undefined,
+  clientId: string,
+  clientOrigin: string,
+  fieldName: 'favicon_url' | 'favicon_url_dark',
+): string | null {
+  if (!raw || typeof raw !== 'string') return null
+  // Coarse pre-parse guard against absurdly large inputs so we don't hand
+  // megabytes of attacker-controlled string to the URL parser. The tight
+  // limit is enforced post-normalisation below because URL parsing can
+  // expand the string (Unicode hostnames → punycode, non-ASCII path bytes
+  // → %XX, missing trailing slash appended).
+  if (raw.length > MAX_FAVICON_URL_LENGTH * 4) return null
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    return null
+  }
+  if (url.href.length > MAX_FAVICON_URL_LENGTH) return null
+  if (url.protocol !== 'https:') return null
+  if (url.username || url.password) return null
+  if (url.origin !== clientOrigin) {
+    logger.warn(
+      { clientId, fieldName, faviconOrigin: url.origin },
+      `${fieldName} origin does not match client_id origin; dropped (CSP img-src only authorises client_id origin)`,
+    )
+    return null
+  }
+  return url.href
+}
+
+function getClientOrigin(clientId: string): string | null {
+  try {
+    return new URL(clientId).origin
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Returns the validated light/default favicon URL for injection if the client
+ * is trusted and the URL passes validation, or null otherwise.
+ */
+export function getClientFaviconUrl(
+  clientId: string,
+  metadata: ClientMetadata,
+  trustedClients: string[],
+): string | null {
+  if (!trustedClients.includes(clientId)) return null
+  const clientOrigin = getClientOrigin(clientId)
+  if (clientOrigin === null) return null
+  return validateFaviconUrl(
+    metadata.branding?.favicon_url,
+    clientId,
+    clientOrigin,
+    'favicon_url',
+  )
+}
+
+/**
+ * Returns the validated dark-theme favicon URL for injection if the client is
+ * trusted and the URL passes validation, or null otherwise. When null and the
+ * light favicon is set, the page-helpers fall back to using the light variant
+ * for both schemes.
+ */
+export function getClientFaviconUrlDark(
+  clientId: string,
+  metadata: ClientMetadata,
+  trustedClients: string[],
+): string | null {
+  if (!trustedClients.includes(clientId)) return null
+  const clientOrigin = getClientOrigin(clientId)
+  if (clientOrigin === null) return null
+  return validateFaviconUrl(
+    metadata.branding?.favicon_url_dark,
+    clientId,
+    clientOrigin,
+    'favicon_url_dark',
+  )
 }
 
 // Cleanup expired cache entries periodically

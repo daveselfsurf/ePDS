@@ -54,6 +54,28 @@ Feature: Client branding — CSS injection and custom email templates
     Given a user is logged into the account settings page
     Then the account settings page includes the trusted client's custom CSS
 
+  # --- Favicon injection ---
+
+  Scenario: Trusted client's favicon is applied to the login page
+    When the trusted demo client initiates an OAuth login
+    Then the login page HTML contains the trusted client's custom favicon
+    And the login page HTML contains the trusted client's dark-theme favicon
+    And the login page HTML does not contain the default ePDS favicon links
+
+  @untrusted-client
+  Scenario: Untrusted client does not get favicon injection
+    When the untrusted demo client initiates an OAuth login to the auth service
+    Then the login page HTML does not contain the trusted client's custom favicon
+    And the login page HTML contains the default ePDS favicon links
+
+  Scenario: Trusted client's favicon is applied to the choose-handle page
+    When a new user reaches the handle selection page via the trusted demo client
+    Then the page HTML contains the trusted client's custom favicon
+
+  Scenario: Trusted client's favicon is applied to the recovery page
+    When a user navigates to the account recovery page via the trusted demo client
+    Then the page HTML contains the trusted client's custom favicon
+
   # --- Custom email templates ---
 
   @email @pending
