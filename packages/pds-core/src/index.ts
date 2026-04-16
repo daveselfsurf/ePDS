@@ -636,6 +636,14 @@ async function main() {
       return
     }
     try {
+      // Validate handle format + reserved list (same checks as createAccount)
+      try {
+        await pds.ctx.accountManager.normalizeAndValidateHandle(handle)
+      } catch {
+        // Reserved or invalid handle — report as unavailable
+        res.json({ exists: true })
+        return
+      }
       const account = await pds.ctx.accountManager.getAccount(handle)
       res.json({ exists: !!account })
     } catch (err) {
