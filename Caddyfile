@@ -30,6 +30,7 @@
         header {
             Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
             X-Content-Type-Options "nosniff"
+            Access-Control-Allow-Headers "Content-Type, Authorization, atproto-accept-labelers, atproto-proxy"
         }
     }
 }
