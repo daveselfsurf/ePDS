@@ -126,6 +126,12 @@ function buildAuthorizeData(opts: PreviewFixtureOptions): unknown {
   // @atproto/oauth-provider-ui/hydration-data.d.ts. The SPA tolerates
   // missing optional fields and empty permissionSets, so this is the
   // minimal viable shape for the consent page to render.
+  //
+  // Intentionally no `loginHint`: setting it flips AuthorizeView into
+  // `forceSignIn` mode and shows the sign-in form instead of the consent
+  // screen. The SPA's consent view is only reachable when a session is
+  // already selected and `consentRequired` is true — see the fixture
+  // session declared in buildSessions() below.
   return {
     requestUri:
       'urn:ietf:params:oauth:request_uri:req-preview-0000000000000000',
@@ -134,11 +140,30 @@ function buildAuthorizeData(opts: PreviewFixtureOptions): unknown {
     clientTrusted: opts.isTrusted,
     clientFirstParty: false,
     scope: 'atproto transition:generic',
-    loginHint: 'alice@example.com',
     uiLocales: undefined,
     promptMode: undefined,
     permissionSets: {},
   }
+}
+
+function buildSessions(): unknown {
+  // Fixture session that drives the SPA straight to the consent screen:
+  // `selected && !loginRequired && consentRequired` is the exact gate in
+  // authorize-view.tsx that mounts <ConsentView>.
+  return [
+    {
+      account: {
+        sub: 'did:web:preview.example',
+        aud: 'https://preview.example',
+        preferred_username: 'alice.preview.example',
+        name: 'Alice Preview',
+        email: 'alice@preview.example',
+      },
+      selected: true,
+      loginRequired: false,
+      consentRequired: true,
+    },
+  ]
 }
 
 /** Build the HTML page that the real oauth-provider SPA boots from. */
@@ -150,7 +175,7 @@ async function renderConsentHtml(opts: {
 
   const hydration = renderHydration({
     __authorizeData: buildAuthorizeData(opts.fixture),
-    __sessions: [],
+    __sessions: buildSessions(),
     // No customization data: pds-core's provider isn't configured with
     // `branding.colors`, so the SPA falls back to its defaults.
     __customizationData: {},
