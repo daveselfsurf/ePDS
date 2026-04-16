@@ -140,6 +140,7 @@ function renderLoginForm(opts: { csrfToken: string; error?: string }): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <title>Account Settings - Sign In</title>
   <style>${CSS}</style>
 </head>
@@ -177,6 +178,7 @@ function renderOtpForm(opts: {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <title>Enter your code</title>
   <style>${CSS}</style>
 </head>
