@@ -254,9 +254,26 @@ export const PREVIEW_CLIENT_ID_SCRIPT_HTML = `<script>
       }
       input.value = initial;
       applyToLinks(initial);
+      // Ensure the address bar matches the input: covers the case where
+      // the value came from localStorage and not the URL, so a reload
+      // still carries the client_id.
+      updateAddressBar(initial);
       if (initial) runValidation(initial); // no debounce on initial load
     } catch (_) {
       applyToLinks('');
+    }
+
+    function updateAddressBar(v) {
+      // Keep the page URL in sync with the input so a reload restores
+      // the current client_id without having to re-type it. Uses
+      // replaceState (not pushState) so we don't fill history with
+      // one entry per keystroke.
+      try {
+        var u = new URL(window.location.href);
+        if (v) u.searchParams.set('client_id', v);
+        else u.searchParams.delete('client_id');
+        window.history.replaceState(null, '', u.pathname + u.search + u.hash);
+      } catch (_) { /* ignore */ }
     }
 
     input.addEventListener('input', function () {
@@ -266,6 +283,7 @@ export const PREVIEW_CLIENT_ID_SCRIPT_HTML = `<script>
         else window.localStorage.removeItem(STORAGE_KEY);
       } catch (_) { /* ignore */ }
       applyToLinks(v);
+      updateAddressBar(v);
       scheduleValidation(v);
     });
   }
