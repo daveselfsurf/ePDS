@@ -59,6 +59,8 @@ describe('validateClientMetadataForPreview', () => {
       brand_color: '#f59e0b',
       background_color: '#1a1208',
       branding: { css: 'body { color: red; }' },
+      tos_uri: 'https://good.example/terms',
+      policy_uri: 'https://good.example/privacy',
     })
     const result = await validateClientMetadataForPreview(url, [url])
     expect(result.fetched).toBe(true)
@@ -69,6 +71,8 @@ describe('validateClientMetadataForPreview', () => {
     expect(byId['brand-color'].severity).toBe('ok')
     expect(byId['background-color'].severity).toBe('ok')
     expect(byId['branding-css'].severity).toBe('ok')
+    expect(byId['tos-uri'].severity).toBe('ok')
+    expect(byId['policy-uri'].severity).toBe('ok')
     expect(byId['trusted-client'].severity).toBe('ok')
   })
 
@@ -84,10 +88,26 @@ describe('validateClientMetadataForPreview', () => {
     expect(byId['brand-color'].severity).toBe('warn')
     expect(byId['background-color'].severity).toBe('warn')
     expect(byId['branding-css'].severity).toBe('warn')
+    expect(byId['tos-uri'].severity).toBe('warn')
+    expect(byId['policy-uri'].severity).toBe('warn')
     // trust check also warn, not error
     expect(byId['trusted-client'].severity).toBe('warn')
     // No error-level checks on an otherwise-valid metadata:
     expect(result.checks.every((c) => c.severity !== 'error')).toBe(true)
+  })
+
+  it('errors when tos_uri / policy_uri are not valid https URLs', async () => {
+    const url = 'https://d.example/client-metadata.json'
+    mockFetchOnce({
+      client_id: url,
+      redirect_uris: ['https://d.example/cb'],
+      tos_uri: 'not a url',
+      policy_uri: 'http://insecure.example/privacy',
+    })
+    const result = await validateClientMetadataForPreview(url, null)
+    const byId = Object.fromEntries(result.checks.map((c) => [c.id, c]))
+    expect(byId['tos-uri'].severity).toBe('error')
+    expect(byId['policy-uri'].severity).toBe('error')
   })
 
   it('errors when client_id field does not match the URL', async () => {
