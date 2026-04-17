@@ -54,7 +54,11 @@ export {
   PREVIEW_CACHE_STATUS_HTML,
   PREVIEW_CLIENT_ID_INPUT_HTML,
   PREVIEW_CLIENT_ID_SCRIPT_HTML,
+  AUTH_PREVIEW_ROUTES,
+  PDS_PREVIEW_ROUTES,
+  renderPreviewLinksSections,
 } from './preview-ui.js'
+export type { PreviewRoute } from './preview-ui.js'
 export { validateClientMetadataForPreview } from './preview-validation.js'
 export type {
   CheckSeverity,

@@ -271,8 +271,13 @@ describe('createPreviewConsentHandler', () => {
 })
 
 describe('renderPreviewIndex', () => {
+  const urls = {
+    authPublicUrl: 'https://auth.pds.example',
+    pdsPublicUrl: 'https://pds.example',
+  }
+
   it('returns an HTML page listing the consent preview route', () => {
-    const html = renderPreviewIndex()
+    const html = renderPreviewIndex(urls)
     expect(html).toMatch(/<!DOCTYPE html>/i)
     expect(html).toContain('pds-core preview routes')
     expect(html).toContain('href="/preview/consent"')
@@ -280,7 +285,7 @@ describe('renderPreviewIndex', () => {
   })
 
   it('includes the persisted client_id input with data-preview-link anchors', () => {
-    const html = renderPreviewIndex()
+    const html = renderPreviewIndex(urls)
     expect(html).toContain('id="client-id-input"')
     expect(html).toContain('data-preview-link')
     // Inline script wires input → links and persists via localStorage:
@@ -289,8 +294,26 @@ describe('renderPreviewIndex', () => {
   })
 
   it('includes the live metadata-cache status block', () => {
-    const html = renderPreviewIndex()
+    const html = renderPreviewIndex(urls)
     expect(html).toContain('id="cache-status-body"')
     expect(html).toContain('/preview/cache-status')
+  })
+
+  it('lists auth-service routes as absolute cross-origin links', () => {
+    const html = renderPreviewIndex(urls)
+    expect(html).toContain('href="https://auth.pds.example/preview/login"')
+    expect(html).toContain(
+      'href="https://auth.pds.example/preview/recovery-otp"',
+    )
+    expect(html).toContain(
+      'href="https://auth.pds.example/preview/choose-handle?error=Handle+already+taken"',
+    )
+  })
+
+  it('seeds the client_id input from ?client_id= on the page URL', () => {
+    const html = renderPreviewIndex(urls)
+    // The inline script reads window.location for an initial value so
+    // /preview?client_id=<url> landings pre-fill the input.
+    expect(html).toContain("searchParams.get('client_id')")
   })
 })

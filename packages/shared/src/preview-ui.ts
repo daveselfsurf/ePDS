@@ -16,6 +16,89 @@ export const PREVIEW_CLIENT_ID_INPUT_HTML = `<label for="client-id-input">Client
   <div id="validation" class="validation" aria-live="polite"></div>`
 
 /**
+ * A single preview route, used by both services' index pages. `path` is
+ * the route path (e.g. `/preview/login`); `query` is optional raw query
+ * string appended as-is (e.g. `error=Handle+already+taken`).
+ */
+export interface PreviewRoute {
+  path: string
+  query?: string
+  label: string
+}
+
+/** Routes served by auth-service. */
+export const AUTH_PREVIEW_ROUTES: readonly PreviewRoute[] = [
+  { path: '/preview/login', label: 'Login — email step' },
+  { path: '/preview/login-otp', label: 'Login — OTP step' },
+  { path: '/preview/choose-handle', label: 'Choose handle' },
+  {
+    path: '/preview/choose-handle',
+    query: 'error=Handle+already+taken',
+    label: 'Choose handle (with error)',
+  },
+  { path: '/preview/recovery', label: 'Recovery — email step' },
+  { path: '/preview/recovery-otp', label: 'Recovery — OTP step' },
+] as const
+
+/** Routes served by pds-core. */
+export const PDS_PREVIEW_ROUTES: readonly PreviewRoute[] = [
+  { path: '/preview/consent', label: 'Consent page' },
+] as const
+
+function renderRouteList(
+  routes: readonly PreviewRoute[],
+  baseUrl: string | null,
+): string {
+  // baseUrl=null means same-origin; emit path-relative hrefs so the
+  // wire-links script can rewrite them with `?client_id=` from the local
+  // input. Cross-origin links are absolute and will not receive the
+  // current page's client_id (each origin has its own localStorage
+  // store, so users enter the client_id once per service).
+  const items = routes.map((r) => {
+    const qs = r.query ? `?${r.query}` : ''
+    const href = baseUrl ? `${baseUrl}${r.path}${qs}` : `${r.path}${qs}`
+    const attrs = baseUrl ? '' : ' data-preview-link'
+    return `<li><a href="${href}"${attrs}>${r.label}</a></li>`
+  })
+  return items.join('\n    ')
+}
+
+/**
+ * Render the two grouped <section>s listing all preview routes from both
+ * services. Links to the current service are relative (so the persisted
+ * client_id input rewrites them live); links to the other service are
+ * absolute.
+ *
+ * @param currentService - which service is rendering this index
+ * @param authPublicUrl  - absolute base URL (no trailing slash) of the
+ *                         auth-service, used when currentService !== 'auth'
+ * @param pdsPublicUrl   - absolute base URL (no trailing slash) of
+ *                         pds-core, used when currentService !== 'pds'
+ */
+export function renderPreviewLinksSections(opts: {
+  currentService: 'auth' | 'pds'
+  authPublicUrl: string
+  pdsPublicUrl: string
+}): string {
+  const authBase = opts.currentService === 'auth' ? null : opts.authPublicUrl
+  const pdsBase = opts.currentService === 'pds' ? null : opts.pdsPublicUrl
+  const authList = renderRouteList(AUTH_PREVIEW_ROUTES, authBase)
+  const pdsList = renderRouteList(PDS_PREVIEW_ROUTES, pdsBase)
+  return `<section class="preview-group">
+  <h2>auth-service</h2>
+  <ul>
+    ${authList}
+  </ul>
+</section>
+<section class="preview-group">
+  <h2>pds-core</h2>
+  <ul>
+    ${pdsList}
+  </ul>
+</section>`
+}
+
+/**
  * Block that surfaces the live state of the shared client-metadata
  * cache. Preview routes themselves always bypass this cache; what's
  * shown here is what real OAuth flows on this service are currently
@@ -132,11 +215,24 @@ export const PREVIEW_CLIENT_ID_SCRIPT_HTML = `<script>
       debounceTimer = setTimeout(function () { runValidation(value); }, 400);
     }
 
+    // Resolution order for the initial client_id value:
+    //   1. ?client_id=<url> on the current page URL (so shareable links
+    //      like /preview?client_id=... land with the right value), which
+    //      also gets persisted so subsequent visits retain it.
+    //   2. localStorage from a prior visit.
+    //   3. empty.
+    var initial = '';
     try {
-      var saved = window.localStorage.getItem(STORAGE_KEY) || '';
-      input.value = saved;
-      applyToLinks(saved);
-      if (saved) runValidation(saved); // no debounce on initial load
+      var urlParam = new URL(window.location.href).searchParams.get('client_id');
+      if (urlParam) {
+        initial = urlParam;
+        try { window.localStorage.setItem(STORAGE_KEY, urlParam); } catch (_) { /* ignore */ }
+      } else {
+        initial = window.localStorage.getItem(STORAGE_KEY) || '';
+      }
+      input.value = initial;
+      applyToLinks(initial);
+      if (initial) runValidation(initial); // no debounce on initial load
     } catch (_) {
       applyToLinks('');
     }

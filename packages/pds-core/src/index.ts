@@ -609,9 +609,17 @@ async function main() {
     logger,
   })
   if (previewConsentHandler) {
+    // auth-service runs on auth.<PDS_HOSTNAME>; pds-core is pdsUrl. Use
+    // https for real hostnames, http for localhost (see setup.sh and
+    // Caddyfile — same rule applied in auth-service's preview router).
+    const authScheme =
+      authHostname === 'localhost' || authHostname.endsWith('.localhost')
+        ? 'http'
+        : 'https'
+    const authPublicUrl = `${authScheme}://${authHostname}`
     pds.app.get('/preview', (_req, res) => {
       res.setHeader('Content-Type', 'text/html; charset=utf-8')
-      res.send(renderPreviewIndex())
+      res.send(renderPreviewIndex({ authPublicUrl, pdsPublicUrl: pdsUrl }))
     })
     pds.app.get('/preview/consent', previewConsentHandler)
     pds.app.get('/preview/cache-status', (_req, res) => {

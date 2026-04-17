@@ -29,6 +29,7 @@ import {
   PREVIEW_CACHE_STATUS_HTML,
   PREVIEW_CLIENT_ID_INPUT_HTML,
   PREVIEW_CLIENT_ID_SCRIPT_HTML,
+  renderPreviewLinksSections,
   validateClientMetadataForPreview,
   type ClientMetadata,
 } from '@certified-app/shared'
@@ -46,6 +47,21 @@ const FAKE_HANDLE_DOMAIN = 'preview.example'
 
 function fakeCsrfToken(): string {
   return randomBytes(16).toString('hex')
+}
+
+/**
+ * Turn a bare hostname (e.g. `auth.localhost`, `auth.pds.example`) into
+ * an absolute origin. `localhost` (and `*.localhost`) uses http; anything
+ * else uses https. This mirrors how the rest of the codebase treats the
+ * `*_HOSTNAME` vars — see packages/pds-core/src/index.ts where `pdsUrl`
+ * is built the same way from `PDS_HOSTNAME`.
+ */
+function hostnameToUrl(hostname: string): string {
+  const scheme =
+    hostname === 'localhost' || hostname.endsWith('.localhost')
+      ? 'http'
+      : 'https'
+  return `${scheme}://${hostname}`
 }
 
 async function resolvePreviewBranding(
@@ -75,7 +91,15 @@ async function resolvePreviewBranding(
   }
 }
 
-function renderIndex(): string {
+function renderIndex(opts: {
+  authPublicUrl: string
+  pdsPublicUrl: string
+}): string {
+  const linksHtml = renderPreviewLinksSections({
+    currentService: 'auth',
+    authPublicUrl: opts.authPublicUrl,
+    pdsPublicUrl: opts.pdsPublicUrl,
+  })
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -84,6 +108,7 @@ function renderIndex(): string {
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; color: #222; }
     h1 { font-size: 22px; }
+    h2 { font-size: 16px; margin: 24px 0 4px; }
     p { line-height: 1.5; }
     code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 14px; }
     ul { line-height: 2; }
@@ -91,6 +116,7 @@ function renderIndex(): string {
     label { display: block; margin: 16px 0 6px; font-weight: 500; }
     input[type="url"] { width: 100%; padding: 8px 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     input[type="url"]:focus { outline: 2px solid #0b5ed7; outline-offset: -1px; border-color: transparent; }
+    .preview-group { margin-top: 16px; }
     .cache-status { margin-top: 32px; padding: 12px 16px; background: #f8f9fa; border: 1px solid #e5e7eb; border-radius: 8px; }
     .cache-status h2 { font-size: 15px; margin: 0 0 4px; }
     .cache-status-hint { font-size: 13px; color: #555; margin: 0 0 8px; }
@@ -113,17 +139,9 @@ function renderIndex(): string {
 </head>
 <body>
   <h1>auth-service preview routes</h1>
-  <p>Each link below renders one of the auth-service pages with fixture data, so you can iterate on your client's <code>branding.css</code> without going through a real OAuth flow.</p>
-  <p>Paste the URL of your client-metadata JSON below to preview these pages with your own <code>branding.css</code>. The value is saved in this browser and every preview link on the page picks it up automatically.</p>
+  <p>Each link below renders one of the ePDS preview pages with fixture data, so you can iterate on your client's <code>branding.css</code> without going through a real OAuth flow. Routes from both services are listed here; links under <em>pds-core</em> point to the other service and don't pick up the client-metadata URL below — enter it once per service.</p>
   ${PREVIEW_CLIENT_ID_INPUT_HTML}
-  <ul>
-    <li><a href="/preview/login" data-preview-link>Login — email step</a></li>
-    <li><a href="/preview/login-otp" data-preview-link>Login — OTP step</a></li>
-    <li><a href="/preview/choose-handle" data-preview-link>Choose handle</a></li>
-    <li><a href="/preview/choose-handle?error=Handle+already+taken" data-preview-link>Choose handle (with error)</a></li>
-    <li><a href="/preview/recovery" data-preview-link>Recovery — email step</a></li>
-    <li><a href="/preview/recovery-otp" data-preview-link>Recovery — OTP step</a></li>
-  </ul>
+  ${linksHtml}
   <p>The trusted-clients check still applies: your URL must be on <code>PDS_OAUTH_TRUSTED_CLIENTS</code> for its CSS to be injected, exactly as in a real OAuth flow. Leave the field blank to render the pages unbranded.</p>
   <p>Alternatively, skip the field and append <code>?client_id=&lt;URL-of-your-client-metadata.json&gt;</code> to any of the links above.</p>
   ${PREVIEW_CACHE_STATUS_HTML}
@@ -146,9 +164,16 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
     next()
   })
 
+  // Cross-links on the index go to the sibling pds-core service on the
+  // base PDS domain. Derive absolute URLs from the hostnames: the
+  // auth-service runs on auth.<PDS_HOSTNAME> and pds-core on the bare
+  // <PDS_HOSTNAME>, matching the Caddyfile and setup.sh layout.
+  const authPublicUrl = hostnameToUrl(ctx.config.hostname)
+  const pdsPublicUrl = ctx.config.pdsPublicUrl
+
   router.get('/preview', (_req: Request, res: Response) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
-    res.send(renderIndex())
+    res.send(renderIndex({ authPublicUrl, pdsPublicUrl }))
   })
 
   router.get('/preview/cache-status', (_req: Request, res: Response) => {

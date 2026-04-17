@@ -41,6 +41,7 @@ import {
   PREVIEW_CACHE_STATUS_HTML,
   PREVIEW_CLIENT_ID_INPUT_HTML,
   PREVIEW_CLIENT_ID_SCRIPT_HTML,
+  renderPreviewLinksSections,
   type ClientMetadata,
 } from '@certified-app/shared'
 import serialize from 'serialize-javascript'
@@ -298,8 +299,16 @@ export function createPreviewConsentHandler(
   }
 }
 
-/** Static index page listing the preview route. */
-export function renderPreviewIndex(): string {
+/** Static index page listing preview routes from both services. */
+export function renderPreviewIndex(opts: {
+  authPublicUrl: string
+  pdsPublicUrl: string
+}): string {
+  const linksHtml = renderPreviewLinksSections({
+    currentService: 'pds',
+    authPublicUrl: opts.authPublicUrl,
+    pdsPublicUrl: opts.pdsPublicUrl,
+  })
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -308,6 +317,7 @@ export function renderPreviewIndex(): string {
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; color: #222; }
     h1 { font-size: 22px; }
+    h2 { font-size: 16px; margin: 24px 0 4px; }
     p { line-height: 1.5; }
     code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 14px; }
     ul { line-height: 2; }
@@ -315,6 +325,7 @@ export function renderPreviewIndex(): string {
     label { display: block; margin: 16px 0 6px; font-weight: 500; }
     input[type="url"] { width: 100%; padding: 8px 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     input[type="url"]:focus { outline: 2px solid #0b5ed7; outline-offset: -1px; border-color: transparent; }
+    .preview-group { margin-top: 16px; }
     .cache-status { margin-top: 32px; padding: 12px 16px; background: #f8f9fa; border: 1px solid #e5e7eb; border-radius: 8px; }
     .cache-status h2 { font-size: 15px; margin: 0 0 4px; }
     .cache-status-hint { font-size: 13px; color: #555; margin: 0 0 8px; }
@@ -337,12 +348,9 @@ export function renderPreviewIndex(): string {
 </head>
 <body>
   <h1>pds-core preview routes</h1>
-  <p>Renders the OAuth consent page with fixture hydration data, so you can iterate on your client's <code>branding.css</code> without walking through the full OAuth flow.</p>
-  <p>Paste the URL of your client-metadata JSON below to preview the consent page with your own <code>branding.css</code>. The value is saved in this browser and every preview link on the page picks it up automatically.</p>
+  <p>Each link below renders one of the ePDS preview pages with fixture data, so you can iterate on your client's <code>branding.css</code> without walking through the full OAuth flow. Routes from both services are listed here; links under <em>auth-service</em> point to the other service and don't pick up the client-metadata URL below — enter it once per service.</p>
   ${PREVIEW_CLIENT_ID_INPUT_HTML}
-  <ul>
-    <li><a href="/preview/consent" data-preview-link>Consent page</a></li>
-  </ul>
+  ${linksHtml}
   <p>The trusted-clients check still applies: your URL must be on <code>PDS_OAUTH_TRUSTED_CLIENTS</code> for its CSS to be injected, exactly as in a real OAuth flow. Leave the field blank to render the page unbranded (baseline).</p>
   <p>Alternatively, skip the field and append <code>?client_id=&lt;URL-of-your-client-metadata.json&gt;</code> to any of the links above.</p>
   ${PREVIEW_CACHE_STATUS_HTML}
