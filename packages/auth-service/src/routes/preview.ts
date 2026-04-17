@@ -26,10 +26,7 @@ import { resolveClientMetadata, getClientCss } from '../lib/client-metadata.js'
 import {
   createLogger,
   getClientMetadataCacheStatus,
-  PREVIEW_CACHE_STATUS_HTML,
-  PREVIEW_CLIENT_ID_INPUT_HTML,
-  PREVIEW_CLIENT_ID_SCRIPT_HTML,
-  renderPreviewLinksSections,
+  renderPreviewIndexPage,
   validateClientMetadataForPreview,
   type ClientMetadata,
 } from '@certified-app/shared'
@@ -91,68 +88,6 @@ async function resolvePreviewBranding(
   }
 }
 
-function renderIndex(opts: {
-  authPublicUrl: string
-  pdsPublicUrl: string
-}): string {
-  const linksHtml = renderPreviewLinksSections({
-    currentService: 'auth',
-    authPublicUrl: opts.authPublicUrl,
-    pdsPublicUrl: opts.pdsPublicUrl,
-  })
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>auth-service previews</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 768px; margin: 40px auto; padding: 0 16px; color: #222; }
-    h1 { font-size: 22px; }
-    h2 { font-size: 16px; margin: 24px 0 4px; }
-    p { line-height: 1.5; }
-    code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 14px; }
-    pre { background: #f0f0f0; padding: 10px 12px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
-    pre code { background: none; padding: 0; font-size: 13px; }
-    ul { line-height: 2; }
-    a { color: #0b5ed7; }
-    label { display: block; margin: 16px 0 6px; font-weight: 500; }
-    input[type="url"] { width: 100%; padding: 8px 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-    input[type="url"]:focus { outline: 2px solid #0b5ed7; outline-offset: -1px; border-color: transparent; }
-    .preview-group { margin-top: 16px; }
-    .cache-status { margin-top: 32px; padding: 12px 16px; background: #f8f9fa; border: 1px solid #e5e7eb; border-radius: 8px; }
-    .cache-status h2 { font-size: 15px; margin: 0 0 4px; }
-    .cache-status-hint { font-size: 13px; color: #555; margin: 0 0 8px; }
-    .cache-entries { list-style: none; padding: 0; margin: 0; }
-    .cache-entry { display: flex; align-items: center; gap: 10px; padding: 4px 0; min-width: 0; }
-    .cache-entry-url { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
-    .cache-entry-ttl { flex: 0 0 auto; font-variant-numeric: tabular-nums; font-weight: 500; color: #444; font-size: 13px; }
-    .cache-entry-preview { flex: 0 0 auto; padding: 2px 10px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; background: white; cursor: pointer; color: #0b5ed7; }
-    .cache-entry-preview:hover { background: #eff6ff; border-color: #0b5ed7; }
-    .validation { margin-top: 8px; }
-    .validation-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
-    .validation-row { display: grid; grid-template-columns: 1.25em auto 1fr; column-gap: 8px; align-items: baseline; font-size: 14px; }
-    .validation-label { font-weight: 500; }
-    .validation-detail { color: #555; font-size: 13px; }
-    .validation-ok .validation-label { color: #15803d; }
-    .validation-warn .validation-label { color: #b45309; }
-    .validation-error .validation-label { color: #b91c1c; }
-    .validation-loading, .validation-error-inline { font-size: 13px; color: #555; margin: 6px 0 0; }
-  </style>
-</head>
-<body>
-  <h1>auth-service preview routes</h1>
-  <p>Each link below renders one of the ePDS preview pages with fixture data, so you can iterate on your client's <code>branding.css</code> without going through a real OAuth flow. Routes from both services are listed here; links under <em>pds-core</em> point to the other service and don't pick up the client-metadata URL below — enter it once per service.</p>
-  ${PREVIEW_CLIENT_ID_INPUT_HTML}
-  ${linksHtml}
-  <p>The trusted-clients check still applies: your URL must be on <code>PDS_OAUTH_TRUSTED_CLIENTS</code> for its CSS to be injected, exactly as in a real OAuth flow. Leave the field blank to render the pages unbranded.</p>
-  <p>Alternatively, skip the field and append this query string to any of the links above:</p>
-  <pre><code>?client_id=&lt;URL-of-your-client-metadata.json&gt;</code></pre>
-  ${PREVIEW_CACHE_STATUS_HTML}
-  ${PREVIEW_CLIENT_ID_SCRIPT_HTML}
-</body>
-</html>`
-}
-
 export function createPreviewRouter(ctx: AuthServiceContext): Router {
   const router = Router()
 
@@ -176,7 +111,13 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
 
   router.get('/preview', (_req: Request, res: Response) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
-    res.send(renderIndex({ authPublicUrl, pdsPublicUrl }))
+    res.send(
+      renderPreviewIndexPage({
+        currentService: 'auth',
+        authPublicUrl,
+        pdsPublicUrl,
+      }),
+    )
   })
 
   router.get('/preview/cache-status', (_req: Request, res: Response) => {

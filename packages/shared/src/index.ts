@@ -57,6 +57,7 @@ export {
   AUTH_PREVIEW_ROUTES,
   PDS_PREVIEW_ROUTES,
   renderPreviewLinksSections,
+  renderPreviewIndexPage,
 } from './preview-ui.js'
 export type { PreviewRoute } from './preview-ui.js'
 export { validateClientMetadataForPreview } from './preview-validation.js'
