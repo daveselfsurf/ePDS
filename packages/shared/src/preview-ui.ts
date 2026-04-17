@@ -49,16 +49,15 @@ function renderRouteList(
   routes: readonly PreviewRoute[],
   baseUrl: string | null,
 ): string {
-  // baseUrl=null means same-origin; emit path-relative hrefs so the
-  // wire-links script can rewrite them with `?client_id=` from the local
-  // input. Cross-origin links are absolute and will not receive the
-  // current page's client_id (each origin has its own localStorage
-  // store, so users enter the client_id once per service).
+  // baseUrl=null means same-origin (path-relative); non-null means
+  // cross-origin (absolute). Either way the link gets `data-preview-link`
+  // so the wire-links script rewrites it with `?client_id=` from the
+  // current input. The script preserves the origin of cross-origin hrefs
+  // so carrying the client_id across services works.
   const items = routes.map((r) => {
     const qs = r.query ? `?${r.query}` : ''
     const href = baseUrl ? `${baseUrl}${r.path}${qs}` : `${r.path}${qs}`
-    const attrs = baseUrl ? '' : ' data-preview-link'
-    return `<li><a href="${href}"${attrs}>${r.label}</a></li>`
+    return `<li><a href="${href}" data-preview-link>${r.label}</a></li>`
   })
   return items.join('\n    ')
 }
@@ -143,17 +142,23 @@ export const PREVIEW_CLIENT_ID_SCRIPT_HTML = `<script>
   function wireClientIdInput(input) {
     function applyToLinks(value) {
       var links = document.querySelectorAll('a[data-preview-link]');
+      var pageOrigin = window.location.origin;
       for (var i = 0; i < links.length; i++) {
         var a = links[i];
         var base = a.getAttribute('data-preview-href') || a.getAttribute('href');
         a.setAttribute('data-preview-href', base);
-        var url = new URL(base, window.location.origin);
+        var url = new URL(base, pageOrigin);
         if (value) {
           url.searchParams.set('client_id', value);
         } else {
           url.searchParams.delete('client_id');
         }
-        a.setAttribute('href', url.pathname + url.search);
+        // Cross-origin links keep the explicit origin so the param
+        // carries across services; same-origin stays path-relative.
+        var out = url.origin === pageOrigin
+          ? url.pathname + url.search
+          : url.toString();
+        a.setAttribute('href', out);
       }
     }
 
