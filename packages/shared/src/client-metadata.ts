@@ -72,6 +72,29 @@ export function _seedClientMetadataCacheForTest(
   cache.set(clientId, { metadata, expiresAt: Date.now() + CACHE_TTL_MS })
 }
 
+/**
+ * Inspect the in-memory client-metadata cache. Returns one entry per
+ * cached clientId with its expiry timestamp (ms since epoch). Expired
+ * entries are skipped. Read-only; does not mutate the cache.
+ *
+ * Intended for operators/devs to see "how long until the next real
+ * OAuth flow for this client re-fetches its metadata" — exposed by the
+ * /preview/cache-status endpoint.
+ */
+export function getClientMetadataCacheStatus(): Array<{
+  clientId: string
+  expiresAt: number
+}> {
+  const now = Date.now()
+  const entries: Array<{ clientId: string; expiresAt: number }> = []
+  for (const [clientId, entry] of cache) {
+    if (entry.expiresAt > now) {
+      entries.push({ clientId, expiresAt: entry.expiresAt })
+    }
+  }
+  return entries
+}
+
 const safeFetch = makeSafeFetch({ timeoutMs: 5_000 })
 
 export async function resolveClientName(clientId: string): Promise<string> {

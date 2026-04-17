@@ -395,10 +395,13 @@ enabled in production.
 
 **pds-core** (consent):
 
-| Route                  | Page it renders                                                                                                                    |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /preview`         | Index page for the pds-core preview                                                                                                |
-| `GET /preview/consent` | OAuth consent page (the same `@atproto/oauth-provider-ui` SPA used by `/oauth/authorize`, rendered against fixture hydration data) |
+| Route                       | Page it renders                                                                                                                    |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /preview`              | Index page for the pds-core preview                                                                                                |
+| `GET /preview/consent`      | OAuth consent page (the same `@atproto/oauth-provider-ui` SPA used by `/oauth/authorize`, rendered against fixture hydration data) |
+| `GET /preview/cache-status` | JSON: live state of the shared client-metadata cache as seen by real OAuth flows                                                   |
+
+The auth-service has the same `/preview/cache-status` endpoint.
 
 Typical URLs:
 
@@ -412,10 +415,18 @@ OTP emails, no walking through the full flow. Browser devtools work
 normally so you can inspect, tweak in the Styles panel, and copy the
 winning rules back into your `branding.css`.
 
-Metadata is cached for 10 minutes per `client_id`. Append `&no_cache=1`
-to bypass the cache and force a re-fetch — handy when you've just edited
-and re-hosted `branding.css` and want to see the change on the next
-refresh.
+**Persistent client_id.** The `/preview` index pages have a text field
+for your client metadata URL. Paste it once and every preview link on
+the page gets `?client_id=...` appended live as you type. The value is
+saved in `localStorage` under `epds:preview:client_id`, so it's
+pre-filled on your next visit.
+
+**Cache bypass.** Preview routes always re-fetch your client metadata —
+the 10-minute cache that real OAuth flows use is bypassed, so your
+`branding.css` edits show up on the next refresh with no waiting. The
+`/preview` index also surfaces the current real-flow cache state
+(entries and TTLs) via the `/preview/cache-status` JSON endpoint so you
+can tell when a real user's next request will see the new version.
 
 ### Using `@atproto/oauth-client-node` (recommended for Flow 2)
 

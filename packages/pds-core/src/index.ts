@@ -39,6 +39,7 @@ import {
   validateLocalPart,
   resolveClientMetadata,
   getClientCss,
+  getClientMetadataCacheStatus,
   getEpdsVersion,
 } from '@certified-app/shared'
 import { shouldRewriteSecFetchSite } from './lib/sec-fetch-site-rewrite.js'
@@ -612,8 +613,15 @@ async function main() {
       res.send(renderPreviewIndex())
     })
     pds.app.get('/preview/consent', previewConsentHandler)
+    pds.app.get('/preview/cache-status', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-store')
+      res.json({
+        now: Date.now(),
+        entries: getClientMetadataCacheStatus(),
+      })
+    })
     logger.info(
-      'Preview routes installed (PDS_PREVIEW_ROUTES=1): /preview, /preview/consent',
+      'Preview routes installed (PDS_PREVIEW_ROUTES=1): /preview, /preview/consent, /preview/cache-status',
     )
   }
 

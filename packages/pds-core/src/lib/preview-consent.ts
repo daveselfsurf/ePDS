@@ -36,7 +36,13 @@
  *   pinning the hydration script, matching the auth-service preview
  *   routes' relaxed CSP.
  */
-import { escapeHtml, type ClientMetadata } from '@certified-app/shared'
+import {
+  escapeHtml,
+  PREVIEW_CACHE_STATUS_HTML,
+  PREVIEW_CLIENT_ID_INPUT_HTML,
+  PREVIEW_CLIENT_ID_SCRIPT_HTML,
+  type ClientMetadata,
+} from '@certified-app/shared'
 import serialize from 'serialize-javascript'
 
 // Use structural request/response types rather than importing from
@@ -240,18 +246,18 @@ export function createPreviewConsentHandler(
         ? rawClientId
         : FIXTURE_DEFAULT_CLIENT_ID
 
-    // `?no_cache=1` bypasses the 10-minute `resolveClientMetadata` cache
-    // so CSS edits on the client's metadata JSON show up on the next
-    // refresh. Without it, devs can spend 10 minutes staring at a stale
-    // branding.css wondering why their change didn't land.
-    const noCache = req.query.no_cache === '1'
-
     let metadata: ClientMetadata = {}
     let injectedCss: string | null = null
 
     if (clientId !== FIXTURE_DEFAULT_CLIENT_ID) {
       try {
-        metadata = await deps.resolveClientMetadata(clientId, { noCache })
+        // Preview routes always bypass the 10-minute client-metadata
+        // cache — the whole point of /preview is to iterate on
+        // branding.css and see the change on the next refresh without
+        // waiting for cache expiry.
+        metadata = await deps.resolveClientMetadata(clientId, {
+          noCache: true,
+        })
         injectedCss = deps.getClientCss(clientId, metadata, deps.trustedClients)
       } catch (err) {
         deps.logger.warn(
@@ -306,16 +312,27 @@ export function renderPreviewIndex(): string {
     code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 14px; }
     ul { line-height: 2; }
     a { color: #0b5ed7; }
+    label { display: block; margin: 16px 0 6px; font-weight: 500; }
+    input[type="url"] { width: 100%; padding: 8px 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    input[type="url"]:focus { outline: 2px solid #0b5ed7; outline-offset: -1px; border-color: transparent; }
+    .cache-status { margin-top: 32px; padding: 12px 16px; background: #f8f9fa; border: 1px solid #e5e7eb; border-radius: 8px; }
+    .cache-status h2 { font-size: 15px; margin: 0 0 4px; }
+    .cache-status-hint { font-size: 13px; color: #555; margin: 0 0 8px; }
+    .cache-entries { list-style: none; padding: 0; margin: 0; line-height: 1.8; }
+    .cache-entries code { word-break: break-all; }
   </style>
 </head>
 <body>
   <h1>pds-core preview routes</h1>
   <p>Renders the OAuth consent page with fixture hydration data, so you can iterate on your client's <code>branding.css</code> without walking through the full OAuth flow.</p>
   <p>Pass <code>?client_id=&lt;URL-of-your-client-metadata.json&gt;</code> to inject that client's CSS. The trusted-clients check still applies: your <code>client_id</code> must be on <code>PDS_OAUTH_TRUSTED_CLIENTS</code> for its CSS to be injected. Without <code>client_id</code> the page renders unbranded (baseline).</p>
-  <p>Append <code>&amp;no_cache=1</code> to bypass the 10-minute metadata cache — useful when you've just edited <code>branding.css</code> on the upstream client and want to see the change immediately.</p>
+  <p>Preview routes always re-fetch client metadata — the 10-minute cache used by real flows is bypassed here, so edits to your <code>branding.css</code> show up on the next refresh.</p>
+  ${PREVIEW_CLIENT_ID_INPUT_HTML}
   <ul>
-    <li><a href="/preview/consent">Consent page</a></li>
+    <li><a href="/preview/consent" data-preview-link>Consent page</a></li>
   </ul>
+  ${PREVIEW_CACHE_STATUS_HTML}
+  ${PREVIEW_CLIENT_ID_SCRIPT_HTML}
 </body>
 </html>`
 }

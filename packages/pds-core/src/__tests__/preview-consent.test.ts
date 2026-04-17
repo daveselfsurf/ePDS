@@ -122,7 +122,7 @@ describe('createPreviewConsentHandler', () => {
       await handler({ query: { client_id: trusted } }, res)
 
       expect(resolveClientMetadata).toHaveBeenCalledWith(trusted, {
-        noCache: false,
+        noCache: true,
       })
       expect(getClientCss).toHaveBeenCalledWith(
         trusted,
@@ -222,31 +222,7 @@ describe('createPreviewConsentHandler', () => {
       expect(scriptBody).toContain('\\u003C\\u002Fscript')
     })
 
-    it('passes noCache=true to resolveClientMetadata when ?no_cache=1', async () => {
-      const resolveClientMetadata = vi.fn(() => Promise.resolve({}))
-      const handler = createPreviewConsentHandler({
-        trustedClients: [],
-        resolveClientMetadata,
-        getClientCss: () => null,
-        logger: mockLogger(),
-      })!
-      const res = mockRes()
-      await handler(
-        {
-          query: {
-            client_id: 'https://x.example/client-metadata.json',
-            no_cache: '1',
-          },
-        },
-        res,
-      )
-      expect(resolveClientMetadata).toHaveBeenCalledWith(
-        'https://x.example/client-metadata.json',
-        { noCache: true },
-      )
-    })
-
-    it('passes noCache=false by default', async () => {
+    it('always bypasses the metadata cache (preview routes never serve stale branding)', async () => {
       const resolveClientMetadata = vi.fn(() => Promise.resolve({}))
       const handler = createPreviewConsentHandler({
         trustedClients: [],
@@ -261,7 +237,7 @@ describe('createPreviewConsentHandler', () => {
       )
       expect(resolveClientMetadata).toHaveBeenCalledWith(
         'https://x.example/client-metadata.json',
-        { noCache: false },
+        { noCache: true },
       )
     })
 
@@ -301,5 +277,20 @@ describe('renderPreviewIndex', () => {
     expect(html).toContain('pds-core preview routes')
     expect(html).toContain('href="/preview/consent"')
     expect(html).toContain('PDS_OAUTH_TRUSTED_CLIENTS')
+  })
+
+  it('includes the persisted client_id input with data-preview-link anchors', () => {
+    const html = renderPreviewIndex()
+    expect(html).toContain('id="client-id-input"')
+    expect(html).toContain('data-preview-link')
+    // Inline script wires input → links and persists via localStorage:
+    expect(html).toContain("'epds:preview:client_id'")
+    expect(html).toContain('localStorage.getItem')
+  })
+
+  it('includes the live metadata-cache status block', () => {
+    const html = renderPreviewIndex()
+    expect(html).toContain('id="cache-status-body"')
+    expect(html).toContain('/preview/cache-status')
   })
 })
