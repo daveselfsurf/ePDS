@@ -111,6 +111,8 @@ function renderIndex(opts: {
     h2 { font-size: 16px; margin: 24px 0 4px; }
     p { line-height: 1.5; }
     code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 14px; }
+    pre { background: #f0f0f0; padding: 10px 12px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
+    pre code { background: none; padding: 0; font-size: 13px; }
     ul { line-height: 2; }
     a { color: #0b5ed7; }
     label { display: block; margin: 16px 0 6px; font-weight: 500; }
@@ -143,7 +145,8 @@ function renderIndex(opts: {
   ${PREVIEW_CLIENT_ID_INPUT_HTML}
   ${linksHtml}
   <p>The trusted-clients check still applies: your URL must be on <code>PDS_OAUTH_TRUSTED_CLIENTS</code> for its CSS to be injected, exactly as in a real OAuth flow. Leave the field blank to render the pages unbranded.</p>
-  <p>Alternatively, skip the field and append <code>?client_id=&lt;URL-of-your-client-metadata.json&gt;</code> to any of the links above.</p>
+  <p>Alternatively, skip the field and append this query string to any of the links above:</p>
+  <pre><code>?client_id=&lt;URL-of-your-client-metadata.json&gt;</code></pre>
   ${PREVIEW_CACHE_STATUS_HTML}
   ${PREVIEW_CLIENT_ID_SCRIPT_HTML}
 </body>
