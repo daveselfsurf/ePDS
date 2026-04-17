@@ -7,6 +7,7 @@
  */
 
 import type { ClientMetadata } from './client-metadata.js'
+import { escapeHtml } from './html.js'
 import { makeSafeFetch } from './safe-fetch.js'
 
 const safeFetch = makeSafeFetch({ timeoutMs: 5_000 })
@@ -21,6 +22,26 @@ export interface PreviewCheck {
   severity: CheckSeverity
   /** Longer explanation, shown as a hint / tooltip */
   detail: string
+  /**
+   * Optional pre-escaped HTML for `label` / `detail`. When set, the
+   * preview UI renders these verbatim instead of HTML-escaping the
+   * plain-text equivalents, so the server can mark URL fragments,
+   * query params, and field names with `<code>` without the client
+   * having to parse anything. All interpolated user data must already
+   * be escaped by the time it lands here — only the surrounding
+   * markup is trusted.
+   */
+  labelHtml?: string
+  detailHtml?: string
+}
+
+/**
+ * Wrap `text` (literal, not pre-escaped) in `<code>` after HTML-escaping.
+ * Small helper used by the check builders below so each call site can
+ * stay readable.
+ */
+function code(text: string): string {
+  return `<code>${escapeHtml(text)}</code>`
 }
 
 export interface PreviewValidationResult {
@@ -66,6 +87,7 @@ export async function validateClientMetadataForPreview(
       severity: 'error',
       detail:
         'client_metadata must be hosted over HTTPS (the spec requires it).',
+      detailHtml: `${code('client_metadata')} must be hosted over HTTPS (the spec requires it).`,
     })
   }
 
@@ -124,6 +146,8 @@ export async function validateClientMetadataForPreview(
       label: 'client_id matches URL',
       severity: 'error',
       detail: `JSON has client_id="${clientIdField}" but was fetched from ${url}.`,
+      labelHtml: `${code('client_id')} matches URL`,
+      detailHtml: `JSON has ${code('client_id')}=${code('"' + clientIdField + '"')} but was fetched from ${code(url)}.`,
     })
   } else if (clientIdField) {
     checks.push({
@@ -131,6 +155,8 @@ export async function validateClientMetadataForPreview(
       label: 'client_id matches URL',
       severity: 'ok',
       detail: 'client_id field equals the fetched URL.',
+      labelHtml: `${code('client_id')} matches URL`,
+      detailHtml: `${code('client_id')} field equals the fetched URL.`,
     })
   } else {
     checks.push({
@@ -138,6 +164,8 @@ export async function validateClientMetadataForPreview(
       label: 'client_id matches URL',
       severity: 'error',
       detail: 'No client_id field in the JSON.',
+      labelHtml: `${code('client_id')} matches URL`,
+      detailHtml: `No ${code('client_id')} field in the JSON.`,
     })
   }
 
@@ -149,6 +177,8 @@ export async function validateClientMetadataForPreview(
       label: 'redirect_uris non-empty',
       severity: 'ok',
       detail: `Found ${redirectUris.length} redirect URI(s).`,
+      labelHtml: `${code('redirect_uris')} non-empty`,
+      detailHtml: `Found ${redirectUris.length} redirect URI(s).`,
     })
   } else {
     checks.push({
@@ -156,6 +186,7 @@ export async function validateClientMetadataForPreview(
       label: 'redirect_uris non-empty',
       severity: 'error',
       detail: 'OAuth needs at least one redirect URI.',
+      labelHtml: `${code('redirect_uris')} non-empty`,
     })
   }
 
@@ -168,6 +199,8 @@ export async function validateClientMetadataForPreview(
       label: 'brand_color set',
       severity: 'ok',
       detail: `brand_color="${metadata.brand_color}" — used as the primary accent on auth-service pages.`,
+      labelHtml: `${code('brand_color')} set`,
+      detailHtml: `${code('brand_color')}=${code('"' + metadata.brand_color + '"')} — used as the primary accent on auth-service pages.`,
     })
   } else {
     checks.push({
@@ -176,6 +209,7 @@ export async function validateClientMetadataForPreview(
       severity: 'warn',
       detail:
         'Optional. Without it, the login / OTP / choose-handle pages fall back to the ePDS default accent.',
+      labelHtml: `${code('brand_color')} set`,
     })
   }
 
@@ -185,6 +219,8 @@ export async function validateClientMetadataForPreview(
       label: 'background_color set',
       severity: 'ok',
       detail: `background_color="${metadata.background_color}" — page background on auth-service pages.`,
+      labelHtml: `${code('background_color')} set`,
+      detailHtml: `${code('background_color')}=${code('"' + metadata.background_color + '"')} — page background on auth-service pages.`,
     })
   } else {
     checks.push({
@@ -193,6 +229,7 @@ export async function validateClientMetadataForPreview(
       severity: 'warn',
       detail:
         'Optional. Without it, auth-service pages use the ePDS default page background.',
+      labelHtml: `${code('background_color')} set`,
     })
   }
 
@@ -204,6 +241,8 @@ export async function validateClientMetadataForPreview(
       label: 'branding.css present',
       severity: 'ok',
       detail: `${bytes.toLocaleString()} bytes. Injected into /preview/consent (pds-core) and the auth-service pages when the client is trusted.`,
+      labelHtml: `${code('branding.css')} present`,
+      detailHtml: `${bytes.toLocaleString()} bytes. Injected into ${code('/preview/consent')} (pds-core) and the auth-service pages when the client is trusted.`,
     })
   } else if (cssString !== undefined) {
     checks.push({
@@ -211,6 +250,8 @@ export async function validateClientMetadataForPreview(
       label: 'branding.css present',
       severity: 'warn',
       detail: 'branding.css is present but empty.',
+      labelHtml: `${code('branding.css')} present`,
+      detailHtml: `${code('branding.css')} is present but empty.`,
     })
   } else {
     checks.push({
@@ -219,6 +260,8 @@ export async function validateClientMetadataForPreview(
       severity: 'warn',
       detail:
         'No branding.css — preview will render the page unbranded (beyond brand_color / background_color, if set).',
+      labelHtml: `${code('branding.css')} present`,
+      detailHtml: `No ${code('branding.css')} — preview will render the page unbranded (beyond ${code('brand_color')} / ${code('background_color')}, if set).`,
     })
   }
 
@@ -232,6 +275,10 @@ export async function validateClientMetadataForPreview(
       detail: trusted
         ? 'This client is in the trust list, so branding.css is injected on real and preview flows.'
         : "This client is NOT in the trust list on this service — branding.css won't be injected on any flow (real or preview) until it's added. Ask the PDS operator to append your URL to PDS_OAUTH_TRUSTED_CLIENTS.",
+      labelHtml: `Listed in ${code('PDS_OAUTH_TRUSTED_CLIENTS')}`,
+      detailHtml: trusted
+        ? `This client is in the trust list, so ${code('branding.css')} is injected on real and preview flows.`
+        : `This client is NOT in the trust list on this service — ${code('branding.css')} won't be injected on any flow (real or preview) until it's added. Ask the PDS operator to append your URL to ${code('PDS_OAUTH_TRUSTED_CLIENTS')}.`,
     })
   }
 

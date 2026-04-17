@@ -179,11 +179,16 @@ export const PREVIEW_CLIENT_ID_SCRIPT_HTML = `<script>
       }
       var rows = payload.checks.map(function (c) {
         var icon = ICONS[c.severity] || '•';
+        // Prefer the server-provided *Html fields (they mark field
+        // names / URL fragments with <code>); fall back to plain text
+        // and escape it. The title attribute stays plain.
+        var labelHtml = c.labelHtml ? c.labelHtml : escape(c.label);
+        var detailHtml = c.detailHtml ? c.detailHtml : escape(c.detail);
         return (
           '<li class="validation-row validation-' + c.severity + '" title="' +
           escape(c.detail) + '"><span class="validation-icon" aria-hidden="true">' +
-          icon + '</span><span class="validation-label">' + escape(c.label) +
-          '</span><span class="validation-detail">' + escape(c.detail) +
+          icon + '</span><span class="validation-label">' + labelHtml +
+          '</span><span class="validation-detail">' + detailHtml +
           '</span></li>'
         );
       }).join('');
