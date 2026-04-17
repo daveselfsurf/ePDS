@@ -382,6 +382,14 @@ for auth-service pages, `PDS_PREVIEW_ROUTES=1` for the pds-core consent
 page. Both are typical on preview envs, `pr-base`, and dev; neither is
 enabled in production.
 
+> **Privacy note.** Enabling previews also exposes `/preview/cache-status`,
+> which returns the list of `client_id` URLs currently in the shared
+> client-metadata cache on that service — effectively the set of
+> third-party apps that have recently initiated an OAuth flow against
+> this PDS. That partially leaks who is using the instance, so keep
+> `AUTH_PREVIEW_ROUTES` and `PDS_PREVIEW_ROUTES` off in production
+> unless you're comfortable with that disclosure.
+
 **auth-service** (login / OTP / choose-handle / recovery):
 
 | Route                               | Page it renders                                                            |
