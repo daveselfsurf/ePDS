@@ -315,7 +315,7 @@ export function renderPreviewIndex(opts: {
   <meta charset="utf-8">
   <title>pds-core previews</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; color: #222; }
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 768px; margin: 40px auto; padding: 0 16px; color: #222; }
     h1 { font-size: 22px; }
     h2 { font-size: 16px; margin: 24px 0 4px; }
     p { line-height: 1.5; }
