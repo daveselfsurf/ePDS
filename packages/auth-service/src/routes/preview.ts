@@ -29,6 +29,7 @@ import {
   PREVIEW_CACHE_STATUS_HTML,
   PREVIEW_CLIENT_ID_INPUT_HTML,
   PREVIEW_CLIENT_ID_SCRIPT_HTML,
+  validateClientMetadataForPreview,
   type ClientMetadata,
 } from '@certified-app/shared'
 import { renderLoginPage } from './login-page.js'
@@ -93,8 +94,21 @@ function renderIndex(): string {
     .cache-status { margin-top: 32px; padding: 12px 16px; background: #f8f9fa; border: 1px solid #e5e7eb; border-radius: 8px; }
     .cache-status h2 { font-size: 15px; margin: 0 0 4px; }
     .cache-status-hint { font-size: 13px; color: #555; margin: 0 0 8px; }
-    .cache-entries { list-style: none; padding: 0; margin: 0; line-height: 1.8; }
-    .cache-entries code { word-break: break-all; }
+    .cache-entries { list-style: none; padding: 0; margin: 0; }
+    .cache-entry { display: flex; align-items: center; gap: 10px; padding: 4px 0; min-width: 0; }
+    .cache-entry-url { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+    .cache-entry-ttl { flex: 0 0 auto; font-variant-numeric: tabular-nums; font-weight: 500; color: #444; font-size: 13px; }
+    .cache-entry-preview { flex: 0 0 auto; padding: 2px 10px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; background: white; cursor: pointer; color: #0b5ed7; }
+    .cache-entry-preview:hover { background: #eff6ff; border-color: #0b5ed7; }
+    .validation { margin-top: 8px; }
+    .validation-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+    .validation-row { display: grid; grid-template-columns: 1.25em auto 1fr; column-gap: 8px; align-items: baseline; font-size: 14px; }
+    .validation-label { font-weight: 500; }
+    .validation-detail { color: #555; font-size: 13px; }
+    .validation-ok .validation-label { color: #15803d; }
+    .validation-warn .validation-label { color: #b45309; }
+    .validation-error .validation-label { color: #b91c1c; }
+    .validation-loading, .validation-error-inline { font-size: 13px; color: #555; margin: 6px 0 0; }
   </style>
 </head>
 <body>
@@ -143,6 +157,21 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
       now: Date.now(),
       entries: getClientMetadataCacheStatus(),
     })
+  })
+
+  router.get('/preview/validate', async (req: Request, res: Response) => {
+    const url =
+      typeof req.query.client_id === 'string' ? req.query.client_id : ''
+    res.setHeader('Cache-Control', 'no-store')
+    if (!url) {
+      res.json({ url: '', fetched: false, checks: [] })
+      return
+    }
+    const result = await validateClientMetadataForPreview(
+      url,
+      ctx.config.trustedClients,
+    )
+    res.json(result)
   })
 
   router.get('/preview/login', async (req: Request, res: Response) => {

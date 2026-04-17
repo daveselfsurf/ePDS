@@ -12,7 +12,8 @@
  * don't emit styles here so each index page can keep its own look.
  */
 export const PREVIEW_CLIENT_ID_INPUT_HTML = `<label for="client-id-input">Client metadata URL (persisted in this browser):</label>
-  <input id="client-id-input" type="url" placeholder="https://your-app.example/client-metadata.json" autocomplete="url" spellcheck="false">`
+  <input id="client-id-input" type="url" placeholder="https://your-app.example/client-metadata.json" autocomplete="url" spellcheck="false">
+  <div id="validation" class="validation" aria-live="polite"></div>`
 
 /**
  * Block that surfaces the live state of the shared client-metadata
@@ -47,6 +48,15 @@ export const PREVIEW_CLIENT_ID_SCRIPT_HTML = `<script>
   if (input) wireClientIdInput(input);
   wireCacheStatus();
 
+  function escape(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   function wireClientIdInput(input) {
     function applyToLinks(value) {
       var links = document.querySelectorAll('a[data-preview-link]');
@@ -64,10 +74,69 @@ export const PREVIEW_CLIENT_ID_SCRIPT_HTML = `<script>
       }
     }
 
+    var validationBox = document.getElementById('validation');
+    var validateToken = 0; // invalidate stale in-flight results
+
+    var ICONS = { ok: '✅', warn: '⚠️', error: '❌' };
+
+    function renderValidation(payload) {
+      if (!validationBox) return;
+      if (!payload || !payload.url) {
+        validationBox.innerHTML = '';
+        return;
+      }
+      if (!payload.checks.length) {
+        validationBox.innerHTML = '';
+        return;
+      }
+      var rows = payload.checks.map(function (c) {
+        var icon = ICONS[c.severity] || '•';
+        return (
+          '<li class="validation-row validation-' + c.severity + '" title="' +
+          escape(c.detail) + '"><span class="validation-icon" aria-hidden="true">' +
+          icon + '</span><span class="validation-label">' + escape(c.label) +
+          '</span><span class="validation-detail">' + escape(c.detail) +
+          '</span></li>'
+        );
+      }).join('');
+      validationBox.innerHTML = '<ul class="validation-list">' + rows + '</ul>';
+    }
+
+    function runValidation(value) {
+      if (!validationBox) return;
+      var myToken = ++validateToken;
+      if (!value) {
+        renderValidation(null);
+        return;
+      }
+      validationBox.innerHTML =
+        '<p class="validation-loading"><em>Checking metadata…</em></p>';
+      fetch('/preview/validate?client_id=' + encodeURIComponent(value), {
+        cache: 'no-store',
+      })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (payload) {
+          if (myToken !== validateToken) return; // a newer input invalidated this
+          renderValidation(payload);
+        })
+        .catch(function () {
+          if (myToken !== validateToken) return;
+          validationBox.innerHTML =
+            '<p class="validation-error-inline">Validation request failed.</p>';
+        });
+    }
+
+    var debounceTimer;
+    function scheduleValidation(value) {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(function () { runValidation(value); }, 400);
+    }
+
     try {
       var saved = window.localStorage.getItem(STORAGE_KEY) || '';
       input.value = saved;
       applyToLinks(saved);
+      if (saved) runValidation(saved); // no debounce on initial load
     } catch (_) {
       applyToLinks('');
     }
@@ -79,6 +148,7 @@ export const PREVIEW_CLIENT_ID_SCRIPT_HTML = `<script>
         else window.localStorage.removeItem(STORAGE_KEY);
       } catch (_) { /* ignore */ }
       applyToLinks(v);
+      scheduleValidation(v);
     });
   }
 
@@ -110,24 +180,37 @@ export const PREVIEW_CLIENT_ID_SCRIPT_HTML = `<script>
       var now = Date.now() + skewTo;
       var rows = entries
         .map(function (e) {
+          var href = escape(e.clientId);
           return (
-            '<li><code>' +
+            '<li class="cache-entry">' +
+            '<a class="cache-entry-url" href="' + href + '" target="_blank" rel="noopener">' +
             escape(e.clientId) +
-            '</code> — expires in <strong>' +
-            fmt(e.expiresAt - now) +
-            '</strong></li>'
+            '</a>' +
+            '<span class="cache-entry-ttl">' + fmt(e.expiresAt - now) + '</span>' +
+            '<button type="button" class="cache-entry-preview" data-client-id="' +
+            href + '" title="Copy this URL into the input above so you can preview it">Preview</button>' +
+            '</li>'
           );
         })
         .join('');
       body.innerHTML = '<ul class="cache-entries">' + rows + '</ul>';
     }
 
-    function escape(s) {
-      return String(s)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-    }
+    // Event delegation: the Preview buttons are re-rendered on every
+    // refresh, so attach one listener on the static container instead of
+    // re-wiring per-entry.
+    body.addEventListener('click', function (ev) {
+      var target = ev.target;
+      if (!(target && target.classList && target.classList.contains('cache-entry-preview'))) return;
+      var clientId = target.getAttribute('data-client-id');
+      if (!clientId) return;
+      var fieldInput = document.getElementById('client-id-input');
+      if (!fieldInput) return;
+      fieldInput.value = clientId;
+      fieldInput.dispatchEvent(new Event('input', { bubbles: true }));
+      fieldInput.focus();
+      fieldInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
 
     function refresh() {
       fetch('/preview/cache-status', { cache: 'no-store' })

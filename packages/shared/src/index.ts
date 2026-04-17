@@ -55,6 +55,12 @@ export {
   PREVIEW_CLIENT_ID_INPUT_HTML,
   PREVIEW_CLIENT_ID_SCRIPT_HTML,
 } from './preview-ui.js'
+export { validateClientMetadataForPreview } from './preview-validation.js'
+export type {
+  CheckSeverity,
+  PreviewCheck,
+  PreviewValidationResult,
+} from './preview-validation.js'
 export { getEpdsVersion } from './version.js'
 export { makeSafeFetch } from './safe-fetch.js'
 export type { SafeFetchOptions } from './safe-fetch.js'

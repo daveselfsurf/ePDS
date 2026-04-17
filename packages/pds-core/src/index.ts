@@ -41,6 +41,7 @@ import {
   getClientCss,
   getClientMetadataCacheStatus,
   getEpdsVersion,
+  validateClientMetadataForPreview,
 } from '@certified-app/shared'
 import { shouldRewriteSecFetchSite } from './lib/sec-fetch-site-rewrite.js'
 import { installCssInjectionMiddleware } from './lib/client-css-injection.js'
@@ -620,8 +621,19 @@ async function main() {
         entries: getClientMetadataCacheStatus(),
       })
     })
+    pds.app.get('/preview/validate', async (req, res) => {
+      const url =
+        typeof req.query.client_id === 'string' ? req.query.client_id : ''
+      res.setHeader('Cache-Control', 'no-store')
+      if (!url) {
+        res.json({ url: '', fetched: false, checks: [] })
+        return
+      }
+      const result = await validateClientMetadataForPreview(url, trustedClients)
+      res.json(result)
+    })
     logger.info(
-      'Preview routes installed (PDS_PREVIEW_ROUTES=1): /preview, /preview/consent, /preview/cache-status',
+      'Preview routes installed (PDS_PREVIEW_ROUTES=1): /preview, /preview/consent, /preview/cache-status, /preview/validate',
     )
   }
 
