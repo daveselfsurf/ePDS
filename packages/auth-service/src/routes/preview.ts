@@ -100,8 +100,7 @@ function renderIndex(): string {
 <body>
   <h1>auth-service preview routes</h1>
   <p>Each link below renders one of the auth-service pages with fixture data, so you can iterate on your client's <code>branding.css</code> without going through a real OAuth flow.</p>
-  <p>Pass <code>?client_id=&lt;URL-of-your-client-metadata.json&gt;</code> to inject that client's CSS. The trusted-clients check still applies: your client_id must be on <code>PDS_OAUTH_TRUSTED_CLIENTS</code> for its CSS to be injected, exactly as in a real OAuth flow. Untrusted clients still render the page but with no branding.</p>
-  <p>Preview routes always re-fetch client metadata — the 10-minute cache used by real flows is bypassed here, so edits to your <code>branding.css</code> show up on the next refresh.</p>
+  <p>Paste the URL of your client-metadata JSON below to preview these pages with your own <code>branding.css</code>. The value is saved in this browser and every preview link on the page picks it up automatically.</p>
   ${PREVIEW_CLIENT_ID_INPUT_HTML}
   <ul>
     <li><a href="/preview/login" data-preview-link>Login — email step</a></li>
@@ -111,6 +110,8 @@ function renderIndex(): string {
     <li><a href="/preview/recovery" data-preview-link>Recovery — email step</a></li>
     <li><a href="/preview/recovery-otp" data-preview-link>Recovery — OTP step</a></li>
   </ul>
+  <p>The trusted-clients check still applies: your URL must be on <code>PDS_OAUTH_TRUSTED_CLIENTS</code> for its CSS to be injected, exactly as in a real OAuth flow. Leave the field blank to render the pages unbranded.</p>
+  <p>Alternatively, skip the field and append <code>?client_id=&lt;URL-of-your-client-metadata.json&gt;</code> to any of the links above.</p>
   ${PREVIEW_CACHE_STATUS_HTML}
   ${PREVIEW_CLIENT_ID_SCRIPT_HTML}
 </body>

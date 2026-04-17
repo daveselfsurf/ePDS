@@ -25,7 +25,7 @@ export const PREVIEW_CLIENT_ID_INPUT_HTML = `<label for="client-id-input">Client
  */
 export const PREVIEW_CACHE_STATUS_HTML = `<section id="cache-status" class="cache-status" aria-live="polite">
     <h2>Real-flow metadata cache</h2>
-    <p class="cache-status-hint">Preview routes always re-fetch, so this list reflects the state real OAuth flows see. Entries disappear as their TTL expires.</p>
+    <p class="cache-status-hint">Preview routes always re-fetch client metadata, so edits to your <code>branding.css</code> show up on the next refresh here. The list below reflects what real OAuth flows are still seeing — each entry is cached for 10 minutes from its last real fetch, so until it expires, real users won't pick up your changes yet.</p>
     <div id="cache-status-body"><em>Loading…</em></div>
   </section>`
 

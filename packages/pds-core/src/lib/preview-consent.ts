@@ -325,12 +325,13 @@ export function renderPreviewIndex(): string {
 <body>
   <h1>pds-core preview routes</h1>
   <p>Renders the OAuth consent page with fixture hydration data, so you can iterate on your client's <code>branding.css</code> without walking through the full OAuth flow.</p>
-  <p>Pass <code>?client_id=&lt;URL-of-your-client-metadata.json&gt;</code> to inject that client's CSS. The trusted-clients check still applies: your <code>client_id</code> must be on <code>PDS_OAUTH_TRUSTED_CLIENTS</code> for its CSS to be injected. Without <code>client_id</code> the page renders unbranded (baseline).</p>
-  <p>Preview routes always re-fetch client metadata — the 10-minute cache used by real flows is bypassed here, so edits to your <code>branding.css</code> show up on the next refresh.</p>
+  <p>Paste the URL of your client-metadata JSON below to preview the consent page with your own <code>branding.css</code>. The value is saved in this browser and every preview link on the page picks it up automatically.</p>
   ${PREVIEW_CLIENT_ID_INPUT_HTML}
   <ul>
     <li><a href="/preview/consent" data-preview-link>Consent page</a></li>
   </ul>
+  <p>The trusted-clients check still applies: your URL must be on <code>PDS_OAUTH_TRUSTED_CLIENTS</code> for its CSS to be injected, exactly as in a real OAuth flow. Leave the field blank to render the page unbranded (baseline).</p>
+  <p>Alternatively, skip the field and append <code>?client_id=&lt;URL-of-your-client-metadata.json&gt;</code> to any of the links above.</p>
   ${PREVIEW_CACHE_STATUS_HTML}
   ${PREVIEW_CLIENT_ID_SCRIPT_HTML}
 </body>
