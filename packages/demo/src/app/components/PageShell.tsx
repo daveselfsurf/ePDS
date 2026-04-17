@@ -82,7 +82,7 @@ export function PageShell({ children }: PageShellProps) {
             textDecoration: 'none',
           }}
         >
-          Preview auth-service pages with this client's branding
+          Preview pages with this client's branding
         </a>
         {process.env.NEXT_PUBLIC_EPDS_VERSION && (
           <p
