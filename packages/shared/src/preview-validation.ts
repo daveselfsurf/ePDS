@@ -180,6 +180,7 @@ export async function validateClientMetadataForPreview(
       label: 'Metadata fetched',
       severity: 'ok',
       detail: 'Got a 200 response and parsed the JSON body.',
+      detailHtml: `Got a 200 response and parsed <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">the JSON body</a>.`,
     })
   } catch (err) {
     checks.push({
