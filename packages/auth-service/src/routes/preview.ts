@@ -88,6 +88,16 @@ async function resolvePreviewBranding(
   }
 }
 
+function queryString(req: Request, name: string): string | undefined {
+  const v = req.query[name]
+  return typeof v === 'string' ? v : undefined
+}
+
+function sendHtml(res: Response, html: string): void {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8')
+  res.send(html)
+}
+
 export function createPreviewRouter(ctx: AuthServiceContext): Router {
   const router = Router()
 
@@ -109,9 +119,15 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
   const authPublicUrl = hostnameToUrl(ctx.config.hostname)
   const pdsPublicUrl = ctx.config.pdsPublicUrl
 
+  const getBranding = (req: Request) =>
+    resolvePreviewBranding(
+      queryString(req, 'client_id'),
+      ctx.config.trustedClients,
+    )
+
   router.get('/preview', (_req: Request, res: Response) => {
-    res.setHeader('Content-Type', 'text/html; charset=utf-8')
-    res.send(
+    sendHtml(
+      res,
       renderPreviewIndexPage({
         currentService: 'auth',
         authPublicUrl,
@@ -129,8 +145,7 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
   })
 
   router.get('/preview/validate', async (req: Request, res: Response) => {
-    const url =
-      typeof req.query.client_id === 'string' ? req.query.client_id : ''
+    const url = queryString(req, 'client_id') ?? ''
     res.setHeader('Cache-Control', 'no-store')
     if (!url) {
       res.json({ url: '', fetched: false, checks: [] })
@@ -144,130 +159,110 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
   })
 
   router.get('/preview/login', async (req: Request, res: Response) => {
-    const { clientId, metadata, css } = await resolvePreviewBranding(
-      req.query.client_id as string | undefined,
-      ctx.config.trustedClients,
+    const { clientId, metadata, css } = await getBranding(req)
+    sendHtml(
+      res,
+      renderLoginPage({
+        flowId: FAKE_FLOW_ID,
+        clientId,
+        clientName: metadata.client_name || 'Preview Client',
+        branding: metadata,
+        customCss: css,
+        loginHint: '',
+        initialStep: 'email',
+        otpAlreadySent: false,
+        csrfToken: fakeCsrfToken(),
+        authBasePath: '/api/auth',
+        pdsPublicUrl: ctx.config.pdsPublicUrl,
+        otpLength: ctx.config.otpLength,
+        otpCharset: ctx.config.otpCharset,
+      }),
     )
-    const html = renderLoginPage({
-      flowId: FAKE_FLOW_ID,
-      clientId,
-      clientName: metadata.client_name || 'Preview Client',
-      branding: metadata,
-      customCss: css,
-      loginHint: '',
-      initialStep: 'email',
-      otpAlreadySent: false,
-      csrfToken: fakeCsrfToken(),
-      authBasePath: '/api/auth',
-      pdsPublicUrl: ctx.config.pdsPublicUrl,
-      otpLength: ctx.config.otpLength,
-      otpCharset: ctx.config.otpCharset,
-    })
-    res.setHeader('Content-Type', 'text/html; charset=utf-8')
-    res.send(html)
   })
 
   router.get('/preview/login-otp', async (req: Request, res: Response) => {
-    const { clientId, metadata, css } = await resolvePreviewBranding(
-      req.query.client_id as string | undefined,
-      ctx.config.trustedClients,
+    const { clientId, metadata, css } = await getBranding(req)
+    sendHtml(
+      res,
+      renderLoginPage({
+        flowId: FAKE_FLOW_ID,
+        clientId,
+        clientName: metadata.client_name || 'Preview Client',
+        branding: metadata,
+        customCss: css,
+        loginHint: FAKE_EMAIL,
+        initialStep: 'otp',
+        otpAlreadySent: true,
+        csrfToken: fakeCsrfToken(),
+        authBasePath: '/api/auth',
+        pdsPublicUrl: ctx.config.pdsPublicUrl,
+        otpLength: ctx.config.otpLength,
+        otpCharset: ctx.config.otpCharset,
+      }),
     )
-    const html = renderLoginPage({
-      flowId: FAKE_FLOW_ID,
-      clientId,
-      clientName: metadata.client_name || 'Preview Client',
-      branding: metadata,
-      customCss: css,
-      loginHint: FAKE_EMAIL,
-      initialStep: 'otp',
-      otpAlreadySent: true,
-      csrfToken: fakeCsrfToken(),
-      authBasePath: '/api/auth',
-      pdsPublicUrl: ctx.config.pdsPublicUrl,
-      otpLength: ctx.config.otpLength,
-      otpCharset: ctx.config.otpCharset,
-    })
-    res.setHeader('Content-Type', 'text/html; charset=utf-8')
-    res.send(html)
   })
 
   router.get('/preview/choose-handle', async (req: Request, res: Response) => {
-    const { css } = await resolvePreviewBranding(
-      req.query.client_id as string | undefined,
-      ctx.config.trustedClients,
+    const { css } = await getBranding(req)
+    sendHtml(
+      res,
+      renderChooseHandlePage(
+        FAKE_HANDLE_DOMAIN,
+        queryString(req, 'error'),
+        fakeCsrfToken(),
+        true,
+        css,
+      ),
     )
-    const error =
-      typeof req.query.error === 'string' ? req.query.error : undefined
-    const html = renderChooseHandlePage(
-      FAKE_HANDLE_DOMAIN,
-      error,
-      fakeCsrfToken(),
-      true,
-      css,
-    )
-    res.setHeader('Content-Type', 'text/html; charset=utf-8')
-    res.send(html)
   })
 
   router.get(
     '/preview/choose-handle-picker',
     async (req: Request, res: Response) => {
-      const { css } = await resolvePreviewBranding(
-        req.query.client_id as string | undefined,
-        ctx.config.trustedClients,
-      )
-      const error =
-        typeof req.query.error === 'string' ? req.query.error : undefined
+      const { css } = await getBranding(req)
       // EPDS_HANDLE_MODE=picker: no "generate random" button.
-      const html = renderChooseHandlePage(
-        FAKE_HANDLE_DOMAIN,
-        error,
-        fakeCsrfToken(),
-        false,
-        css,
+      sendHtml(
+        res,
+        renderChooseHandlePage(
+          FAKE_HANDLE_DOMAIN,
+          queryString(req, 'error'),
+          fakeCsrfToken(),
+          false,
+          css,
+        ),
       )
-      res.setHeader('Content-Type', 'text/html; charset=utf-8')
-      res.send(html)
     },
   )
 
   router.get('/preview/recovery', async (req: Request, res: Response) => {
-    const { css } = await resolvePreviewBranding(
-      req.query.client_id as string | undefined,
-      ctx.config.trustedClients,
+    const { css } = await getBranding(req)
+    sendHtml(
+      res,
+      renderRecoveryForm({
+        requestUri: FAKE_REQUEST_URI,
+        csrfToken: fakeCsrfToken(),
+        error: queryString(req, 'error'),
+        customCss: css,
+        backUri: FAKE_REQUEST_URI,
+      }),
     )
-    const error =
-      typeof req.query.error === 'string' ? req.query.error : undefined
-    const html = renderRecoveryForm({
-      requestUri: FAKE_REQUEST_URI,
-      csrfToken: fakeCsrfToken(),
-      error,
-      customCss: css,
-      backUri: FAKE_REQUEST_URI,
-    })
-    res.setHeader('Content-Type', 'text/html; charset=utf-8')
-    res.send(html)
   })
 
   router.get('/preview/recovery-otp', async (req: Request, res: Response) => {
-    const { css } = await resolvePreviewBranding(
-      req.query.client_id as string | undefined,
-      ctx.config.trustedClients,
+    const { css } = await getBranding(req)
+    sendHtml(
+      res,
+      renderRecoveryOtpForm({
+        email: FAKE_EMAIL,
+        csrfToken: fakeCsrfToken(),
+        requestUri: FAKE_REQUEST_URI,
+        otpLength: ctx.config.otpLength,
+        otpCharset: ctx.config.otpCharset,
+        error: queryString(req, 'error'),
+        customCss: css,
+        backUri: FAKE_REQUEST_URI,
+      }),
     )
-    const error =
-      typeof req.query.error === 'string' ? req.query.error : undefined
-    const html = renderRecoveryOtpForm({
-      email: FAKE_EMAIL,
-      csrfToken: fakeCsrfToken(),
-      requestUri: FAKE_REQUEST_URI,
-      otpLength: ctx.config.otpLength,
-      otpCharset: ctx.config.otpCharset,
-      error,
-      customCss: css,
-      backUri: FAKE_REQUEST_URI,
-    })
-    res.setHeader('Content-Type', 'text/html; charset=utf-8')
-    res.send(html)
   })
 
   return router
