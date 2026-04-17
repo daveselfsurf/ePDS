@@ -384,14 +384,15 @@ enabled in production.
 
 **auth-service** (login / OTP / choose-handle / recovery):
 
-| Route                        | Page it renders                                            |
-| ---------------------------- | ---------------------------------------------------------- |
-| `GET /preview`               | Index linking to each route below                          |
-| `GET /preview/login`         | Login — email entry step                                   |
-| `GET /preview/login-otp`     | Login — OTP code entry step                                |
-| `GET /preview/choose-handle` | Choose-handle page (`?error=<msg>` shows the error banner) |
-| `GET /preview/recovery`      | Account recovery — email entry step                        |
-| `GET /preview/recovery-otp`  | Account recovery — OTP code entry step                     |
+| Route                               | Page it renders                                                            |
+| ----------------------------------- | -------------------------------------------------------------------------- |
+| `GET /preview`                      | Index linking to each route below                                          |
+| `GET /preview/login`                | Login — email entry step                                                   |
+| `GET /preview/login-otp`            | Login — OTP code entry step                                                |
+| `GET /preview/choose-handle`        | Choose-handle page, `picker-with-random` mode (`?error=<msg>` shows error) |
+| `GET /preview/choose-handle-picker` | Choose-handle page, `picker` mode — no "generate random" button            |
+| `GET /preview/recovery`             | Account recovery — email entry step                                        |
+| `GET /preview/recovery-otp`         | Account recovery — OTP code entry step                                     |
 
 **pds-core** (consent):
 

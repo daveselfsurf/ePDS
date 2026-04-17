@@ -30,11 +30,23 @@ export interface PreviewRoute {
 export const AUTH_PREVIEW_ROUTES: readonly PreviewRoute[] = [
   { path: '/preview/login', label: 'Login — email step' },
   { path: '/preview/login-otp', label: 'Login — OTP step' },
-  { path: '/preview/choose-handle', label: 'Choose handle' },
+  {
+    path: '/preview/choose-handle',
+    label: 'Choose handle (picker + random)',
+  },
   {
     path: '/preview/choose-handle',
     query: 'error=Handle+already+taken',
-    label: 'Choose handle (with error)',
+    label: 'Choose handle (picker + random, with error)',
+  },
+  {
+    path: '/preview/choose-handle-picker',
+    label: 'Choose handle (picker only)',
+  },
+  {
+    path: '/preview/choose-handle-picker',
+    query: 'error=Handle+already+taken',
+    label: 'Choose handle (picker only, with error)',
   },
   { path: '/preview/recovery', label: 'Recovery — email step' },
   { path: '/preview/recovery-otp', label: 'Recovery — OTP step' },

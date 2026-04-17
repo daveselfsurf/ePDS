@@ -268,6 +268,28 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
     res.send(html)
   })
 
+  router.get(
+    '/preview/choose-handle-picker',
+    async (req: Request, res: Response) => {
+      const { css } = await resolvePreviewBranding(
+        req.query.client_id as string | undefined,
+        ctx.config.trustedClients,
+      )
+      const error =
+        typeof req.query.error === 'string' ? req.query.error : undefined
+      // EPDS_HANDLE_MODE=picker: no "generate random" button.
+      const html = renderChooseHandlePage(
+        FAKE_HANDLE_DOMAIN,
+        error,
+        fakeCsrfToken(),
+        false,
+        css,
+      )
+      res.setHeader('Content-Type', 'text/html; charset=utf-8')
+      res.send(html)
+    },
+  )
+
   router.get('/preview/recovery', async (req: Request, res: Response) => {
     const { css } = await resolvePreviewBranding(
       req.query.client_id as string | undefined,
