@@ -11,6 +11,7 @@ import { fromNodeHeaders } from 'better-auth/node'
 import { getDidByEmail } from '../lib/get-did-by-email.js'
 import { getHandleByDid } from '../lib/get-handle-by-did.js'
 import { ensurePdsUrl } from '../lib/pds-url.js'
+import { renderError } from '../lib/render-error.js'
 
 const logger = createLogger('auth:account-settings')
 
@@ -145,7 +146,7 @@ export function createAccountSettingsRouter(
   router.get('/account/backup-email/verify', (req: Request, res: Response) => {
     const token = req.query.token as string | undefined
     if (!token) {
-      res.status(400).send('<p>Missing verification token.</p>')
+      res.status(400).send(renderError('Missing verification token.'))
       return
     }
 
@@ -175,7 +176,7 @@ export function createAccountSettingsRouter(
   router.post('/account/backup-email/verify', (req: Request, res: Response) => {
     const token = ((req.body.token as string) || '').trim()
     if (!token) {
-      res.status(400).send('<p>Missing verification token.</p>')
+      res.status(400).send(renderError('Missing verification token.'))
       return
     }
 
