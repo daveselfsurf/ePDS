@@ -11,7 +11,11 @@
  * fetch, then a flat list of content checks.
  */
 
-import type { ClientMetadata } from './client-metadata.js'
+import {
+  escapeCss,
+  MAX_CSS_BYTES,
+  type ClientMetadata,
+} from './client-metadata.js'
 import { escapeHtml } from './html.js'
 import { makeSafeFetch } from './safe-fetch.js'
 
@@ -332,14 +336,30 @@ function checkBrandingCss(metadata: ClientMetadata): PreviewCheck {
   const labelHtml = `${code('branding.css')} present`
 
   if (typeof cssString === 'string' && cssString.trim().length > 0) {
-    const bytes = new TextEncoder().encode(cssString).byteLength
+    // Mirror getClientCss's size check: it measures the escaped form
+    // (each `</style>` expands by 6 bytes) against MAX_CSS_BYTES and
+    // silently returns null when it's over. Reporting the raw byte
+    // count here would tell devs their CSS is fine up to 32 KB raw
+    // when in fact it gets dropped on real flows.
+    const escaped = escapeCss(cssString)
+    const bytes = Buffer.byteLength(escaped, 'utf8')
+    if (bytes > MAX_CSS_BYTES) {
+      return {
+        id: 'branding-css',
+        label,
+        severity: 'error',
+        detail: `${bytes.toLocaleString()} bytes (escaped) exceeds the ${MAX_CSS_BYTES.toLocaleString()}-byte limit. getClientCss() will silently drop it on real OAuth flows.`,
+        labelHtml,
+        detailHtml: `${bytes.toLocaleString()} bytes (escaped) exceeds the ${MAX_CSS_BYTES.toLocaleString()}-byte limit. ${code('getClientCss()')} will silently drop it on real OAuth flows.`,
+      }
+    }
     return {
       id: 'branding-css',
       label,
       severity: 'ok',
-      detail: `${bytes.toLocaleString()} bytes. Injected into /preview/consent (pds-core) and the auth-service pages when the client is trusted.`,
+      detail: `${bytes.toLocaleString()} bytes (escaped). Injected into /preview/consent (pds-core) and the auth-service pages when the client is trusted.`,
       labelHtml,
-      detailHtml: `${bytes.toLocaleString()} bytes. Injected into ${code('/preview/consent')} (pds-core) and the auth-service pages when the client is trusted.`,
+      detailHtml: `${bytes.toLocaleString()} bytes (escaped). Injected into ${code('/preview/consent')} (pds-core) and the auth-service pages when the client is trusted.`,
     }
   }
   if (cssString !== undefined) {

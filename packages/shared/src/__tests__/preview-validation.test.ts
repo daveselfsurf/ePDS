@@ -83,6 +83,25 @@ describe('validateClientMetadataForPreview', () => {
     expect(byId['trusted-client'].severity).toBe('ok')
   })
 
+  it('flags branding.css as error when escaped size exceeds the 32 KB limit', async () => {
+    // getClientCss measures escaped bytes (each `</style>` expands by
+    // 6) against MAX_CSS_BYTES and silently returns null above it.
+    // The validator must mirror that check so clients see an error
+    // instead of an "ok" that lies.
+    const url = 'https://heavy.example/client-metadata.json'
+    // 33 KB of raw CSS — unambiguously over even before escaping.
+    const bigCss = '/*'.padEnd(33 * 1024, 'x') + '*/'
+    mockFetchOnce({
+      client_id: url,
+      redirect_uris: ['https://heavy.example/cb'],
+      branding: { css: bigCss },
+    })
+    const result = await validateClientMetadataForPreview(url, [url])
+    const byId = Object.fromEntries(result.checks.map((c) => [c.id, c]))
+    expect(byId['branding-css'].severity).toBe('error')
+    expect(byId['branding-css'].detail).toContain('exceeds')
+  })
+
   it('warns (not errors) when optional branding fields are missing', async () => {
     const url = 'https://plain.example/client-metadata.json'
     mockFetchOnce({
