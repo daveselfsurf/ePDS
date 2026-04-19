@@ -89,7 +89,7 @@ function checkUriField(opts: {
   } catch {
     // fall through
   }
-  if (!parsed || parsed.protocol !== 'https:') {
+  if (parsed?.protocol !== 'https:') {
     return {
       id,
       label,
@@ -140,8 +140,7 @@ function checkHttpsScheme(parsedUrl: URL): PreviewCheck | null {
     id: 'url-https',
     label: 'URL uses https',
     severity: 'error',
-    detail:
-      'client_metadata must be hosted over HTTPS (the spec requires it).',
+    detail: 'client_metadata must be hosted over HTTPS (the spec requires it).',
     detailHtml: `${code('client_metadata')} must be hosted over HTTPS (the spec requires it).`,
   }
 }
@@ -151,7 +150,9 @@ function checkHttpsScheme(parsedUrl: URL): PreviewCheck | null {
  * the "ok" fetch check; on any failure (transport, non-2xx, bad JSON)
  * returns the fatal check with `metadata` unset.
  */
-async function fetchMetadata(url: string): Promise<
+async function fetchMetadata(
+  url: string,
+): Promise<
   | { metadata: ClientMetadata; fetchCheck: PreviewCheck }
   | { metadata: null; fetchCheck: PreviewCheck }
 > {
@@ -254,8 +255,9 @@ function checkClientIdMatch(
 }
 
 function checkRedirectUris(metadata: ClientMetadata): PreviewCheck {
-  const redirectUris = (metadata as ClientMetadata & { redirect_uris?: unknown })
-    .redirect_uris
+  const redirectUris = (
+    metadata as ClientMetadata & { redirect_uris?: unknown }
+  ).redirect_uris
   const label = 'redirect_uris non-empty'
   const labelHtml = `${code('redirect_uris')} non-empty`
 
@@ -421,11 +423,11 @@ export async function validateClientMetadataForPreview(
 
   // 1. URL shape
   const { parsedUrl, errorCheck: urlParseError } = parseClientIdUrl(url)
-  if (urlParseError) {
-    checks.push(urlParseError)
+  if (!parsedUrl) {
+    checks.push(urlParseError!)
     return { url, fetched: false, checks }
   }
-  const httpsError = checkHttpsScheme(parsedUrl!)
+  const httpsError = checkHttpsScheme(parsedUrl)
   if (httpsError) {
     checks.push(httpsError)
     // Short-circuit: safeFetch would also reject http: and we'd end up
@@ -441,19 +443,20 @@ export async function validateClientMetadataForPreview(
   }
   const metadata = fetched.metadata
 
-  // 3. Content checks on the parsed metadata
-  checks.push(checkClientIdMatch(metadata, url))
-  checks.push(checkRedirectUris(metadata))
-  checks.push(checkBrandColor(metadata))
-  checks.push(checkBackgroundColor(metadata))
-  checks.push(checkBrandingCss(metadata))
-
-  // Legal / discoverability URIs — surfaced as links on the consent screen.
-  // Optional in the spec, but their absence is almost always an oversight:
-  // without them the consent page has no way to link to the client's
-  // terms of service or privacy policy.
-  checks.push(checkTosUri(metadata))
-  checks.push(checkPolicyUri(metadata))
+  // 3. Content checks on the parsed metadata. Legal / discoverability
+  // URIs (tos_uri, policy_uri) are technically optional per spec, but
+  // their absence is almost always an oversight: without them the
+  // consent page has no way to link to the client's terms / privacy
+  // policy.
+  checks.push(
+    checkClientIdMatch(metadata, url),
+    checkRedirectUris(metadata),
+    checkBrandColor(metadata),
+    checkBackgroundColor(metadata),
+    checkBrandingCss(metadata),
+    checkTosUri(metadata),
+    checkPolicyUri(metadata),
+  )
 
   // 4. Trusted-clients membership (optional; caller may skip)
   const trustedCheck = checkTrustedClient(url, trustedClients)

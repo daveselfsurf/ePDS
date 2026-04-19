@@ -93,10 +93,10 @@ describe('createPreviewConsentHandler', () => {
       // Drives the SPA to the consent view, not sign-in. The hydration
       // data is JSON-stringified twice (once for the value, once for the
       // script-literal), so field names appear with escaped quotes.
-      expect(res.body).toContain('\\"consentRequired\\":true')
-      expect(res.body).toContain('\\"selected\\":true')
+      expect(res.body).toContain(String.raw`\"consentRequired\":true`)
+      expect(res.body).toContain(String.raw`\"selected\":true`)
       // No loginHint — would force sign-in mode in authorize-view.tsx:
-      expect(res.body).not.toContain('\\"loginHint\\"')
+      expect(res.body).not.toContain(String.raw`\"loginHint\"`)
       // Hydration script + entry bundle present:
       expect(res.body).toMatch(
         /<script>window\["__authorizeData"\]=JSON\.parse/,
@@ -130,7 +130,7 @@ describe('createPreviewConsentHandler', () => {
         [trusted],
       )
       expect(res.body).toContain('<style>body { color: red; }</style>')
-      expect(res.body).toContain('\\"clientTrusted\\":true')
+      expect(res.body).toContain(String.raw`\"clientTrusted\":true`)
       expect(res.body).toContain('trusted.example')
     })
 
@@ -150,7 +150,7 @@ describe('createPreviewConsentHandler', () => {
         },
         res,
       )
-      expect(res.body).toContain('\\"clientTrusted\\":false')
+      expect(res.body).toContain(String.raw`\"clientTrusted\":false`)
     })
 
     it('logs a warning and still renders when metadata resolution fails', async () => {
@@ -212,14 +212,15 @@ describe('createPreviewConsentHandler', () => {
       // The browser only terminates <script> on a literal `</script>`; as long as
       // the unescaped sequence never appears inside the script block we're safe.
       const body = res.body!
-      const scriptMatch = body.match(
-        /<script>(window\["__authorizeData"\][\s\S]*?document\.currentScript\.remove\(\);)<\/script>/,
-      )
+      const scriptMatch =
+        /<script>(window\["__authorizeData"\][\s\S]*?document\.currentScript\.remove\(\);)<\/script>/.exec(
+          body,
+        )
       expect(scriptMatch).not.toBeNull()
       const scriptBody = scriptMatch![1]
       expect(scriptBody).not.toMatch(/<\/script/i)
       // serialize-javascript escapes `<` → `\u003C` (uppercase C)
-      expect(scriptBody).toContain('\\u003C\\u002Fscript')
+      expect(scriptBody).toContain(String.raw`\u003C\u002Fscript`)
     })
 
     it('always bypasses the metadata cache (preview routes never serve stale branding)', async () => {

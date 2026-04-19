@@ -28,6 +28,24 @@ pnpm lint                  # lint all files with ESLint
 pnpm lint:fix              # lint and auto-fix where possible
 ```
 
+## Before Pushing
+
+**Run every check CI runs — locally — before every push.** CI failures
+that prettier / eslint / tsc would have caught locally waste review
+cycles. The full set CI runs is:
+
+```bash
+pnpm format:check          # prettier — CI fails if any file is unformatted
+pnpm lint                  # eslint
+pnpm typecheck             # tsc --noEmit
+pnpm test                  # vitest run
+pnpm test:coverage         # v8 thresholds in vitest.config.ts
+```
+
+These are cheap. Run them all before `git push` — not just the ones you
+think are relevant to the change. In particular, `pnpm format:check`
+catches prettier drift that `pnpm format` fixes in-place.
+
 ## Documentation
 
 **Always update documentation when your changes would render existing docs
