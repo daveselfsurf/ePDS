@@ -361,6 +361,26 @@ function checkBrandingCss(metadata: ClientMetadata): PreviewCheck {
   }
 }
 
+function checkTosUri(metadata: ClientMetadata): PreviewCheck {
+  return checkUriField({
+    id: 'tos-uri',
+    field: 'tos_uri',
+    value: metadata.tos_uri,
+    description:
+      "Terms-of-service URL. Rendered as a link on the consent page so users can review the client's terms before granting access.",
+  })
+}
+
+function checkPolicyUri(metadata: ClientMetadata): PreviewCheck {
+  return checkUriField({
+    id: 'policy-uri',
+    field: 'policy_uri',
+    value: metadata.policy_uri,
+    description:
+      "Privacy-policy URL. Rendered as a link on the consent page so users can review the client's privacy policy before granting access.",
+  })
+}
+
 /**
  * Whether the URL appears on the service's trust list. `trustedClients`
  * of null means the caller doesn't know (and we skip the check).
@@ -432,24 +452,8 @@ export async function validateClientMetadataForPreview(
   // Optional in the spec, but their absence is almost always an oversight:
   // without them the consent page has no way to link to the client's
   // terms of service or privacy policy.
-  checks.push(
-    checkUriField({
-      id: 'tos-uri',
-      field: 'tos_uri',
-      value: metadata.tos_uri,
-      description:
-        "Terms-of-service URL. Rendered as a link on the consent page so users can review the client's terms before granting access.",
-    }),
-  )
-  checks.push(
-    checkUriField({
-      id: 'policy-uri',
-      field: 'policy_uri',
-      value: metadata.policy_uri,
-      description:
-        "Privacy-policy URL. Rendered as a link on the consent page so users can review the client's privacy policy before granting access.",
-    }),
-  )
+  checks.push(checkTosUri(metadata))
+  checks.push(checkPolicyUri(metadata))
 
   // 4. Trusted-clients membership (optional; caller may skip)
   const trustedCheck = checkTrustedClient(url, trustedClients)
