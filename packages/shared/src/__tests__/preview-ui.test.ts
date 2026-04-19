@@ -39,7 +39,11 @@ describe('renderPreviewLinksSections', () => {
       authPublicUrl: AUTH_URL,
       pdsPublicUrl: PDS_URL,
     })
-    expect(authHtml).toContain(`<a href="${PDS_URL}/preview">pds-core</a>`)
+    // The sibling heading carries data-preview-link so the wire-up
+    // script carries the current client_id across to the other service.
+    expect(authHtml).toContain(
+      `<a href="${PDS_URL}/preview" data-preview-link>pds-core</a>`,
+    )
     expect(authHtml).toContain('<h2>auth-service</h2>')
 
     const pdsHtml = renderPreviewLinksSections({
@@ -47,7 +51,9 @@ describe('renderPreviewLinksSections', () => {
       authPublicUrl: AUTH_URL,
       pdsPublicUrl: PDS_URL,
     })
-    expect(pdsHtml).toContain(`<a href="${AUTH_URL}/preview">auth-service</a>`)
+    expect(pdsHtml).toContain(
+      `<a href="${AUTH_URL}/preview" data-preview-link>auth-service</a>`,
+    )
     expect(pdsHtml).toContain('<h2>pds-core</h2>')
   })
 
@@ -69,7 +75,10 @@ describe('renderPreviewLinksSections', () => {
       pdsPublicUrl: PDS_URL,
     })
     const count = (html.match(/data-preview-link/g) || []).length
-    expect(count).toBe(AUTH_PREVIEW_ROUTES.length + PDS_PREVIEW_ROUTES.length)
+    // One per route, plus one for the sibling service's heading link.
+    expect(count).toBe(
+      AUTH_PREVIEW_ROUTES.length + PDS_PREVIEW_ROUTES.length + 1,
+    )
   })
 })
 

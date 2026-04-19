@@ -97,15 +97,17 @@ export function renderPreviewLinksSections(opts: {
   const pdsList = renderRouteList(PDS_PREVIEW_ROUTES, pdsBase)
   // On each index page the sibling service's heading links to that
   // service's /preview index, so users can jump between the two
-  // without hunting for the URL.
+  // without hunting for the URL. Tag it with data-preview-link so the
+  // wire-up script rewrites it with the current client_id — same as
+  // the route links — and the value carries across services.
   const authHeading =
     opts.currentService === 'auth'
       ? 'auth-service'
-      : `<a href="${opts.authPublicUrl}/preview">auth-service</a>`
+      : `<a href="${opts.authPublicUrl}/preview" data-preview-link>auth-service</a>`
   const pdsHeading =
     opts.currentService === 'pds'
       ? 'pds-core'
-      : `<a href="${opts.pdsPublicUrl}/preview">pds-core</a>`
+      : `<a href="${opts.pdsPublicUrl}/preview" data-preview-link>pds-core</a>`
   return `<section class="preview-group">
   <h2>${authHeading}</h2>
   <ul>
