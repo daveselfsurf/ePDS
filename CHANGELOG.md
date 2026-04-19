@@ -4,10 +4,7 @@
 
 ### Who should read this release
 
-- **Client app developers:**
-  - [Add preview routes on auth-service and pds-core for iterating on client branding CSS.](#v0.5.0-add-preview-routes-on-auth-service-and-pds-core-for)
-  - [Fix two preview-route cache bugs and remove long-stale debug endpoints.](#v0.5.0-fix-two-preview-route-cache-bugs-and-remove-long-stale)
-- **Operators:**
+- **Client app developers & operators:**
   - [Add preview routes on auth-service and pds-core for iterating on client branding CSS.](#v0.5.0-add-preview-routes-on-auth-service-and-pds-core-for)
   - [Fix two preview-route cache bugs and remove long-stale debug endpoints.](#v0.5.0-fix-two-preview-route-cache-bugs-and-remove-long-stale)
 - **End users of the trusted demo:**
