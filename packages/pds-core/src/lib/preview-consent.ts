@@ -41,7 +41,15 @@ import {
   renderPreviewIndexPage,
   type ClientMetadata,
 } from '@certified-app/shared'
+import { readFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import serialize from 'serialize-javascript'
+
+// pds-core compiles to CommonJS, so createRequire(__filename) gives us a
+// require that can resolve the sibling package without tripping the
+// no-require-imports lint rule (we never call the local `require` — only
+// require.resolve, which is a function lookup not a syntactic require).
+const nodeRequire = createRequire(__filename)
 
 // Use structural request/response types rather than importing from
 // express — pds-core doesn't depend on express's types directly and
@@ -77,10 +85,16 @@ async function loadAssetRefs(): Promise<{
   styles: string[]
 }> {
   if (cachedAssets) return cachedAssets
-  const mod = (await import('@atproto/oauth-provider-ui/bundle-manifest.json', {
-    with: { type: 'json' },
-  })) as { default: BundleManifest }
-  const manifest = mod.default
+  // Read the manifest as a plain file rather than via `import(..., { with:
+  // { type: 'json' } })`. Import-attributes are only stable in Node 22+
+  // and the repo allows Node >=20.0.0; require.resolve + fs.readFile
+  // works on every Node 20.x without attributes.
+  const manifestPath = nodeRequire.resolve(
+    '@atproto/oauth-provider-ui/bundle-manifest.json',
+  )
+  const manifest = JSON.parse(
+    await readFile(manifestPath, 'utf8'),
+  ) as BundleManifest
   const scripts = Object.entries(manifest)
     .filter(
       ([, a]) =>

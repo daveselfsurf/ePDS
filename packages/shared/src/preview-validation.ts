@@ -147,6 +147,9 @@ export async function validateClientMetadataForPreview(
         'client_metadata must be hosted over HTTPS (the spec requires it).',
       detailHtml: `${code('client_metadata')} must be hosted over HTTPS (the spec requires it).`,
     })
+    // Short-circuit: safeFetch would also reject http: and we'd end up
+    // with two overlapping error rows for the same root cause.
+    return { url, fetched: false, checks }
   }
 
   // 2. Fetch

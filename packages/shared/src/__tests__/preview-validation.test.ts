@@ -41,14 +41,21 @@ describe('validateClientMetadataForPreview', () => {
     })
   })
 
-  it('errors on http:// URLs', async () => {
+  it('errors on http:// URLs and short-circuits before fetching', async () => {
     const result = await validateClientMetadataForPreview(
       'http://insecure.example/client-metadata.json',
       null,
     )
-    // safeFetch will also refuse, but the https check fires first
-    const httpsCheck = result.checks.find((c) => c.id === 'url-https')
-    expect(httpsCheck?.severity).toBe('error')
+    // The https check fires first; we deliberately return early so
+    // safeFetch isn't invoked and the operator isn't shown a second
+    // overlapping `fetch` error for the same root cause.
+    expect(result.fetched).toBe(false)
+    expect(result.checks).toHaveLength(1)
+    expect(result.checks[0]).toMatchObject({
+      id: 'url-https',
+      severity: 'error',
+    })
+    expect(mockSafeFetch).not.toHaveBeenCalled()
   })
 
   it('flags ok for all ok fields on a well-formed metadata', async () => {

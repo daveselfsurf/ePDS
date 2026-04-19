@@ -404,7 +404,15 @@ export const PREVIEW_CLIENT_ID_SCRIPT_HTML = `<script>
       var now = Date.now() + skewTo;
       var rows = entries
         .map(function (e) {
-          var href = escape(e.clientId);
+          // Defence in depth: the shared client-metadata cache should
+          // only ever hold https URLs, but since we're rendering into
+          // href="..." with target="_blank", reject anything that isn't
+          // http(s) so a rogue entry can't turn into javascript: / data:.
+          var lower = String(e.clientId).toLowerCase();
+          var hasSafeScheme =
+            lower.indexOf('https://') === 0 || lower.indexOf('http://') === 0;
+          var safeUrl = hasSafeScheme ? e.clientId : '#';
+          var href = escape(safeUrl);
           return (
             '<li class="cache-entry">' +
             '<a class="cache-entry-url" href="' + href + '" target="_blank" rel="noopener">' +
