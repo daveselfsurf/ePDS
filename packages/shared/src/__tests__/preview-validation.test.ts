@@ -83,6 +83,32 @@ describe('validateClientMetadataForPreview', () => {
     expect(byId['trusted-client'].severity).toBe('ok')
   })
 
+  it('flags branding.css as error when escaped size exceeds the 32 KB limit', async () => {
+    // getClientCss measures *escaped* bytes against MAX_CSS_BYTES and
+    // silently returns null above it. The validator must mirror that
+    // check, not a raw-byte check — otherwise a developer whose CSS is
+    // just under the raw limit but over it after escapeCss() still sees
+    // "ok" here and gets their CSS silently dropped on real flows.
+    //
+    // Fixture construction: exactly MAX_CSS_BYTES (32 768) raw bytes,
+    // composed entirely of `</style>` occurrences that escapeCss()
+    // rewrites to `\u003c/style>` (+5 bytes each). Raw = 4096 × 8 =
+    // 32 768 (at the limit, passes a naive raw check); escaped =
+    // 4096 × 13 = 53 248 (over).
+    const url = 'https://heavy.example/client-metadata.json'
+    const bigCss = '</style>'.repeat(4096)
+    expect(bigCss.length).toBe(32_768)
+    mockFetchOnce({
+      client_id: url,
+      redirect_uris: ['https://heavy.example/cb'],
+      branding: { css: bigCss },
+    })
+    const result = await validateClientMetadataForPreview(url, [url])
+    const byId = Object.fromEntries(result.checks.map((c) => [c.id, c]))
+    expect(byId['branding-css'].severity).toBe('error')
+    expect(byId['branding-css'].detail).toContain('exceeds')
+  })
+
   it('warns (not errors) when optional branding fields are missing', async () => {
     const url = 'https://plain.example/client-metadata.json'
     mockFetchOnce({

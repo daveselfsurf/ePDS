@@ -83,6 +83,30 @@ describe('resolveClientMetadata', () => {
     expect(first).toEqual(second)
     expect(first.client_name).toBe('Cached App')
   })
+
+  it('noCache:true + fetch failure does not poison a valid cache entry', async () => {
+    // Regression test for a bug where preview flows that failed to
+    // fetch client metadata would overwrite a real flow's 10-minute
+    // cache entry with a 60-second branding-less fallback, silently
+    // dropping CSS on real OAuth flows for up to a minute.
+    const url = 'https://127.0.0.1/client-metadata.json' // NOSONAR — testing SSRF guard
+    _seedClientMetadataCacheForTest(url, {
+      client_name: 'Seeded App',
+      branding: { css: 'body { background: red; }' },
+    })
+    // safeFetch rejects 127.0.0.1 as a non-unicast host, so this fetch
+    // fails deterministically. The preview-style call returns the
+    // fallback metadata to its caller (so the preview page still
+    // renders), but must NOT clobber the seeded cache entry.
+    const previewResult = await resolveClientMetadata(url, { noCache: true })
+    expect(previewResult.client_name).toBe('127.0.0.1')
+    expect(previewResult.branding).toBeUndefined()
+    // A subsequent real-flow call (noCache defaulted to false) must
+    // still see the original seeded entry — not a poisoned fallback.
+    const realFlowResult = await resolveClientMetadata(url)
+    expect(realFlowResult.client_name).toBe('Seeded App')
+    expect(realFlowResult.branding?.css).toBe('body { background: red; }')
+  })
 })
 
 describe('resolveClientName', () => {

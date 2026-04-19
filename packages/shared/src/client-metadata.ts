@@ -146,7 +146,7 @@ export async function resolveClientMetadata(
         { clientId, status: res.status },
         'Client metadata fetch returned non-OK status; using fallback',
       )
-      return fallback(clientId)
+      return fallback(clientId, options.noCache === true)
     }
 
     const metadata = (await res.json()) as ClientMetadata
@@ -167,18 +167,26 @@ export async function resolveClientMetadata(
       { err, clientId },
       'Client metadata fetch failed; using fallback',
     )
-    return fallback(clientId)
+    return fallback(clientId, options.noCache === true)
   }
 }
 
-function fallback(clientId: string): ClientMetadata {
+function fallback(clientId: string, skipCache: boolean): ClientMetadata {
   const name = extractDomain(clientId)
   const metadata = { client_name: name || undefined }
-  // Cache failures briefly (1 minute) to avoid hammering
-  cache.set(clientId, {
-    metadata,
-    expiresAt: Date.now() + 60_000,
-  })
+  // Cache failures briefly (1 minute) to avoid hammering — but only
+  // when called from a real flow. `noCache:true` callers (preview
+  // flows) skip the cache read and skip writing this degraded
+  // fallback entry; a successful fetch further up still writes to the
+  // cache, per the `noCache` JSDoc. Without this guard, a failing
+  // preview fetch would overwrite a valid 10-minute entry with a
+  // branding-less 60-second one, silently dropping CSS on real flows.
+  if (!skipCache) {
+    cache.set(clientId, {
+      metadata,
+      expiresAt: Date.now() + 60_000,
+    })
+  }
   return metadata
 }
 
@@ -202,7 +210,7 @@ export function escapeCss(css: string): string {
 }
 
 /** Maximum allowed size for injected CSS. Values above this are dropped. */
-const MAX_CSS_BYTES = 32_768 // 32 KB
+export const MAX_CSS_BYTES = 32_768 // 32 KB
 
 /**
  * Returns escaped CSS for injection if the client is trusted, or null.

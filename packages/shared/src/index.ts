@@ -40,6 +40,7 @@ export {
   resolveClientMetadata,
   resolveClientName,
   escapeCss,
+  MAX_CSS_BYTES,
   getClientCss,
   clearClientMetadataCache,
   getClientMetadataCacheStatus,
