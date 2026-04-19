@@ -337,10 +337,10 @@ function checkBrandingCss(metadata: ClientMetadata): PreviewCheck {
 
   if (typeof cssString === 'string' && cssString.trim().length > 0) {
     // Mirror getClientCss's size check: it measures the escaped form
-    // (each `</style>` expands by 6 bytes) against MAX_CSS_BYTES and
-    // silently returns null when it's over. Reporting the raw byte
-    // count here would tell devs their CSS is fine up to 32 KB raw
-    // when in fact it gets dropped on real flows.
+    // (each `</style>` → `\u003c/style>`, +5 bytes) against
+    // MAX_CSS_BYTES and silently returns null when it's over.
+    // Reporting the raw byte count here would tell devs their CSS is
+    // fine up to 32 KB raw when in fact it gets dropped on real flows.
     const escaped = escapeCss(cssString)
     const bytes = Buffer.byteLength(escaped, 'utf8')
     if (bytes > MAX_CSS_BYTES) {

@@ -174,10 +174,13 @@ export async function resolveClientMetadata(
 function fallback(clientId: string, skipCache: boolean): ClientMetadata {
   const name = extractDomain(clientId)
   const metadata = { client_name: name || undefined }
-  // Cache failures briefly (1 minute) to avoid hammering — but only when
-  // called from a real flow. Preview flows pass {noCache:true}, meaning
-  // they explicitly don't want to *read* or *write* the shared cache;
-  // writing here would poison a valid 10-minute entry for up to 60s.
+  // Cache failures briefly (1 minute) to avoid hammering — but only
+  // when called from a real flow. `noCache:true` callers (preview
+  // flows) skip the cache read and skip writing this degraded
+  // fallback entry; a successful fetch further up still writes to the
+  // cache, per the `noCache` JSDoc. Without this guard, a failing
+  // preview fetch would overwrite a valid 10-minute entry with a
+  // branding-less 60-second one, silently dropping CSS on real flows.
   if (!skipCache) {
     cache.set(clientId, {
       metadata,

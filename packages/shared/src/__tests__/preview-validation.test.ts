@@ -92,8 +92,9 @@ describe('validateClientMetadataForPreview', () => {
     //
     // Fixture construction: exactly MAX_CSS_BYTES (32 768) raw bytes,
     // composed entirely of `</style>` occurrences that escapeCss()
-    // expands by 6 bytes each. Raw = 4096 × 8 = 32 768 (at the limit,
-    // passes a naive raw check); escaped = 4096 × 14 = 57 344 (over).
+    // rewrites to `\u003c/style>` (+5 bytes each). Raw = 4096 × 8 =
+    // 32 768 (at the limit, passes a naive raw check); escaped =
+    // 4096 × 13 = 53 248 (over).
     const url = 'https://heavy.example/client-metadata.json'
     const bigCss = '</style>'.repeat(4096)
     expect(bigCss.length).toBe(32_768)
