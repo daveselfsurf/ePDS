@@ -1,5 +1,55 @@
 # ePDS
 
+## 0.5.0
+
+### Who should read this release
+
+- **Client app developers & operators:**
+  - [Add preview routes on auth-service and pds-core for iterating on client branding CSS.](#v0.5.0-add-preview-routes-on-auth-service-and-pds-core-for)
+  - [Fix two preview-route cache bugs and remove long-stale debug endpoints.](#v0.5.0-fix-two-preview-route-cache-bugs-and-remove-long-stale)
+- **End users of the trusted demo:**
+  - [Demo amber/ocean themes now colour the OAuth consent page correctly.](#v0.5.0-demo-amber-ocean-themes-now-colour-the-oauth-consent-page)
+
+### Minor Changes
+
+- <a id="v0.5.0-add-preview-routes-on-auth-service-and-pds-core-for"></a> [#84](https://github.com/hypercerts-org/ePDS/pull/84) [`fe3ec90`](https://github.com/hypercerts-org/ePDS/commit/fe3ec907ae5cb6b388c3e9eb9e6797adb900c139) Thanks [@aspiers](https://github.com/aspiers)! - Add preview routes on auth-service and pds-core for iterating on client branding CSS.
+
+  **Affects:** Client app developers, Operators
+
+  **Client app developers:**
+  - Visit `/preview` on either auth-service or pds-core for an index of every preview page. Each page renders against fixture data, so you can iterate on your `branding.css` without walking through a real OAuth flow.
+  - Paste your `client-metadata.json` URL into the input field on the index page. The value is persisted in your browser and wires up every preview link, subject to the same `PDS_OAUTH_TRUSTED_CLIENTS` check as a real flow. Leave it blank to see the unbranded baseline.
+  - The workflow becomes: edit `branding.css`, refresh any preview page. No OTP emails, no full flow.
+  - The demo app links directly to the auth-service preview index with its own `client_id` pre-selected.
+
+  **Operators:**
+  - Two new env vars gate the preview routes, one per service: `AUTH_PREVIEW_ROUTES=1` on auth-service, `PDS_PREVIEW_ROUTES=1` on pds-core. Both are independent.
+  - Safe to enable on preview deployments (Railway PR previews, `pr-base`, dev) and on local development instances. Preview routes don't affect real auth flows — they short-circuit real state — so they can technically run in production too, but they are a developer-only surface and are best left off outside preview/dev envs.
+  - **Privacy:** enabling previews exposes `/preview/cache-status`, which returns the list of `client_id` URLs currently in the shared client-metadata cache — i.e. apps that have recently started an OAuth flow against this PDS. That partially leaks which third-party clients are using the instance, so **keep previews disabled in production** unless you're comfortable with that.
+  - See `packages/auth-service/.env.example` and `packages/pds-core/.env.example` for the full notes.
+
+### Patch Changes
+
+- <a id="v0.5.0-demo-amber-ocean-themes-now-colour-the-oauth-consent-page"></a> [#83](https://github.com/hypercerts-org/ePDS/pull/83) [`cc722c4`](https://github.com/hypercerts-org/ePDS/commit/cc722c4feb98d44bc9ae07f748dda769bd33d216) Thanks [@aspiers](https://github.com/aspiers)! - Demo amber/ocean themes now colour the OAuth consent page correctly.
+
+  **Affects:** End users of the trusted demo
+
+  **End users:** The consent screen shown after signing in via the trusted demo now uses the demo's own warm indigo / amber palette throughout — the Authorize and Deny-access buttons, the "Authorize" header strip, and the surrounding surface all match the theme instead of falling back to the default @atproto/oauth-provider dark-mode look.
+
+  The previous CSS targeted auth-service's hand-rolled login markup (`.btn-primary`, `.container`, `.field`), which does not exist on the consent page — that page is built from `@atproto/oauth-provider-ui`, which is a Tailwind-utility bundle whose colours are driven by CSS custom properties (`--branding-color-primary` and friends). The demo theme now overrides those variables at `:root`, so a single declaration recolours every `bg-primary` / `text-primary` / `border-primary` utility on the consent page at once, and additionally paints the card surface and body background to match.
+
+- <a id="v0.5.0-fix-two-preview-route-cache-bugs-and-remove-long-stale"></a> [#89](https://github.com/hypercerts-org/ePDS/pull/89) [`1942ebb`](https://github.com/hypercerts-org/ePDS/commit/1942ebbae53e8fb17f6e29fa79c9c27df7d15e1d) Thanks [@aspiers](https://github.com/aspiers)! - Fix two preview-route cache bugs and remove long-stale debug endpoints.
+
+  **Affects:** Client app developers, Operators
+
+  **Client app developers:**
+  - Preview-route fetch failures no longer poison the shared client-metadata cache. Previously, a failed preview fetch for a `client_id` with a valid 10-minute entry would overwrite that entry with a 60-second branding-less fallback, silently dropping `branding.css` on real OAuth flows for up to a minute. The in-memory cache is now only written by real-flow resolution.
+  - The auth-service HTML preview pages (`/preview/login`, `/preview/login-otp`, `/preview/choose-handle`, `/preview/choose-handle-picker`, `/preview/recovery`, `/preview/recovery-otp`, and the `/preview` index) now send `Cache-Control: no-store`. Without it, a browser refresh could serve a cached page and never ask the server for fresh `branding.css`, breaking the advertised "edit `branding.css`, refresh the preview page" workflow.
+  - `/preview/validate` now flags `branding.css` whose escaped size exceeds the 32 KB injection limit as an error, instead of reporting `ok` and letting the developer discover later that their CSS was silently dropped on real OAuth flows. Byte counts now match `getClientCss()`'s measurement (escaped UTF-8).
+
+  **Operators:**
+  - Removed `/_internal/debug-grants` and `/_internal/debug-recent-accounts`. These were added as temporary HYPER-270 debugging endpoints with a code comment marking them for removal before PR [#21](https://github.com/hypercerts-org/ePDS/issues/21) shipped (v0.2.2); they survived through v0.2.2, v0.3.0, v0.4.0, and the pending v0.5.0. The matching env var `EPDS_DEBUG_GRANTS` is no longer read.
+
 ## 0.4.0
 
 ### Who should read this release
