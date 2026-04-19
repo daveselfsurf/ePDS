@@ -256,7 +256,7 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
   return router
 }
 
-function renderLoginPage(opts: {
+export function renderLoginPage(opts: {
   flowId: string
   clientId: string
   clientName: string

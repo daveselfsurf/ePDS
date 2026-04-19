@@ -143,6 +143,9 @@ importers:
       '@atproto/oauth-provider':
         specifier: ^0.15.9
         version: 0.15.10
+      '@atproto/oauth-provider-ui':
+        specifier: ^0.4.3
+        version: 0.4.3
       '@atproto/pds':
         specifier: ^0.4.209
         version: 0.4.211
@@ -155,10 +158,19 @@ importers:
       dotenv:
         specifier: ^16.3.1
         version: 16.6.1
+      serialize-javascript:
+        specifier: ^7.0.5
+        version: 7.0.5
     devDependencies:
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.25
       '@types/node':
         specifier: ^20.11.0
         version: 20.19.33
+      '@types/serialize-javascript':
+        specifier: ^5.0.4
+        version: 5.0.4
       tsx:
         specifier: ^4.7.0
         version: 4.21.0
@@ -1640,6 +1652,9 @@ packages:
 
   '@types/send@1.2.1':
     resolution: {integrity: sha512-arsCikDvlU99zl1g69TcAB3mzZPpxgw0UQnaHeC1Nwb015xp8bknZv5rIfri9xTOcMuaVgvabfIRA7PSZVuZIQ==}
+
+  '@types/serialize-javascript@5.0.4':
+    resolution: {integrity: sha512-Z2R7UKFuNWCP8eoa2o9e5rkD3hmWxx/1L0CYz0k2BZzGh0PhEVMp9kfGiqEml/0IglwNERXZ2hwNzIrSz/KHTA==}
 
   '@types/serve-static@1.15.10':
     resolution: {integrity: sha512-tRs1dB+g8Itk72rlSI2ZrW6vZg0YrLI81iQSTkMmOqnqCaNr/8Ek4VwWcN5vZgCYWbg/JJSGBlUaYGAOP73qBw==}
@@ -3802,6 +3817,10 @@ packages:
   send@0.19.2:
     resolution: {integrity: sha512-VMbMxbDeehAxpOtWJXlcUS5E8iXh6QmN+BkRX1GARS3wRaXEEgzCcB10gTQazO42tpNIya8xIyNx8fll1OFPrg==}
     engines: {node: '>= 0.8.0'}
+
+  serialize-javascript@7.0.5:
+    resolution: {integrity: sha512-F4LcB0UqUl1zErq+1nYEEzSHJnIwb3AF2XWB94b+afhrekOUijwooAYqFyRbjYkm2PAKBabx6oYv/xDxNi8IBw==}
+    engines: {node: '>=20.0.0'}
 
   serve-static@1.16.3:
     resolution: {integrity: sha512-x0RTqQel6g5SY7Lg6ZreMmsOzncHFU7nhnRWkKgWuMTu5NN0DR5oruckMqRvacAN9d5w6ARnRBXl9xhDCgfMeA==}
@@ -6547,6 +6566,8 @@ snapshots:
     dependencies:
       '@types/node': 20.19.33
 
+  '@types/serialize-javascript@5.0.4': {}
+
   '@types/serve-static@1.15.10':
     dependencies:
       '@types/http-errors': 2.0.5
@@ -8862,6 +8883,8 @@ snapshots:
       statuses: 2.0.2
     transitivePeerDependencies:
       - supports-color
+
+  serialize-javascript@7.0.5: {}
 
   serve-static@1.16.3:
     dependencies:

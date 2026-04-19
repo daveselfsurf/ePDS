@@ -339,6 +339,104 @@ The skip only applies to initial sign-up — returning users go through
 normal consent handling (which may still be auto-approved if they have
 already granted the requested scopes).
 
+#### Optional: custom CSS for ePDS pages (trusted clients)
+
+If your app is in the PDS operator's `PDS_OAUTH_TRUSTED_CLIENTS`, you can
+supply a `branding.css` string in your client metadata and ePDS will inject
+it into every page it renders during sign-in — login, OTP entry,
+choose-handle, account recovery, and the consent screen. This gives
+trusted clients full control over the look of those pages, not just the
+two hex colours in `brand_color` / `background_color`.
+
+```json
+{
+  "branding": {
+    "css": "body { background: #1a1208; color: #fef3c7; } .btn-primary { background: #f59e0b; color: #1a1208; } /* ... */"
+  }
+}
+```
+
+Constraints:
+
+- CSS is size-capped at 32 KB (measured in escaped UTF-8 bytes).
+- `</style>` sequences are escaped so the CSS can't break out of its
+  `<style>` tag.
+- The CSP `style-src` directive is updated with a SHA-256 hash of the
+  injected CSS, so there's no CSP loophole.
+- Clients **not** in `PDS_OAUTH_TRUSTED_CLIENTS` never get CSS injection,
+  regardless of what their metadata contains.
+
+##### Iterating on `branding.css`
+
+Walking through the full OAuth flow every time you want to tweak a colour
+is tedious — especially the consent screen, which is the last page of the
+flow. Both services expose a set of static preview routes that render the
+pages they own with fixture data, so you can iterate on your
+`branding.css` without going through a real flow. Pass your `client_id` as
+a query param to see the CSS injected, subject to the same
+`PDS_OAUTH_TRUSTED_CLIENTS` check as real flows. Omit `client_id` to see
+the un-branded baseline.
+
+Routes are enabled per-service by the operator — `AUTH_PREVIEW_ROUTES=1`
+for auth-service pages, `PDS_PREVIEW_ROUTES=1` for the pds-core consent
+page. Both are typical on preview envs, `pr-base`, and dev; neither is
+enabled in production.
+
+> **Privacy note.** Enabling previews also exposes `/preview/cache-status`,
+> which returns the list of `client_id` URLs currently in the shared
+> client-metadata cache on that service — effectively the set of
+> third-party apps that have recently initiated an OAuth flow against
+> this PDS. That partially leaks who is using the instance, so keep
+> `AUTH_PREVIEW_ROUTES` and `PDS_PREVIEW_ROUTES` off in production
+> unless you're comfortable with that disclosure.
+
+**auth-service** (login / OTP / choose-handle / recovery):
+
+| Route                               | Page it renders                                                            |
+| ----------------------------------- | -------------------------------------------------------------------------- |
+| `GET /preview`                      | Index linking to each route below                                          |
+| `GET /preview/login`                | Login — email entry step                                                   |
+| `GET /preview/login-otp`            | Login — OTP code entry step                                                |
+| `GET /preview/choose-handle`        | Choose-handle page, `picker-with-random` mode (`?error=<msg>` shows error) |
+| `GET /preview/choose-handle-picker` | Choose-handle page, `picker` mode — no "generate random" button            |
+| `GET /preview/recovery`             | Account recovery — email entry step                                        |
+| `GET /preview/recovery-otp`         | Account recovery — OTP code entry step                                     |
+
+**pds-core** (consent):
+
+| Route                       | Page it renders                                                                                                                    |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /preview`              | Index page for the pds-core preview                                                                                                |
+| `GET /preview/consent`      | OAuth consent page (the same `@atproto/oauth-provider-ui` SPA used by `/oauth/authorize`, rendered against fixture hydration data) |
+| `GET /preview/cache-status` | JSON: live state of the shared client-metadata cache as seen by real OAuth flows                                                   |
+
+The auth-service has the same `/preview/cache-status` endpoint.
+
+Typical URLs:
+
+```text
+https://<auth-service-host>/preview/login?client_id=<URL-of-your-client-metadata.json>
+https://<pds-host>/preview/consent?client_id=<URL-of-your-client-metadata.json>
+```
+
+Edit `branding.css` in your metadata, re-host, reload the preview URL — no
+OTP emails, no walking through the full flow. Browser devtools work
+normally so you can inspect, tweak in the Styles panel, and copy the
+winning rules back into your `branding.css`.
+
+**Persistent client_id.** The `/preview` index pages have a text field
+for your client metadata URL. Paste it once and every preview link on
+the page gets `?client_id=...` appended live as you type. The value is
+saved in `localStorage` under `epds:preview:client_id`, so it's
+pre-filled on your next visit.
+
+**Cache bypass.** Preview routes always re-fetch your client metadata —
+the 10-minute cache that real OAuth flows use is bypassed, so your
+`branding.css` edits show up on the next refresh with no waiting. The
+`/preview` index also surfaces the current real-flow cache state
+(entries and TTLs) via the `/preview/cache-status` JSON endpoint so you
+can tell when a real user's next request will see the new version.
+
 ### Using `@atproto/oauth-client-node` (recommended for Flow 2)
 
 If your app does **not** need to pass a raw email as `login_hint` (i.e.

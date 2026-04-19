@@ -431,7 +431,7 @@ export function createChooseHandleRouter(
 // Template
 // ---------------------------------------------------------------------------
 
-function renderChooseHandlePage(
+export function renderChooseHandlePage(
   handleDomain: string,
   error?: string,
   csrfToken?: string,

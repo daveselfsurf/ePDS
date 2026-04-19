@@ -78,6 +78,15 @@ tag closure. The CSP `style-src` directive is updated with a SHA-256
 hash of the injected CSS. Untrusted clients never get CSS injection
 regardless of what their metadata contains.
 
+Client-app developers can iterate on their `branding.css` without
+walking through a real OAuth flow each time by setting
+`AUTH_PREVIEW_ROUTES=1` on the auth-service (covers login / OTP /
+choose-handle / recovery) and `PDS_PREVIEW_ROUTES=1` on pds-core
+(covers the consent page). See the
+["Iterating on `branding.css`" section of the client tutorial](./tutorial.md#iterating-on-brandingcss)
+for the list of preview routes and example URLs. Intended for preview
+envs and dev instances only, not production.
+
 Optional PDS email variables:
 
 | Variable                        | Description                                      |
