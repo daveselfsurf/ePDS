@@ -162,6 +162,9 @@ importers:
         specifier: ^7.0.5
         version: 7.0.5
     devDependencies:
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.25
       '@types/node':
         specifier: ^20.11.0
         version: 20.19.33

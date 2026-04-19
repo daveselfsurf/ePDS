@@ -45,12 +45,69 @@ import {
 } from '@certified-app/shared'
 import { shouldRewriteSecFetchSite } from './lib/sec-fetch-site-rewrite.js'
 import { installCssInjectionMiddleware } from './lib/client-css-injection.js'
+import type { Application, Request, Response } from 'express'
 import {
   createPreviewConsentHandler,
   renderPreviewIndex,
 } from './lib/preview-consent.js'
 
 const logger = createLogger('pds-core')
+
+/**
+ * Wire up the /preview/* routes on the given Express app, if
+ * `createPreviewConsentHandler` returned a handler (i.e. the env flag
+ * is on). No-op otherwise. Factored out of `main` to keep its cognitive
+ * complexity under the Sonar ceiling.
+ */
+function installPreviewRoutes(
+  app: Application,
+  opts: {
+    previewConsentHandler: NonNullable<
+      ReturnType<typeof createPreviewConsentHandler>
+    >
+    authHostname: string
+    pdsPublicUrl: string
+    trustedClients: string[]
+  },
+): void {
+  // auth-service runs on auth.<PDS_HOSTNAME>; pds-core is pdsPublicUrl.
+  // Use https for real hostnames, http for localhost (see setup.sh and
+  // Caddyfile — same rule applied in auth-service's preview router).
+  const authScheme =
+    opts.authHostname === 'localhost' ||
+    opts.authHostname.endsWith('.localhost')
+      ? 'http'
+      : 'https'
+  const authPublicUrl = `${authScheme}://${opts.authHostname}`
+  app.get('/preview', (_req: Request, res: Response) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
+    res.send(
+      renderPreviewIndex({ authPublicUrl, pdsPublicUrl: opts.pdsPublicUrl }),
+    )
+  })
+  app.get('/preview/consent', opts.previewConsentHandler)
+  app.get('/preview/cache-status', (_req: Request, res: Response) => {
+    res.setHeader('Cache-Control', 'no-store')
+    res.json({ now: Date.now(), entries: getClientMetadataCacheStatus() })
+  })
+  app.get('/preview/validate', async (req: Request, res: Response) => {
+    const url =
+      typeof req.query.client_id === 'string' ? req.query.client_id : ''
+    res.setHeader('Cache-Control', 'no-store')
+    if (!url) {
+      res.json({ url: '', fetched: false, checks: [] })
+      return
+    }
+    const result = await validateClientMetadataForPreview(
+      url,
+      opts.trustedClients,
+    )
+    res.json(result)
+  })
+  logger.info(
+    'Preview routes installed (PDS_PREVIEW_ROUTES=1): /preview, /preview/consent, /preview/cache-status, /preview/validate',
+  )
+}
 
 async function main() {
   const env = readEnv()
@@ -609,40 +666,12 @@ async function main() {
     logger,
   })
   if (previewConsentHandler) {
-    // auth-service runs on auth.<PDS_HOSTNAME>; pds-core is pdsUrl. Use
-    // https for real hostnames, http for localhost (see setup.sh and
-    // Caddyfile — same rule applied in auth-service's preview router).
-    const authScheme =
-      authHostname === 'localhost' || authHostname.endsWith('.localhost')
-        ? 'http'
-        : 'https'
-    const authPublicUrl = `${authScheme}://${authHostname}`
-    pds.app.get('/preview', (_req, res) => {
-      res.setHeader('Content-Type', 'text/html; charset=utf-8')
-      res.send(renderPreviewIndex({ authPublicUrl, pdsPublicUrl: pdsUrl }))
+    installPreviewRoutes(pds.app, {
+      previewConsentHandler,
+      authHostname,
+      pdsPublicUrl: pdsUrl,
+      trustedClients,
     })
-    pds.app.get('/preview/consent', previewConsentHandler)
-    pds.app.get('/preview/cache-status', (_req, res) => {
-      res.setHeader('Cache-Control', 'no-store')
-      res.json({
-        now: Date.now(),
-        entries: getClientMetadataCacheStatus(),
-      })
-    })
-    pds.app.get('/preview/validate', async (req, res) => {
-      const url =
-        typeof req.query.client_id === 'string' ? req.query.client_id : ''
-      res.setHeader('Cache-Control', 'no-store')
-      if (!url) {
-        res.json({ url: '', fetched: false, checks: [] })
-        return
-      }
-      const result = await validateClientMetadataForPreview(url, trustedClients)
-      res.json(result)
-    })
-    logger.info(
-      'Preview routes installed (PDS_PREVIEW_ROUTES=1): /preview, /preview/consent, /preview/cache-status, /preview/validate',
-    )
   }
 
   // =========================================================================
