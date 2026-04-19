@@ -95,6 +95,13 @@ function queryString(req: Request, name: string): string | undefined {
 
 function sendHtml(res: Response, html: string): void {
   res.setHeader('Content-Type', 'text/html; charset=utf-8')
+  // Preview flows server-side bypass the client-metadata cache, but that
+  // only helps if the browser actually asks for the page. Without
+  // no-store, heuristic caching (RFC 9111 §4.2.2) lets the browser serve
+  // the previous HTML on refresh, so fresh branding.css never reaches
+  // the client. The JSON endpoints already set this header; HTML was
+  // the missing piece.
+  res.setHeader('Cache-Control', 'no-store')
   res.send(html)
 }
 
