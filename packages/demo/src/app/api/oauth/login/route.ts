@@ -69,6 +69,16 @@ export async function GET(request: Request) {
     const handleModeParam = handleMode
       ? `&epds_handle_mode=${encodeURIComponent(handleMode)}`
       : ''
+    // Raw login_hint override: accept any identifier (email, handle, DID) and
+    // forward it verbatim. When set, takes precedence over the derived
+    // login_hint from `email`. Used by login-hint-resolution e2e scenarios
+    // that need to exercise handle/DID hints and PAR-body placement, which
+    // the primary ?email= path doesn't produce.
+    const rawLoginHint = url.searchParams.get('login_hint') || ''
+    const loginHintLocationRaw =
+      url.searchParams.get('login_hint_location') || 'query'
+    const loginHintLocation: 'query' | 'body' =
+      loginHintLocationRaw === 'body' ? 'body' : 'query'
 
     // Input validation
     // Note: email and handle are both optional — omitting both triggers Flow 2
@@ -78,6 +88,14 @@ export async function GET(request: Request) {
     }
     if (handle && !validateHandle(handle)) {
       return NextResponse.redirect(new URL('/?error=invalid_handle', baseUrl))
+    }
+    // Lax validation for the raw login_hint override — accepts email,
+    // handle, or DID shapes. Reject only obvious garbage so attackers can't
+    // push arbitrary strings through our PAR body / authorize URL.
+    if (rawLoginHint && !/^[\w.@:+-]{1,256}$/.test(rawLoginHint)) {
+      return NextResponse.redirect(
+        new URL('/?error=invalid_login_hint', baseUrl),
+      )
     }
 
     // Determine endpoints: dynamic for handle, defaults for email.
@@ -126,6 +144,18 @@ export async function GET(request: Request) {
       url: parEndpoint,
     })
 
+    // Effective login_hint: explicit ?login_hint= wins over the derived
+    // email-based hint so callers can inject handle/DID identifiers.
+    const effectiveLoginHint = rawLoginHint || email
+    // When login_hint_location=body, the hint goes in the PAR body only and
+    // is omitted from the authorize redirect URL — this mirrors the
+    // third-party app pattern (e.g. sdsls.dev) that the auth service's
+    // fetchParLoginHint path exists to handle.
+    const loginHintQueryParam =
+      effectiveLoginHint && loginHintLocation === 'query'
+        ? `&login_hint=${encodeURIComponent(effectiveLoginHint)}`
+        : ''
+
     // Push Authorization Request (PAR)
     const parBody = new URLSearchParams({
       client_id: clientId,
@@ -136,6 +166,9 @@ export async function GET(request: Request) {
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
     })
+    if (effectiveLoginHint && loginHintLocation === 'body') {
+      parBody.set('login_hint', effectiveLoginHint)
+    }
 
     // If this demo is configured as a confidential OAuth client
     // (EPDS_CLIENT_PRIVATE_JWK set), sign a client_assertion and add
@@ -231,10 +264,7 @@ export async function GET(request: Request) {
         }
 
         const parData2 = (await parRes2.json()) as { request_uri: string }
-        const loginHint = email
-          ? `&login_hint=${encodeURIComponent(email)}`
-          : ''
-        const authUrl = `${authEndpoint}?client_id=${encodeURIComponent(clientId)}&request_uri=${encodeURIComponent(parData2.request_uri)}${loginHint}${handleModeParam}`
+        const authUrl = `${authEndpoint}?client_id=${encodeURIComponent(clientId)}&request_uri=${encodeURIComponent(parData2.request_uri)}${loginHintQueryParam}${handleModeParam}`
         console.log('[oauth/login] Redirecting to auth (after nonce retry)')
         const resp2 = NextResponse.redirect(authUrl)
         resp2.cookies.set(oauthCookie.name, oauthCookie.value, {
@@ -251,10 +281,7 @@ export async function GET(request: Request) {
     }
 
     const parData = (await parRes.json()) as { request_uri: string }
-    const loginHintParam = email
-      ? `&login_hint=${encodeURIComponent(email)}`
-      : ''
-    const authUrl = `${authEndpoint}?client_id=${encodeURIComponent(clientId)}&request_uri=${encodeURIComponent(parData.request_uri)}${loginHintParam}${handleModeParam}`
+    const authUrl = `${authEndpoint}?client_id=${encodeURIComponent(clientId)}&request_uri=${encodeURIComponent(parData.request_uri)}${loginHintQueryParam}${handleModeParam}`
 
     console.log('[oauth/login] Redirecting to auth')
     const response = NextResponse.redirect(authUrl)

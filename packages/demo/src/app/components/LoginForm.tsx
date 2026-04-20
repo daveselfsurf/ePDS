@@ -9,6 +9,7 @@ const ERROR_MESSAGES: Record<string, string> = {
     'Could not start login — the PDS rejected the request. Check server logs.',
   invalid_email: 'Please enter a valid email address.',
   invalid_handle: 'Please enter a valid handle (e.g. you.bsky.social).',
+  invalid_login_hint: 'Invalid login hint format.',
   token_failed: 'Login could not be completed — token exchange failed.',
   state_mismatch:
     'Login session expired or was tampered with. Please try again.',
