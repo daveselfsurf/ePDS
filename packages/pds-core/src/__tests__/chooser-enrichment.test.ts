@@ -14,11 +14,16 @@ describe('buildChooserEnrichmentScript (HYPER-268)', () => {
     expect(script).toContain('https://auth.pds.example/oauth/authorize')
   })
 
-  it('captures __deviceSessions via an accessor so the SPA still sees them', () => {
+  it('captures both hydration globals (__sessions, __deviceSessions) via accessors', () => {
     const script = buildChooserEnrichmentScript('auth.example')
-    // The script must define a setter on window.__deviceSessions that
-    // forwards to a plain data property before re-defining the prop.
-    expect(script).toContain("Object.defineProperty(window, '__deviceSessions'")
+    // Upstream uses __sessions on /oauth/authorize (inline chooser) and
+    // __deviceSessions on /account (standalone account SPA). The script
+    // must intercept BOTH with defineProperty setters so neither path
+    // slips through untouched — missing this is how early iterations of
+    // HYPER-268 rendered a plain handle-only chooser in browsers.
+    expect(script).toContain("interceptGlobal('__deviceSessions')")
+    expect(script).toContain("interceptGlobal('__sessions')")
+    expect(script).toContain('Object.defineProperty(window, name')
     expect(script).toContain(
       'configurable: true, enumerable: true, writable: true',
     )
@@ -125,14 +130,23 @@ describe('isChooserRequest (HYPER-268)', () => {
     expect(isChooserRequest({ method: 'PUT', path: '/account' })).toBe(false)
   })
 
-  it('rejects unrelated paths', () => {
+  it('matches GET /oauth/authorize — upstream renders the chooser inline there', () => {
     expect(isChooserRequest({ method: 'GET', path: '/oauth/authorize' })).toBe(
-      false,
+      true,
     )
+  })
+
+  it('rejects unrelated paths', () => {
     expect(isChooserRequest({ method: 'GET', path: '/' })).toBe(false)
     expect(
       isChooserRequest({ method: 'GET', path: '/accounts' }), // plural
     ).toBe(false)
+    expect(
+      isChooserRequest({ method: 'GET', path: '/oauth/authorize/accept' }),
+    ).toBe(false)
+    expect(isChooserRequest({ method: 'POST', path: '/oauth/authorize' })).toBe(
+      false,
+    )
   })
 })
 
@@ -206,7 +220,7 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
     const mw = createChooserEnrichmentMiddleware('auth.pds.example')
     const { res, calls } = makeRes()
     const next = vi.fn()
-    mw({ method: 'GET', path: '/oauth/authorize' }, res, next)
+    mw({ method: 'GET', path: '/oauth/token' }, res, next)
     expect(next).toHaveBeenCalledTimes(1)
     // setHeader should not be wrapped — calling it should record the
     // raw call without any rewriting.

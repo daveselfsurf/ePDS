@@ -44,7 +44,10 @@ import {
   validateClientMetadataForPreview,
 } from '@certified-app/shared'
 import { shouldRewriteSecFetchSite } from './lib/sec-fetch-site-rewrite.js'
-import { installCssInjectionMiddleware } from './lib/client-css-injection.js'
+import {
+  findInsertionIndex,
+  installCssInjectionMiddleware,
+} from './lib/client-css-injection.js'
 import type { Application, Request, Response } from 'express'
 import {
   createPreviewConsentHandler,
@@ -718,16 +721,19 @@ async function main() {
   const chooserStack = (pds.app as any)._router?.stack
   if (chooserStack) {
     const chooserLayer = chooserStack.pop()
-    let insertIdx = 0
-    for (let i = 0; i < chooserStack.length; i++) {
-      if (chooserStack[i].name === 'expressInit') {
-        insertIdx = i + 1
-        break
-      }
-    }
+    // Must run AFTER compression so our res.end wrapper sees the raw
+    // uncompressed HTML and can find the `</head>` marker — same
+    // constraint as the CSS-injection middleware above. Earlier
+    // iterations spliced this immediately after expressInit, which
+    // left compression's wrapped end() on top of ours so we only ever
+    // saw gzipped bytes and the <script> never got injected.
+    const insertIdx = findInsertionIndex(chooserStack)
     chooserStack.splice(insertIdx, 0, chooserLayer)
+    logger.info(
+      { insertIdx },
+      'Account chooser enrichment middleware installed (HYPER-268)',
+    )
   }
-  logger.info('Account chooser enrichment middleware installed (HYPER-268)')
 
   // =========================================================================
   // Cookie domain broadening (HYPER-268)

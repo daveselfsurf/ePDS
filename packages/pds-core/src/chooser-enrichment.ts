@@ -43,21 +43,33 @@ import { createHash } from 'node:crypto'
  */
 export function buildChooserEnrichmentScript(authHostname: string): string {
   return `(function(){
-  // Capture the upstream __deviceSessions before the SPA clears it.
+  // Capture upstream's hydration data before the SPA reads it and unsets
+  // the global. Two different globals carry the same account array shape
+  // depending on which upstream route is rendering:
+  //   - /oauth/authorize (the chooser that pops up mid OAuth flow)
+  //     sets window.__sessions (type: readonly Session[])
+  //   - /account          (the standalone account-management SPA)
+  //     sets window.__deviceSessions (type: readonly ActiveDeviceSession[])
+  // Both contain { account: { sub, email, preferred_username, ... }, ... }
+  // so our DOM-enrichment heuristic can operate on either one.
   var captured = null;
-  try {
-    Object.defineProperty(window, '__deviceSessions', {
-      configurable: true,
-      set: function(v) {
-        captured = v;
-        // Forward to a plain data prop so the SPA still sees the value.
-        Object.defineProperty(window, '__deviceSessions', {
-          configurable: true, enumerable: true, writable: true, value: v,
-        });
-      },
-      get: function() { return captured; },
-    });
-  } catch (_) {}
+  function interceptGlobal(name) {
+    try {
+      Object.defineProperty(window, name, {
+        configurable: true,
+        set: function(v) {
+          captured = v;
+          // Forward to a plain data prop so the SPA still sees the value.
+          Object.defineProperty(window, name, {
+            configurable: true, enumerable: true, writable: true, value: v,
+          });
+        },
+        get: function() { return captured; },
+      });
+    } catch (_) {}
+  }
+  interceptGlobal('__deviceSessions');
+  interceptGlobal('__sessions');
 
   // Build a link back to auth.<domain>/oauth/authorize?prompt=login with
   // the original OAuth params. The authorize params live in the current
@@ -91,30 +103,71 @@ export function buildChooserEnrichmentScript(authHostname: string): string {
       if (a.sub) bySub[a.sub] = a.email || '';
     });
 
-    // Heuristic: every element that contains a handle-like string
-    // ("@username" or the raw preferred_username) gets an email label
-    // appended once, marked with data-epds-enriched to prevent
-    // double-injection.
-    var nodes = document.querySelectorAll('#root [class*="account"], #root li, #root button');
-    nodes.forEach(function(el) {
-      if (el.dataset && el.dataset.epdsEnriched) return;
-      var text = el.textContent || '';
+    // Find the deepest element whose own text content contains a known
+    // handle or sub, and append the email next to it. Upstream's markup
+    // varies between versions; walking by leaf-element text is more
+    // resilient than guessing at class names. We skip elements that have
+    // children whose text also matches (so we only label the deepest
+    // match per row — usually a <span> or similar inline container).
+    var root = document.getElementById('root');
+    if (!root) return;
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+    var node;
+    var matches = [];
+    while ((node = walker.nextNode())) {
+      if (node.dataset && node.dataset.epdsEnriched) continue;
+      // Compute "own text" — text content excluding descendant element
+      // text. We approximate by joining Text-node children's data.
+      var own = '';
+      for (var i = 0; i < node.childNodes.length; i++) {
+        var c = node.childNodes[i];
+        if (c.nodeType === Node.TEXT_NODE) own += c.data;
+      }
+      if (!own) continue;
       var email = '';
       for (var handle in byHandle) {
-        if (text.indexOf(handle) >= 0) { email = byHandle[handle]; break; }
+        if (own.indexOf(handle) >= 0) { email = byHandle[handle]; break; }
       }
       if (!email) {
         for (var sub in bySub) {
-          if (text.indexOf(sub) >= 0) { email = bySub[sub]; break; }
+          if (own.indexOf(sub) >= 0) { email = bySub[sub]; break; }
         }
       }
-      if (!email) return;
+      if (email) matches.push({ el: node, email: email });
+    }
+    matches.forEach(function(m) {
+      // Upstream wraps the handle span in a flex-row container:
+      //   <span class="flex flex-wrap items-center">
+      //     <span aria-label="Identifier">HANDLE</span>
+      //   </span>
+      // We append our email as a sibling of the handle AND flip that
+      // container to flex-column, so handle and email stack as two
+      // rows without needing wrap-line hacks. The outer row-level
+      // flex (icon | wrap | chevron) is unaffected, so the chevron
+      // stays snug to the right of whichever is the widest of the
+      // two lines.
+      //
+      // Stable classes (epds-handle-label, epds-email-label) let
+      // branding CSS restyle or reorder the pair via e.g.
+      //   .epds-email-label { order: -1 }
+      // No inline typography (font-size, color, weight) so normal CSS
+      // specificity rules apply when branding wants to override.
       var label = document.createElement('span');
       label.className = 'epds-email-label';
-      label.style.cssText = 'display:block;font-size:0.85em;color:#6b7280;margin-top:2px;';
-      label.textContent = email;
-      el.appendChild(label);
-      if (el.dataset) el.dataset.epdsEnriched = '1';
+      label.style.cssText =
+        'min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
+      label.textContent = m.email;
+      if (m.el.dataset) m.el.dataset.epdsEnriched = '1';
+      m.el.classList.add('epds-handle-label');
+      var wrap = m.el.parentElement;
+      if (wrap) {
+        wrap.style.flexDirection = 'column';
+        wrap.style.alignItems = 'flex-start';
+        wrap.style.minWidth = '0';
+        wrap.appendChild(label);
+      } else {
+        m.el.appendChild(label);
+      }
     });
 
     // "Use a different account" link — inject once.
@@ -177,14 +230,26 @@ export function appendScriptHashToCsp(
 
 /**
  * True if the given Express request should trigger chooser enrichment.
- * Matches upstream's `createAccountPageMiddleware` regex exactly so every
- * variant of the chooser URL (`/account`, `/account/foo`, …) is rewritten.
+ * Upstream's `@atproto/oauth-provider` renders the account chooser on
+ * two different routes:
+ *
+ *   - `/oauth/authorize` — rendered inline during an OAuth authorize
+ *     request when a device session exists. URL stays at `/oauth/authorize`;
+ *     the SPA hydrates from `window.__sessions`.
+ *   - `/account*` — the standalone account-management SPA. Hydrates
+ *     from `window.__deviceSessions`.
+ *
+ * We intercept both. The response rewriter only injects when the body
+ * actually contains a `<head>` tag, so POST bodies and non-HTML
+ * responses (e.g. the JSON API under `/oauth/authorize/accept`) pass
+ * through unchanged.
  */
 export function isChooserRequest(req: {
   method: string
   path: string
 }): boolean {
   if (req.method !== 'GET') return false
+  if (req.path === '/oauth/authorize') return true
   return /^\/account(?:\/.*)?$/.test(req.path)
 }
 
