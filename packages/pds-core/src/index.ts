@@ -706,7 +706,7 @@ async function main() {
   //      small label next to its handle, and (d) renders a
   //      "Use a different account" link that redirects to
   //      auth.<parent>/oauth/authorize?prompt=login&... preserving the
-  //      original OAuth params. See hyper-268-session-reuse.md for the
+  //      original OAuth params. See cross-client-session-reuse.md for the
   //      design doc.
   //
   // Unlike PR #9's CSS injection, we're inserting JS — which requires

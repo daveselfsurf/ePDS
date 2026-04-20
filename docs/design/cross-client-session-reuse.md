@@ -1,4 +1,6 @@
-# HYPER-268 — Cross-client OAuth session reuse
+# Cross-client OAuth session reuse
+
+Tracking issue: HYPER-268.
 
 ## Problem
 
