@@ -1,71 +1,35 @@
 /**
- * Tests for the trailing 404 + 500 middleware in createAuthService. Mirror
- * the real handlers exactly — content negotiation via req.accepts(['json',
- * 'html']), HTML uses renderError, JSON uses a stable error code. Also
- * verifies the headersSent guard delegates to Express's default handler.
+ * Integration tests for the trailing 404 + 500 middleware that
+ * createAuthService mounts. Imports the real handlers and exercises
+ * content negotiation (JSON for Accept: * / *, HTML for browser Accept)
+ * plus the headersSent guard that delegates to Express's default handler.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import express, { type Express } from 'express'
 import type { AddressInfo } from 'node:net'
 import type { Server } from 'node:http'
-import { renderError } from '../lib/render-error.js'
+import { errorHandler, notFoundHandler } from '../lib/error-middleware.js'
 
 let server: Server
 let baseUrl: string
 
 beforeAll(async () => {
   const app: Express = express()
+  app.disable('x-powered-by')
 
   app.get('/ok', (_req, res) => {
     res.json({ ok: true })
   })
-
   app.get('/boom', (_req, _res, next) => {
     next(new Error('kaboom'))
   })
-
   app.get('/double', (_req, res, next) => {
     res.status(200).json({ partial: true })
     next(new Error('after-send'))
   })
 
-  app.use((req, res) => {
-    if (req.accepts(['json', 'html']) === 'html') {
-      res
-        .status(404)
-        .type('html')
-        .send(
-          renderError(
-            "The page you're looking for doesn't exist.",
-            'Page not found',
-          ),
-        )
-    } else {
-      res.status(404).json({ error: 'not_found' })
-    }
-  })
-
-  app.use(
-    (
-      err: unknown,
-      req: express.Request,
-      res: express.Response,
-      next: express.NextFunction,
-    ) => {
-      if (res.headersSent) {
-        next(err)
-        return
-      }
-      if (req.accepts(['json', 'html']) === 'html') {
-        res
-          .status(500)
-          .type('html')
-          .send(renderError('Something went wrong. Please try again.'))
-      } else {
-        res.status(500).json({ error: 'internal_error' })
-      }
-    },
-  )
+  app.use(notFoundHandler)
+  app.use(errorHandler)
 
   await new Promise<void>((resolve) => {
     server = app.listen(0, '127.0.0.1', () => {
@@ -84,7 +48,7 @@ afterAll(async () => {
   })
 })
 
-describe('404 handler', () => {
+describe('notFoundHandler', () => {
   it('returns JSON for Accept: */* (fetch/curl default)', async () => {
     const res = await fetch(`${baseUrl}/nope`)
     expect(res.status).toBe(404)
@@ -115,7 +79,7 @@ describe('404 handler', () => {
   })
 })
 
-describe('500 handler', () => {
+describe('errorHandler', () => {
   it('returns JSON for Accept: */*', async () => {
     const res = await fetch(`${baseUrl}/boom`)
     expect(res.status).toBe(500)
@@ -133,10 +97,8 @@ describe('500 handler', () => {
     expect(body).toContain('Something went wrong')
   })
 
-  it('does not crash when headers already sent — delegates to next', async () => {
+  it('delegates to Express default handler when headers already sent', async () => {
     const res = await fetch(`${baseUrl}/double`)
-    // First response already started (200) — Express default handler aborts,
-    // so the client sees the original 200 body.
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ partial: true })
   })

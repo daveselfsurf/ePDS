@@ -24,7 +24,7 @@ import {
   validateOtpCharset,
   validateOtpLength,
 } from './lib/otp-config-validation.js'
-import { renderError } from './lib/render-error.js'
+import { errorHandler, notFoundHandler } from './lib/error-middleware.js'
 
 const logger = createLogger('auth-service')
 
@@ -108,50 +108,8 @@ export function createAuthService(config: AuthServiceConfig): {
     res.json({ status: 'ok', service: 'auth', version: getEpdsVersion() })
   })
 
-  // Styled 404 for any unmatched HTML route. JSON clients get JSON.
-  // Use accepts(['json', 'html']) so that clients sending Accept: */*
-  // (e.g. fetch, curl) get JSON — only return HTML when the client
-  // explicitly prefers it (browsers list text/html with q=1).
-  app.use((req, res) => {
-    if (req.accepts(['json', 'html']) === 'html') {
-      res
-        .status(404)
-        .type('html')
-        .send(
-          renderError(
-            "The page you're looking for doesn't exist.",
-            'Page not found',
-          ),
-        )
-    } else {
-      res.status(404).json({ error: 'not_found' })
-    }
-  })
-
-  // Styled 500 for any uncaught error. Log the cause, keep the user-facing
-  // message generic to avoid leaking internals.
-  app.use(
-    (
-      err: unknown,
-      req: express.Request,
-      res: express.Response,
-      next: express.NextFunction,
-    ) => {
-      logger.error({ err, path: req.path }, 'Unhandled error in auth-service')
-      if (res.headersSent) {
-        next(err)
-        return
-      }
-      if (req.accepts(['json', 'html']) === 'html') {
-        res
-          .status(500)
-          .type('html')
-          .send(renderError('Something went wrong. Please try again.'))
-      } else {
-        res.status(500).json({ error: 'internal_error' })
-      }
-    },
-  )
+  app.use(notFoundHandler)
+  app.use(errorHandler)
 
   return { app, ctx }
 }
