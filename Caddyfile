@@ -36,6 +36,20 @@
     }
 }
 
+# Mailpit UI for manual email inspection during local dev / e2e runs.
+# Mailpit's own HTTP Basic auth (MP_UI_AUTH) protects the endpoint so no
+# extra Caddy-level auth is needed. Only active when MAILPIT_HOSTNAME is set.
+{$MAILPIT_HOSTNAME} {
+    reverse_proxy {$MAILPIT_UPSTREAM:mailpit:8025} {
+        header_up Connection {http.request.header.Connection}
+        header_up Upgrade {http.request.header.Upgrade}
+    }
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+    }
+}
+
 # PDS API + handle subdomains (on-demand TLS for handle resolution)
 :443 {
     tls {

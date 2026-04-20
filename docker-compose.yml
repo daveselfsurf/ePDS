@@ -60,6 +60,7 @@ services:
           - auth.${PDS_HOSTNAME:-pds.example}
           - ${DEMO_HOSTNAME:-demo.pds.example}
           - ${DEMO_UNTRUSTED_HOSTNAME:-demo-untrusted.pds.example}
+          - ${MAILPIT_HOSTNAME:-mailpit.pds.example}
     depends_on:
       core:
         condition: service_healthy
@@ -102,6 +103,9 @@ services:
       # Override the trusted-only skip-consent hint — an untrusted client
       # can advertise it but pds-core won't honour the flag.
       - EPDS_SKIP_CONSENT_ON_SIGNUP=
+      # Blank theme so the untrusted client is visually distinct from the
+      # trusted one when the latter opts into a demo theme (ocean, amber).
+      - EPDS_CLIENT_THEME=
     restart: unless-stopped
     profiles:
       - dev
