@@ -7,6 +7,8 @@
  * real users go through — there is no internal API to fast-seed them.
  */
 
+import * as crypto from 'node:crypto'
+
 import { Given, Then, When } from '@cucumber/cucumber'
 import { expect } from '@playwright/test'
 import { testEnv } from '../support/env.js'
@@ -45,12 +47,37 @@ async function assertNoEmailFor(
 }
 
 /**
+ * Characters that commonly trail a URL in an email body (punctuation,
+ * quote marks, angle brackets from quoted-printable). Each must be
+ * stripped from the end of the captured URL before navigation.
+ */
+const URL_TRAILING_JUNK = new Set(['.', '>', '"', "'", ','])
+
+/**
+ * Extract the first backup-email verification URL from an email body and
+ * strip any trailing punctuation. Implemented with a while loop rather
+ * than a trailing-anchored regex to avoid tripping Sonar's ReDoS rule —
+ * input is already bounded by the preceding \S+ match, but the loop makes
+ * the linear-time behaviour syntactically obvious.
+ */
+function extractVerifyUrl(body: string): string | null {
+  const linkMatch =
+    /https?:\/\/\S*\/account\/backup-email\/verify\?token=\S+/.exec(body)
+  if (!linkMatch) return null
+  let url = linkMatch[0]
+  while (url.length > 0 && URL_TRAILING_JUNK.has(url[url.length - 1] ?? '')) {
+    url = url.slice(0, -1)
+  }
+  return url
+}
+
+/**
  * Add a unique backup email, click the verification link, confirm.
  * Assumes the account-settings page is already loaded.
  */
 async function addAndVerifyBackupEmail(world: EpdsWorld): Promise<string> {
   const page = getPage(world)
-  const backupEmail = `backup-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`
+  const backupEmail = `backup-${Date.now()}-${crypto.randomBytes(4).toString('hex')}@example.com`
   world.backupEmail = backupEmail
   await clearMailpit(backupEmail)
 
@@ -68,12 +95,10 @@ async function addAndVerifyBackupEmail(world: EpdsWorld): Promise<string> {
 
   const message = await waitForEmail(`to:${backupEmail}`)
   const body = await fetchEmailBody(message.ID)
-  const linkMatch =
-    /https?:\/\/\S*\/account\/backup-email\/verify\?token=\S+/.exec(body)
-  if (!linkMatch) {
+  const verifyUrl = extractVerifyUrl(body)
+  if (!verifyUrl) {
     throw new Error('No verification link in backup email body')
   }
-  const verifyUrl = linkMatch[0].replace(/[.>"',]+$/, '')
 
   await page.goto(verifyUrl)
   await Promise.all([
@@ -98,14 +123,10 @@ When(
         'No email body captured — verification email arrival step must run first',
       )
     }
-    const linkMatch =
-      /https?:\/\/\S*\/account\/backup-email\/verify\?token=\S+/.exec(
-        this.lastEmailBody,
-      )
-    if (!linkMatch) {
+    const verifyUrl = extractVerifyUrl(this.lastEmailBody)
+    if (!verifyUrl) {
       throw new Error('No verification link in captured email body')
     }
-    const verifyUrl = linkMatch[0].replace(/[.>"',]+$/, '')
     const page = getPage(this)
     await page.goto(verifyUrl)
     await Promise.all([
