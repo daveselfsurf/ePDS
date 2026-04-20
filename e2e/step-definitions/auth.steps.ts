@@ -274,6 +274,29 @@ When(
 )
 
 When(
+  'the user requests an OTP for the test email',
+  async function (this: EpdsWorld) {
+    if (!testEnv.mailpitPass) return 'pending'
+    if (!this.testEmail) {
+      throw new Error(
+        'No test email set — "a returning user has a PDS account" step must run first',
+      )
+    }
+    const page = getPage(this)
+    await page.goto(testEnv.demoUrl)
+    await page.fill('#email', this.testEmail)
+    // Clear messages from any prior welcome/sign-in email for this recipient
+    // so the next waitForEmail consumes the fresh OTP from this request.
+    await clearMailpit(this.testEmail)
+    await page.click('button[type=submit]')
+    await page.waitForLoadState('networkidle')
+    await expect(page.locator('#step-otp.active')).toBeVisible({
+      timeout: 30_000,
+    })
+  },
+)
+
+When(
   'the user requests an OTP for a unique test email',
   async function (this: EpdsWorld) {
     if (!testEnv.mailpitPass) return 'pending'

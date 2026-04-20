@@ -4,6 +4,7 @@ import { testEnv } from '../support/env.js'
 import {
   waitForEmail,
   extractOtp,
+  fetchEmailBody,
   mailpitAuthHeader,
 } from '../support/mailpit.js'
 
@@ -84,6 +85,36 @@ Then(
     }
   },
 )
+
+Then(
+  'a verification email arrives in the mail trap for the backup email',
+  async function (this: EpdsWorld) {
+    if (!testEnv.mailpitPass) return 'pending'
+    if (!this.backupEmail) {
+      throw new Error(
+        'No backup email set — "the user adds a unique backup email" step must run first',
+      )
+    }
+    const message = await waitForEmail(`to:${this.backupEmail}`)
+    this.lastEmailSubject = message.Subject
+    this.lastEmailBody = await fetchEmailBody(message.ID)
+  },
+)
+
+Then('the email contains a verification link', function (this: EpdsWorld) {
+  if (!testEnv.mailpitPass) return 'pending'
+  if (!this.lastEmailBody) {
+    throw new Error(
+      'No email body captured — verification email arrival step must run first',
+    )
+  }
+  const linkPattern = /https?:\/\/\S*\/account\/backup-email\/verify\?token=\S+/
+  if (!linkPattern.test(this.lastEmailBody)) {
+    throw new Error(
+      'Verification email body does not contain a /account/backup-email/verify link',
+    )
+  }
+})
 
 Then(
   'the email body contains an OTP code matching the configured charset',
