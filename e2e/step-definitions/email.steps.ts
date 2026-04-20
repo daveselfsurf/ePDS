@@ -11,12 +11,22 @@ Given(
   'a mail trap is capturing outbound emails',
   async function (this: EpdsWorld) {
     if (!testEnv.mailpitPass) return 'pending'
-    const res = await fetch(`${testEnv.mailpitUrl}/api/v1/info`, {
-      headers: { Authorization: mailpitAuthHeader() },
-    })
+    const mailpitInfoUrl = `${testEnv.mailpitUrl}/api/v1/info`
+    let res: Response
+    try {
+      res = await fetch(mailpitInfoUrl, {
+        headers: { Authorization: mailpitAuthHeader() },
+        signal: AbortSignal.timeout(5_000),
+      })
+    } catch (err) {
+      throw new Error(
+        `Mailpit health check failed to reach ${mailpitInfoUrl}`,
+        { cause: err },
+      )
+    }
     if (!res.ok) {
       throw new Error(
-        `Mailpit health check failed: ${res.status} at ${testEnv.mailpitUrl}`,
+        `Mailpit health check failed: ${res.status} at ${mailpitInfoUrl}`,
       )
     }
   },
@@ -75,12 +85,21 @@ Then(
   },
 )
 
-Then('the email body contains a numeric OTP code', function (this: EpdsWorld) {
-  if (!testEnv.mailpitPass) return 'pending'
-  if (!this.otpCode) {
-    throw new Error('No OTP code extracted — email arrival step must run first')
-  }
-  if (!/^\d+$/.test(this.otpCode)) {
-    throw new Error(`Expected numeric OTP but got: "${this.otpCode}"`)
-  }
-})
+Then(
+  'the email body contains an OTP code matching the configured charset',
+  function (this: EpdsWorld) {
+    if (!testEnv.mailpitPass) return 'pending'
+    if (!this.otpCode) {
+      throw new Error(
+        'No OTP code extracted — email arrival step must run first',
+      )
+    }
+    const pattern =
+      testEnv.otpCharset === 'alphanumeric' ? /^[A-Z0-9]+$/ : /^\d+$/
+    if (!pattern.test(this.otpCode)) {
+      throw new Error(
+        `OTP does not match configured charset "${testEnv.otpCharset}"`,
+      )
+    }
+  },
+)

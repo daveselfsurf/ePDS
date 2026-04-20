@@ -1,4 +1,4 @@
-@email @pending
+@email
 Feature: Email delivery
   ePDS sends OTP codes and verification links via email. The test
   environment uses a mail trap (Mailpit) to capture emails.
@@ -11,14 +11,16 @@ Feature: Email delivery
     When the user requests an OTP for a unique test email
     Then an OTP email arrives in the mail trap for the test email
     And the email subject contains "Welcome"
-    And the email body contains a numeric OTP code
+    And the email body contains an OTP code matching the configured charset
 
+  @pending
   Scenario: Returning user receives a sign-in OTP email
     Given a returning user has a PDS account
     When the user requests an OTP for the test email
     Then an OTP email arrives in the mail trap for the test email
     And the email subject contains "Sign-in"
 
+  @pending
   Scenario: Backup email verification link is delivered
     Given the user is logged into account settings
     When the user adds a unique backup email
