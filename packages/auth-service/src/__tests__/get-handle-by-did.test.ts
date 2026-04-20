@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { getHandleByDid } from '../lib/get-handle-by-did.js'
 
-const PDS_URL = 'http://core:3000'
+const PDS_URL = 'https://core:3000'
 const DID = 'did:plc:abc123'
 
 let fetchSpy: ReturnType<typeof vi.spyOn>
