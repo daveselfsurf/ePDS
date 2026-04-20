@@ -9,32 +9,10 @@ import {
 } from '@certified-app/shared'
 import { fromNodeHeaders } from 'better-auth/node'
 import { getDidByEmail } from '../lib/get-did-by-email.js'
+import { getHandleByDid } from '../lib/get-handle-by-did.js'
 import { ensurePdsUrl } from '../lib/pds-url.js'
 
 const logger = createLogger('auth:account-settings')
-
-/**
- * Resolve the current handle for a DID via the PDS's public describeRepo
- * XRPC endpoint. Returns null if the PDS can't be reached or returns an
- * unexpected shape — the settings page falls back to showing just the DID.
- */
-async function getHandleByDid(
-  did: string,
-  pdsUrl: string,
-): Promise<string | null> {
-  try {
-    const res = await fetch(
-      `${pdsUrl}/xrpc/com.atproto.repo.describeRepo?repo=${encodeURIComponent(did)}`,
-      { signal: AbortSignal.timeout(3000) },
-    )
-    if (!res.ok) return null
-    const data = (await res.json()) as { handle?: string }
-    return typeof data.handle === 'string' ? data.handle : null
-  } catch (err) {
-    logger.warn({ err, did }, 'Failed to resolve handle by DID from PDS')
-    return null
-  }
-}
 
 /**
  * Middleware that validates a better-auth session and injects it into res.locals.
