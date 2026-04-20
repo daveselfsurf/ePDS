@@ -201,6 +201,108 @@ res.json({ ...provider!.metadata, authorization_endpoint: '...' })
 Assumes `metadata` is a plain spreadable object containing standard AS
 metadata fields.
 
+### 15. Device-session cookie names for cross-subdomain rewrite
+
+**File:** `packages/pds-core/src/cookie-domain.ts`, wired in
+`packages/pds-core/src/index.ts`
+
+When `AUTH_HOSTNAME` is a subdomain of `PDS_HOSTNAME`, pds-core installs a
+middleware that rewrites outbound `Set-Cookie` headers to inject
+`Domain=<parent>` so the auth-service sibling subdomain can read the upstream
+device-session cookies. The set of cookie names to rewrite is **hardcoded**:
+
+```ts
+export const DEVICE_COOKIE_NAMES = new Set<string>([
+  'dev-id',
+  'ses-id',
+  'dev-id:hash',
+  'ses-id:hash',
+])
+```
+
+These names are `@atproto/oauth-provider` internals — the two device-session
+cookies and their signed-`:hash` sidecars. The middleware also wraps
+`res.appendHeader` because upstream's cookie helper writes via Node's
+`appendHeader` directly rather than through `setHeader`.
+
+**Breakage scenario:** Upstream renames `dev-id`/`ses-id`, adds a new
+session cookie (e.g. a rotated second device ID), or drops the `:hash`
+sidecar convention. The rewrite silently no-ops for the renamed cookies,
+they stay host-only on the pds-core hostname, the auth-service cannot see
+them, and cross-client session reuse regresses to "email/OTP every time"
+without any error. Also at risk if upstream switches from `appendHeader` to
+a different Node API for writing `Set-Cookie`.
+
+### 16. `/account` chooser HTML rewrite and `__deviceSessions` payload
+
+**File:** `packages/pds-core/src/chooser-enrichment.ts`, wired in
+`packages/pds-core/src/index.ts`
+
+Middleware intercepts HTML responses for `GET /oauth/authorize` and
+`GET /account*` and injects a `<script>` tag at the start of `<head>` that
+(a) appends each bound account's email next to its handle in the chooser UI
+and (b) injects a "Use a different account" link pointing at
+`auth.<host>/oauth/authorize?prompt=login`. The injected script reads two
+upstream globals set by the server-rendered SPA:
+
+```ts
+// /oauth/authorize inline chooser
+interceptGlobal('__sessions')
+// /account standalone SPA
+interceptGlobal('__deviceSessions')
+```
+
+Both carry `{ account: { sub, email, preferred_username, ... } }` entries.
+The enrichment script then walks the rendered DOM looking for leaf elements
+whose own text contains a known handle or DID, and appends the email as a
+sibling span. The middleware also appends a `sha256-<hash>` of the injected
+script to the response's CSP `script-src` directive.
+
+Depends on:
+
+- The `/account` and `/oauth/authorize` chooser routes being server-rendered
+  HTML that the middleware can rewrite in-flight (not a pure SPA fetching
+  JSON post-load).
+- The global variable names `__sessions` and `__deviceSessions`.
+- The account payload shape (`sub`, `email`, `preferred_username`).
+- The chooser rendering handle text as visible DOM text that a tree-walker
+  can find.
+
+**Breakage scenario:** Upstream renames the globals, changes the account
+payload shape, restructures the chooser into a JSON-fetching SPA, or drops
+the `/account` route. The enrichment silently fails — the page still
+renders because the script is fail-safe — and users see stock upstream
+handle-only rows again with no email disambiguation and no "Use a different
+account" escape hatch.
+
+### 17. `dev-id` cookie detection on the auth-service side
+
+**File:** `packages/auth-service/src/lib/session-reuse.ts`, called from
+`packages/auth-service/src/routes/login-page.ts`
+
+The auth-service's `GET /oauth/authorize` route reads the upstream
+`dev-id` cookie directly to decide whether to bypass its own email/OTP form
+and redirect to pds-core's stock `/oauth/authorize`:
+
+```ts
+export function hasDeviceSessionCookie(req: SessionReuseRequest): boolean {
+  if (req.cookies && typeof req.cookies['dev-id'] === 'string') return true
+  const raw = req.headers.cookie ?? ''
+  return /(?:^|;\s*)dev-id=/.test(raw)
+}
+```
+
+The auth-service does not parse or verify the cookie; it just treats
+presence as "the browser has an upstream device session, defer to pds-core".
+
+**Breakage scenario:** Same `dev-id` rename/removal risk as item 15. If
+upstream renames or splits the device-session cookie, this check returns
+`false` for all requests, session reuse silently regresses, and every
+re-authorization prompts for email/OTP again. If upstream starts setting
+`dev-id` under circumstances that don't actually indicate a usable device
+session, we'd redirect unconditionally and the user would bounce through
+pds-core back to the auth-service in a loop.
+
 ## Moderate Risk (public APIs, less likely to break)
 
 ### 11. `@atproto/syntax` exports
