@@ -30,16 +30,21 @@ beforeAll(async () => {
   app = express()
   app.use(createPreviewEmailsRouter(makeCtxStub()))
   await new Promise<void>((resolve) => {
-    server = app.listen(0, '127.0.0.1', () => resolve())
+    server = app.listen(0, '127.0.0.1', () => {
+      resolve()
+    })
   })
   const addr = server.address() as AddressInfo
   baseUrl = `http://127.0.0.1:${addr.port}`
 })
 
 afterAll(async () => {
-  await new Promise<void>((resolve, reject) =>
-    server.close((err) => (err ? reject(err) : resolve())),
-  )
+  await new Promise<void>((resolve, reject) => {
+    server.close((err) => {
+      if (err) reject(err)
+      else resolve()
+    })
+  })
 })
 
 beforeEach(() => {

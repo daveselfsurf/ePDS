@@ -15,11 +15,17 @@
  *
  * Query params (all optional):
  *   ?otp=<code>        override the fixture OTP (default: 123456).
- *   ?client_id=<URL>   render a client-branded template; subject to
- *                      the trusted-clients gate and the template's
- *                      `email_template_uri`. Falls back to the default
- *                      template if the client doesn't define one or
- *                      isn't trusted — mirrors real-sender behaviour.
+ *   ?app=<name>        override the fallback app name for the
+ *                      returning-user template (default: Preview Client).
+ *   ?to=<email>        override the rendered "To:" header.
+ *   ?client_id=<URL>   render a client-branded template for the
+ *                      new-user / returning-user routes. Gated on the
+ *                      real trusted-clients list (`PDS_OAUTH_TRUSTED_CLIENTS`)
+ *                      and the client's `email_template_uri`. Falls
+ *                      back to the default template if the client is
+ *                      untrusted, advertises no `email_template_uri`,
+ *                      or the template fetch fails — mirrors real-
+ *                      sender behaviour bit-for-bit.
  */
 import { Router, type Request, type Response } from 'express'
 import type { AuthServiceContext } from '../context.js'
@@ -30,6 +36,7 @@ import {
   buildBackupEmailVerificationEmail,
   type RenderedEmail,
 } from '../email/templates.js'
+import { buildClientBrandedEmail } from '../email/client-template.js'
 
 const FAKE_OTP = '123456'
 const FAKE_TO = 'alice@example.com'
@@ -129,7 +136,7 @@ export function createPreviewEmailsRouter(ctx: AuthServiceContext): Router {
     next()
   })
 
-  const fromName = ctx.config.email.fromName
+  const defaultFromName = ctx.config.email.fromName
   const fromAddress = ctx.config.email.from
 
   const render = (
@@ -137,40 +144,91 @@ export function createPreviewEmailsRouter(ctx: AuthServiceContext): Router {
     kind: string,
     description: string,
     email: RenderedEmail,
+    fromNameOverride?: string,
   ): string =>
     renderEmailPreview({
       kind,
       description,
-      fromName,
+      fromName: fromNameOverride ?? defaultFromName,
       fromAddress,
       to: queryString(req, 'to') ?? FAKE_TO,
       email,
       backHref: '/preview',
     })
 
-  router.get('/preview/emails/new-user', (req: Request, res: Response) => {
-    const code = queryString(req, 'otp') ?? FAKE_OTP
-    const email = buildWelcomeCodeEmail({ code, ...pdsIdentity(ctx) })
-    sendHtml(
-      res,
-      render(
+  /**
+   * If `?client_id=` is present and the client is trusted, render the
+   * branded template it advertises; otherwise (untrusted / no template
+   * / fetch failure) fall through to `fallback`. Mirrors the real
+   * sender's gating exactly.
+   */
+  async function brandedOrFallback(
+    req: Request,
+    code: string,
+    isNewUser: boolean,
+    fallback: RenderedEmail,
+  ): Promise<{ email: RenderedEmail; fromName?: string }> {
+    const clientId = queryString(req, 'client_id')
+    if (!clientId) return { email: fallback }
+    const branded = await buildClientBrandedEmail({
+      clientId,
+      code,
+      isNewUser,
+      toEmail: queryString(req, 'to') ?? FAKE_TO,
+      fallbackAppName: queryString(req, 'app') ?? FAKE_APP_NAME,
+      fallbackFromName: defaultFromName,
+      trustedClients: ctx.config.trustedClients,
+    })
+    if (!branded) return { email: fallback }
+    return {
+      email: {
+        subject: branded.subject,
+        text: branded.text,
+        html: branded.html,
+      },
+      fromName: branded.fromName,
+    }
+  }
+
+  router.get(
+    '/preview/emails/new-user',
+    async (req: Request, res: Response) => {
+      const code = queryString(req, 'otp') ?? FAKE_OTP
+      const fallback = buildWelcomeCodeEmail({ code, ...pdsIdentity(ctx) })
+      const { email, fromName } = await brandedOrFallback(
         req,
-        'New user — welcome / email verification',
-        'Sent when a user signs up. Contains the OTP they enter to confirm their email and finish creating their account.',
-        email,
-      ),
-    )
-  })
+        code,
+        true,
+        fallback,
+      )
+      sendHtml(
+        res,
+        render(
+          req,
+          'New user — welcome / email verification',
+          'Sent when a user signs up. Contains the OTP they enter to confirm their email and finish creating their account.',
+          email,
+          fromName,
+        ),
+      )
+    },
+  )
 
   router.get(
     '/preview/emails/returning-user',
-    (req: Request, res: Response) => {
+    async (req: Request, res: Response) => {
       const code = queryString(req, 'otp') ?? FAKE_OTP
-      const email = buildSignInCodeEmail({
+      const fallback = buildSignInCodeEmail({
         code,
         clientAppName: queryString(req, 'app') ?? FAKE_APP_NAME,
         ...pdsIdentity(ctx),
       })
+      const { email, fromName } = await brandedOrFallback(
+        req,
+        code,
+        false,
+        fallback,
+      )
       sendHtml(
         res,
         render(
@@ -178,6 +236,7 @@ export function createPreviewEmailsRouter(ctx: AuthServiceContext): Router {
           'Returning user — sign-in OTP',
           'Sent when an existing user signs in to a client app. Contains the OTP they enter to complete the sign-in.',
           email,
+          fromName,
         ),
       )
     },

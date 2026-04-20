@@ -1,144 +1,23 @@
 import * as nodemailer from 'nodemailer'
-import {
-  createLogger,
-  makeSafeFetch,
-  escapeHtml,
-  formatOtpPlain,
-} from '@certified-app/shared'
+import { createLogger } from '@certified-app/shared'
 import type { Transporter } from 'nodemailer'
 import type { EmailConfig } from '@certified-app/shared'
-import { resolveClientMetadata } from '../lib/client-metadata.js'
 import {
   buildSignInCodeEmail,
   buildWelcomeCodeEmail,
   buildBackupEmailVerificationEmail,
 } from './templates.js'
+import { buildClientBrandedEmail } from './client-template.js'
 
 const logger = createLogger('auth:email')
 
-// Template cache (separate from client metadata cache)
-const templateCache = new Map<string, { html: string; fetchedAt: number }>()
-const TEMPLATE_CACHE_TTL = 10 * 60 * 1000 // 10 minutes
-
-/** Seed the template cache. Intended for tests only. */
-export function _seedTemplateCacheForTest(uri: string, html: string): void {
-  templateCache.set(uri, { html, fetchedAt: Date.now() })
-}
-
-/** Clear the template cache. Intended for tests only. */
-export function _clearTemplateCacheForTest(): void {
-  templateCache.clear()
-}
-
-const MAX_TEMPLATE_SIZE = 100_000 // 100KB
-
-// SSRF-hardened fetch for email templates: requires HTTPS, blocks private/
-// reserved IPs, enforces a 5s timeout and 100KB Content-Length cap.
-const safeFetch = makeSafeFetch({
-  timeoutMs: 5_000,
-  maxBodyBytes: MAX_TEMPLATE_SIZE,
-})
-
-async function fetchTemplate(uri: string): Promise<string | null> {
-  // Optional domain allowlist via env var (comma-separated).
-  // safeFetch already enforces HTTPS and blocks private IPs; this is an
-  // additional opt-in restriction for operators who want to lock down
-  // which domains can supply email templates.
-  const allowedDomains = process.env.EMAIL_TEMPLATE_ALLOWED_DOMAINS
-  if (allowedDomains) {
-    try {
-      const domains = allowedDomains.split(',').map((d) => d.trim())
-      const hostname = new URL(uri).hostname
-      if (!domains.includes(hostname)) {
-        logger.warn(
-          { uri, hostname },
-          'Email template domain not in allowlist, ignoring',
-        )
-        return null
-      }
-    } catch {
-      return null
-    }
-  }
-
-  const cached = templateCache.get(uri)
-  if (cached && Date.now() - cached.fetchedAt < TEMPLATE_CACHE_TTL) {
-    return cached.html
-  }
-  try {
-    // safeFetch validates the URL (HTTPS only, no private IPs, timeout, size cap)
-    const res = await safeFetch(uri)
-    if (!res.ok) return null
-
-    // Reject oversized responses (post-read defence-in-depth — safeFetch
-    // already checks Content-Length; this catches chunked responses)
-    const html = await res.text()
-    if (html.length > MAX_TEMPLATE_SIZE) {
-      logger.warn(
-        { uri, size: html.length },
-        'Email template too large, ignoring',
-      )
-      return null
-    }
-
-    // Basic validation: must contain {{code}} placeholder
-    if (!html.includes('{{code}}')) {
-      logger.warn(
-        { uri },
-        'Email template missing {{code}} placeholder, ignoring',
-      )
-      return null
-    }
-    templateCache.set(uri, { html, fetchedAt: Date.now() })
-    return html
-  } catch (err) {
-    logger.warn({ err, uri }, 'Failed to fetch email template')
-    return null
-  }
-}
-
-function renderTemplate(
-  template: string,
-  vars: Record<string, string | boolean>,
-): string {
-  let html = template
-
-  // Handle conditional sections first: {{#key}}...{{/key}} and {{^key}}...{{/key}}
-  for (const [key, value] of Object.entries(vars)) {
-    if (typeof value === 'boolean') {
-      const showRegex = new RegExp(
-        `\\{\\{#${key}\\}\\}([\\s\\S]*?)\\{\\{/${key}\\}\\}`,
-        'g',
-      )
-      const hideRegex = new RegExp(
-        `\\{\\{\\^${key}\\}\\}([\\s\\S]*?)\\{\\{/${key}\\}\\}`,
-        'g',
-      )
-      html = html.replace(showRegex, value ? '$1' : '')
-      html = html.replace(hideRegex, value ? '' : '$1')
-    }
-  }
-
-  // Then replace string variables (HTML-escaped)
-  for (const [key, value] of Object.entries(vars)) {
-    if (typeof value === 'string') {
-      html = html.replaceAll(`{{${key}}}`, escapeHtml(value))
-    }
-  }
-
-  return html
-}
-
-function renderSubjectTemplate(
-  template: string,
-  vars: Record<string, string>,
-): string {
-  let subject = template
-  for (const [key, value] of Object.entries(vars)) {
-    subject = subject.replaceAll(`{{${key}}}`, value)
-  }
-  return subject
-}
+// Re-exports so existing tests that reach for the template cache still
+// resolve through sender.js. New code should import directly from
+// ./client-template.js.
+export {
+  _seedTemplateCacheForTest,
+  _clearTemplateCacheForTest,
+} from './client-template.js'
 
 export class EmailSender {
   private transporter: Transporter
@@ -227,67 +106,35 @@ export class EmailSender {
   }): Promise<void> {
     const { to, code, clientAppName, pdsName, pdsDomain, isNewUser } = opts
 
-    // Try to use a client-provided email template. Only trusted clients
-    // are allowed to supply templates: an untrusted client_id could
-    // otherwise (a) cause an outbound fetch to an attacker-controlled
-    // URL on every OTP send, (b) put attacker-chosen HTML alongside the
-    // PDS's own From address (phishing uplift), or (c) override the
-    // From display name via `client_name`. This matches the gate on
-    // CSS branding injection.
-    if (opts.clientId && this.trustedClients.includes(opts.clientId)) {
-      try {
-        const metadata = await resolveClientMetadata(opts.clientId)
-        if (metadata.email_template_uri) {
-          const template = await fetchTemplate(metadata.email_template_uri)
-          if (template) {
-            const appName = metadata.client_name || clientAppName
-
-            const customHtml = renderTemplate(template, {
-              code,
-              app_name: appName,
-              logo_uri: metadata.logo_uri || '',
-              is_new_user: isNewUser ?? false,
-              email: to,
-            })
-
-            let subject: string
-            if (metadata.email_subject_template) {
-              subject = renderSubjectTemplate(metadata.email_subject_template, {
-                code,
-                app_name: appName,
-              })
-            } else if (isNewUser) {
-              subject = `${formatOtpPlain(code)} — Welcome to ${appName}`
-            } else {
-              subject = `${formatOtpPlain(code)} is your sign-in code for ${appName}`
-            }
-
-            const fromName = metadata.client_name || this.config.fromName
-
-            await this.transporter.sendMail({
-              from: `"${fromName}" <${this.config.from}>`,
-              to,
-              subject,
-              text: `Your code for ${appName} is: ${code}\n\nThis code expires in 10 minutes.\n\nIf you didn't request this, you can safely ignore this email.`,
-              html: customHtml,
-            })
-
-            logger.info(
-              {
-                to,
-                clientId: opts.clientId,
-                templateUri: metadata.email_template_uri,
-              },
-              'Sent client-branded OTP email',
-            )
-            return
-          }
-        }
-      } catch (err) {
-        logger.warn(
-          { err, clientId: opts.clientId },
-          'Failed to use client email template, falling back to default',
+    // Try the client-branded path first. `buildClientBrandedEmail`
+    // enforces the trusted-clients gate and returns null if the client
+    // is untrusted, has no `email_template_uri`, or the template fetch /
+    // validation fails. The /preview/emails/* routes go through the
+    // same helper so what the browser previews matches what the real
+    // sender puts in the envelope.
+    if (opts.clientId) {
+      const branded = await buildClientBrandedEmail({
+        clientId: opts.clientId,
+        code,
+        isNewUser: isNewUser ?? false,
+        toEmail: to,
+        fallbackAppName: clientAppName,
+        fallbackFromName: this.config.fromName,
+        trustedClients: this.trustedClients,
+      })
+      if (branded) {
+        await this.transporter.sendMail({
+          from: `"${branded.fromName}" <${this.config.from}>`,
+          to,
+          subject: branded.subject,
+          text: branded.text,
+          html: branded.html,
+        })
+        logger.info(
+          { to, clientId: opts.clientId },
+          'Sent client-branded OTP email',
         )
+        return
       }
     }
 
