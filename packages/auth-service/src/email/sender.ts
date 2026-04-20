@@ -139,7 +139,21 @@ function renderSubjectTemplate(
 export class EmailSender {
   private transporter: Transporter
 
-  constructor(private readonly config: EmailConfig) {
+  /**
+   * @param config  SMTP / provider config.
+   * @param trustedClients  OAuth client_id URLs (from
+   *   `PDS_OAUTH_TRUSTED_CLIENTS`) for which we will honour
+   *   `email_template_uri`, `email_subject_template`, and the
+   *   `client_name`-derived From display name. Any other `client_id`
+   *   falls back to the default PDS templates regardless of what its
+   *   metadata advertises — an untrusted third party must not be able
+   *   to cause outbound fetches or put attacker-controlled HTML
+   *   alongside the PDS's own From address.
+   */
+  constructor(
+    private readonly config: EmailConfig,
+    private readonly trustedClients: readonly string[] = [],
+  ) {
     this.transporter = this.createTransporter()
   }
 
@@ -209,8 +223,14 @@ export class EmailSender {
   }): Promise<void> {
     const { to, code, clientAppName, pdsName, pdsDomain, isNewUser } = opts
 
-    // Try to use a client-provided email template
-    if (opts.clientId) {
+    // Try to use a client-provided email template. Only trusted clients
+    // are allowed to supply templates: an untrusted client_id could
+    // otherwise (a) cause an outbound fetch to an attacker-controlled
+    // URL on every OTP send, (b) put attacker-chosen HTML alongside the
+    // PDS's own From address (phishing uplift), or (c) override the
+    // From display name via `client_name`. This matches the gate on
+    // CSS branding injection.
+    if (opts.clientId && this.trustedClients.includes(opts.clientId)) {
       try {
         const metadata = await resolveClientMetadata(opts.clientId)
         if (metadata.email_template_uri) {
