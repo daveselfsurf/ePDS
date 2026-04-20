@@ -28,6 +28,7 @@ import { fromNodeHeaders } from 'better-auth/node'
 import { getDidByEmail } from '../lib/get-did-by-email.js'
 import { pingParRequest } from '../lib/ping-par-request.js'
 import { requireInternalEnv } from '../lib/require-internal-env.js'
+import { resolveRecoveryEmail } from '../lib/resolve-recovery-email.js'
 
 const logger = createLogger('auth:complete')
 
@@ -90,10 +91,32 @@ export function createCompleteRouter(
       return
     }
 
-    const email = session.user.email.toLowerCase()
+    let email = session.user.email.toLowerCase()
 
     // Step 4: Check whether this is a new user (no PDS account for email).
-    const did = await getDidByEmail(email, pdsUrl, internalSecret)
+    let did = await getDidByEmail(email, pdsUrl, internalSecret)
+
+    // Recovery path: session email is a backup email, not a primary. Resolve
+    // the backup-email → DID mapping (auth-service-owned) and then DID →
+    // primary email via pds-core's internal API, so the downstream callback
+    // signs the user's real account email, not the recovery address.
+    if (!did) {
+      const recovered = await resolveRecoveryEmail(
+        email,
+        ctx,
+        pdsUrl,
+        internalSecret,
+      )
+      if (recovered) {
+        logger.info(
+          { flowId, did: recovered.did },
+          'Recovery: translated backup email to primary email via DID',
+        )
+        email = recovered.email
+        did = recovered.did
+      }
+    }
+
     const isNewAccount = !did
 
     if (isNewAccount) {
