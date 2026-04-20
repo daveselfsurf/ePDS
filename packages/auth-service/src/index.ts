@@ -17,6 +17,7 @@ import { createCompleteRouter } from './routes/complete.js'
 import { createChooseHandleRouter } from './routes/choose-handle.js'
 import { createPreviewRouter } from './routes/preview.js'
 import { createPreviewEmailsRouter } from './routes/preview-emails.js'
+import { createRootRouter } from './routes/root.js'
 import { resolveAuthPort } from './lib/resolve-port.js'
 import { createSecurityHeadersMiddleware } from './lib/security-headers.js'
 import {
@@ -69,6 +70,7 @@ export function createAuthService(config: AuthServiceConfig): {
   )
 
   // Routes
+  app.use(createRootRouter())
   app.use(createLoginPageRouter(ctx))
   app.use(createRecoveryRouter(ctx, betterAuthInstance))
   app.use(createAccountLoginRouter(betterAuthInstance, ctx))
