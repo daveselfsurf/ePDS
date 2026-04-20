@@ -50,6 +50,18 @@ export const AUTH_PREVIEW_ROUTES: readonly PreviewRoute[] = [
   },
   { path: '/preview/recovery', label: 'Recovery — email step' },
   { path: '/preview/recovery-otp', label: 'Recovery — OTP step' },
+  {
+    path: '/preview/emails/new-user',
+    label: 'Email — new-user welcome / verify',
+  },
+  {
+    path: '/preview/emails/returning-user',
+    label: 'Email — returning-user sign-in OTP',
+  },
+  {
+    path: '/preview/emails/recovery',
+    label: 'Email — backup email verification',
+  },
 ] as const
 
 /** Routes served by pds-core. */
