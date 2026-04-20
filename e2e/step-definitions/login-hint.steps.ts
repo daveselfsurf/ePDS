@@ -25,6 +25,9 @@ interface LoginHintOptions {
  * the ?email / ?handle query params so we can exercise email, handle, DID,
  * and "body-only" hint placement uniformly.
  *
+ * Hits /api/oauth/login directly — the demo home page doesn't forward
+ * query params, and the login route is where rawLoginHint is read.
+ *
  * Resets the browser context first — all Background accounts were created
  * through a prior OAuth flow and the session cookie would short-circuit
  * login_hint behavior on the next visit.
@@ -39,7 +42,7 @@ async function initiateOAuthWithLoginHint(
   await resetBrowserContext(world, sharedBrowser)
   const page = getPage(world)
   const location = opts.location ?? 'query'
-  const url = new URL(testEnv.demoUrl)
+  const url = new URL('/api/oauth/login', testEnv.demoUrl)
   url.searchParams.set('login_hint', opts.hint)
   url.searchParams.set('login_hint_location', location)
   await page.goto(url.toString())
