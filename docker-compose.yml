@@ -48,6 +48,18 @@ services:
       - caddy-config:/config
     env_file: .env
     restart: unless-stopped
+    networks:
+      # Surface the public PDS / auth / demo hostnames inside the compose
+      # network so sibling containers (demo, auth) can reach each other
+      # via their real public URLs without NAT-hairpinning back out to
+      # the public IP. Needed for OAuth flows where demo's PAR request
+      # targets PDS_URL (public) but lives in the same docker network.
+      default:
+        aliases:
+          - ${PDS_HOSTNAME:-pds.example}
+          - auth.${PDS_HOSTNAME:-pds.example}
+          - ${DEMO_HOSTNAME:-demo.pds.example}
+          - ${DEMO_UNTRUSTED_HOSTNAME:-demo-untrusted.pds.example}
     depends_on:
       core:
         condition: service_healthy
@@ -67,6 +79,32 @@ services:
       - PDS_INTERNAL_URL=http://core:3000
       - AUTH_ENDPOINT=https://auth.${PDS_HOSTNAME:-pds.example}/oauth/authorize
     restart: unless-stopped
+    depends_on:
+      core:
+        condition: service_healthy
+
+  # Second demo instance for e2e scenarios that need an untrusted OAuth
+  # client (trusted-vs-untrusted branding tests, HYPER-268 cross-client
+  # session reuse). Identical image, different PUBLIC_URL so the client_id
+  # is distinct, and deliberately NOT listed in PDS_OAUTH_TRUSTED_CLIENTS.
+  # Gated behind the `dev` compose profile — production deployments don't
+  # spin it up.
+  demo-untrusted:
+    build:
+      context: .
+      dockerfile: Dockerfile.demo
+    env_file: packages/demo/.env
+    environment:
+      - PDS_URL=https://${PDS_HOSTNAME:-pds.example}
+      - PDS_INTERNAL_URL=http://core:3000
+      - AUTH_ENDPOINT=https://auth.${PDS_HOSTNAME:-pds.example}/oauth/authorize
+      - PUBLIC_URL=https://${DEMO_UNTRUSTED_HOSTNAME:-demo-untrusted.pds.example}
+      # Override the trusted-only skip-consent hint — an untrusted client
+      # can advertise it but pds-core won't honour the flag.
+      - EPDS_SKIP_CONSENT_ON_SIGNUP=
+    restart: unless-stopped
+    profiles:
+      - dev
     depends_on:
       core:
         condition: service_healthy
