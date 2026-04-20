@@ -143,9 +143,11 @@ Given(
         'No testEmail — "a returning user has a PDS account" step must run first',
       )
     }
-    const page = getPage(this)
     // Log in to /account via OTP, then seed a verified backup email.
+    // Reset first so getPage() returns a live page on the fresh context —
+    // capturing it before reset leaves a stale reference to the closed page.
     await resetBrowserContext(this, sharedBrowser)
+    const page = getPage(this)
     await page.goto(`${testEnv.authUrl}/account`)
     await clearMailpit(this.testEmail)
     await page.fill('#email', this.testEmail)
