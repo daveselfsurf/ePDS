@@ -28,7 +28,7 @@ import { fromNodeHeaders } from 'better-auth/node'
 import { getDidByEmail } from '../lib/get-did-by-email.js'
 import { pingParRequest } from '../lib/ping-par-request.js'
 import { requireInternalEnv } from '../lib/require-internal-env.js'
-import { resolveLoginHint } from '../lib/resolve-login-hint.js'
+import { resolveRecoveryEmail } from '../lib/resolve-recovery-email.js'
 
 const logger = createLogger('auth:complete')
 
@@ -101,21 +101,19 @@ export function createCompleteRouter(
     // primary email via pds-core's internal API, so the downstream callback
     // signs the user's real account email, not the recovery address.
     if (!did) {
-      const backupDid = ctx.db.getDidByBackupEmail(email)
-      if (backupDid) {
-        const primaryEmail = await resolveLoginHint(
-          backupDid,
-          pdsUrl,
-          internalSecret,
+      const recovered = await resolveRecoveryEmail(
+        email,
+        ctx,
+        pdsUrl,
+        internalSecret,
+      )
+      if (recovered) {
+        logger.info(
+          { flowId, did: recovered.did },
+          'Recovery: translated backup email to primary email via DID',
         )
-        if (primaryEmail) {
-          logger.info(
-            { flowId, did: backupDid },
-            'Recovery: translated backup email to primary email via DID',
-          )
-          email = primaryEmail.toLowerCase()
-          did = backupDid
-        }
+        email = recovered.email
+        did = recovered.did
       }
     }
 
