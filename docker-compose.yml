@@ -71,12 +71,18 @@ services:
       core:
         condition: service_healthy
 
-  # Local email trap for development
-  mailhog:
-    image: mailhog/mailhog:latest
+  # Local email trap for development + e2e tests
+  mailpit:
+    image: axllent/mailpit:latest
     ports:
       - '1025:1025'
       - '8025:8025'
+    environment:
+      # Basic-auth creds for the HTTP UI + API. E2E suite reads these via
+      # E2E_MAILPIT_USER / E2E_MAILPIT_PASS. Plaintext is fine for a
+      # dev-only email trap.
+      - MP_UI_AUTH=${MAILPIT_USER:-admin}:${MAILPIT_PASS:-admin}
+      - MP_MAX_MESSAGES=5000
     profiles:
       - dev
 
