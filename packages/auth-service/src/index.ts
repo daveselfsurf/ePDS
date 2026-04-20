@@ -16,6 +16,7 @@ import { createAccountSettingsRouter } from './routes/account-settings.js'
 import { createCompleteRouter } from './routes/complete.js'
 import { createChooseHandleRouter } from './routes/choose-handle.js'
 import { createPreviewRouter } from './routes/preview.js'
+import { createPreviewEmailsRouter } from './routes/preview-emails.js'
 import { resolveAuthPort } from './lib/resolve-port.js'
 
 const logger = createLogger('auth-service')
@@ -92,6 +93,7 @@ export function createAuthService(config: AuthServiceConfig): {
   app.use(createCompleteRouter(ctx, betterAuthInstance))
   app.use(createChooseHandleRouter(ctx, betterAuthInstance))
   app.use(createPreviewRouter(ctx))
+  app.use(createPreviewEmailsRouter(ctx))
 
   // Metrics endpoint (protect with admin auth in production)
   app.get('/metrics', (req, res) => {

@@ -84,7 +84,23 @@ jobs:
       # needs checks:write.
       checks: write
     steps:
+      # On pull_request, `actions/checkout`'s default is the GitHub-synthesized
+      # merge commit (refs/pull/N/merge = base + head). Railway, however,
+      # deploys the PR *branch head* — there's no way to point it at a merge
+      # commit (see https://docs.railway.com/deployments/github-autodeploys).
+      # Running E2E test code from the merge commit against a Railway
+      # deployment of the head commit means main-advancing tests fail against
+      # a pre-merge-commit runtime (e.g. a new scenario asserting UI that
+      # exists on main but not yet on the PR branch). Pin checkout to the PR
+      # head SHA so both sides share one SHA. Trade-off: we won't catch
+      # main-incompatibilities until the branch is rebased — but the rebase
+      # is already the mitigation, so this makes the contract explicit.
+      # On push / workflow_dispatch, `ref` is empty → default behaviour.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Empty on push / workflow_dispatch → falls back to checkout's
+          # default (GITHUB_SHA for the triggering event).
+          ref: ${{ github.event.pull_request.head.sha }}
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:

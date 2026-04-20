@@ -212,6 +212,48 @@ describe('EmailSender', () => {
     })
   })
 
+  describe('sendOtpCode — header-injection hardening', () => {
+    const TRUSTED_ID = 'https://hdr.app/client-metadata.json'
+
+    it('strips CR/LF from client_name (From) and email_subject_template (Subject)', async () => {
+      // Even for trusted clients, metadata can be compromised upstream.
+      // A CR/LF in Subject or the From display-name would let an attacker
+      // inject extra SMTP headers (Bcc, Reply-To, …) after it.
+      _seedClientMetadataCacheForTest(TRUSTED_ID, {
+        client_name: 'Evil\r\nBcc: attacker@evil.example',
+        email_template_uri: 'https://hdr.app/email-template.html',
+        email_subject_template: '{{code}}\r\nBcc: leak@evil.example',
+      })
+      _seedTemplateCacheForTest(
+        'https://hdr.app/email-template.html',
+        '<html><body>{{code}}</body></html>',
+      )
+
+      const sender = makeSender([TRUSTED_ID])
+      const sendMailSpy = vi.spyOn(sender['transporter'], 'sendMail')
+
+      await sender.sendOtpCode({
+        to: 'u@test.com',
+        code: '11112222',
+        clientAppName: 'Fallback',
+        clientId: TRUSTED_ID,
+        pdsName: 'Test PDS',
+        pdsDomain: 'pds.example',
+      })
+
+      const mailOpts = sendMailSpy.mock.calls[0][0] as {
+        subject: string
+        from: string
+      }
+      // Key guarantee: no CR/LF in any value that lands in an SMTP
+      // header — that's what an injection attack needs. The literal
+      // string "Bcc:" surviving as *body text in the Subject* is
+      // harmless; SMTP parses headers by line, not by substring.
+      expect(mailOpts.subject).not.toMatch(/[\r\n]/)
+      expect(mailOpts.from).not.toMatch(/[\r\n]/)
+    })
+  })
+
   describe('sendBackupEmailVerification', () => {
     it('sends verification email', async () => {
       const sender = makeSender()

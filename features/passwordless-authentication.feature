@@ -17,8 +17,9 @@ Feature: Passwordless authentication via email OTP
     And the login page displays an email input form
     When the user enters a unique test email and submits
     Then an OTP email arrives in the mail trap for the test email
-    # "Welcome" for new users, "Sign-in" for returning users
-    And the email subject contains "Welcome"
+    # Demo is a trusted client with its own branded email_subject_template
+    # ("{{code}} — your {{app_name}} code"), so subject contains app name.
+    And the email subject contains "ePDS Demo"
     And the login page shows an OTP verification form
     When the user enters the OTP code
     And the user picks a handle
@@ -31,7 +32,7 @@ Feature: Passwordless authentication via email OTP
     When the demo client initiates an OAuth login
     And the user enters the test email on the login page
     Then an OTP email arrives in the mail trap
-    And the email subject contains "Sign-in"
+    And the email subject contains "ePDS Demo"
     When the user enters the OTP code
     Then the browser is redirected back to the demo client with a valid session
 
@@ -41,7 +42,7 @@ Feature: Passwordless authentication via email OTP
     When the demo client initiates an OAuth login
     And the user enters the test email on the login page
     Then an OTP email arrives in the mail trap
-    And the email subject contains "Sign-in"
+    And the email subject contains "ePDS Demo"
     When the user enters the OTP code
     Then the browser is redirected back to the demo client with a valid session
 

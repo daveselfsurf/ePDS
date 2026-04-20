@@ -68,7 +68,6 @@ Then('an OTP email arrives in the mail trap', async function (this: EpdsWorld) {
   this.otpCode = await extractOtp(message.ID)
 })
 
-// "Welcome" for new users, "Sign-in" for returning users
 Then(
   'the email subject contains {string}',
   function (this: EpdsWorld, expected: string) {

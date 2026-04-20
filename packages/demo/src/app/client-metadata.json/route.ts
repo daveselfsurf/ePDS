@@ -55,6 +55,13 @@ export async function GET() {
     dpop_bound_access_tokens: true,
     brand_color: theme?.page.primary ?? '#2563eb',
     background_color: theme?.page.bg ?? '#f8f9fa',
+    // Custom OTP email template, served from this same origin. Only
+    // honoured by auth-service when this client_id is on
+    // PDS_OAUTH_TRUSTED_CLIENTS (see `buildClientBrandedEmail` in
+    // packages/auth-service/src/email/client-template.ts); untrusted
+    // clients get the default PDS template regardless.
+    email_template_uri: `${baseUrl}/email-template.html`,
+    email_subject_template: '{{code}} — your {{app_name}} code',
     ...(process.env.EPDS_SKIP_CONSENT_ON_SIGNUP === 'true' && {
       epds_skip_consent_on_signup: true,
     }),
