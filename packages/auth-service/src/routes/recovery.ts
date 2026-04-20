@@ -57,7 +57,10 @@ export function createRecoveryRouter(
     const requestUri = req.query.request_uri as string | undefined
 
     if (!requestUri) {
-      res.status(400).send(renderError('Missing request_uri parameter'))
+      res
+        .status(400)
+        .type('html')
+        .send(renderError('Missing request_uri parameter'))
       return
     }
 
@@ -190,7 +193,7 @@ export function createRecoveryRouter(
     const requestUri = req.body.request_uri as string
 
     if (!code || !email || !requestUri) {
-      res.status(400).send(renderError('Missing required fields.'))
+      res.status(400).type('html').send(renderError('Missing required fields.'))
       return
     }
 

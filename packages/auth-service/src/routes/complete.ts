@@ -51,6 +51,7 @@ export function createCompleteRouter(
       logger.warn('No epds_auth_flow cookie found on /auth/complete')
       res
         .status(400)
+        .type('html')
         .send(renderError('Authentication session expired. Please try again.'))
       return
     }
@@ -62,6 +63,7 @@ export function createCompleteRouter(
       res.clearCookie(AUTH_FLOW_COOKIE)
       res
         .status(400)
+        .type('html')
         .send(renderError('Authentication session expired. Please try again.'))
       return
     }
@@ -77,6 +79,7 @@ export function createCompleteRouter(
       logger.error({ err }, 'Failed to get better-auth session')
       res
         .status(500)
+        .type('html')
         .send(renderError('Authentication failed. Please try again.'))
       return
     }

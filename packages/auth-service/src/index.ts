@@ -109,10 +109,14 @@ export function createAuthService(config: AuthServiceConfig): {
   })
 
   // Styled 404 for any unmatched HTML route. JSON clients get JSON.
+  // Use accepts(['json', 'html']) so that clients sending Accept: */*
+  // (e.g. fetch, curl) get JSON — only return HTML when the client
+  // explicitly prefers it (browsers list text/html with q=1).
   app.use((req, res) => {
-    if (req.accepts('html')) {
+    if (req.accepts(['json', 'html']) === 'html') {
       res
         .status(404)
+        .type('html')
         .send(
           renderError(
             "The page you're looking for doesn't exist.",
@@ -138,9 +142,10 @@ export function createAuthService(config: AuthServiceConfig): {
         next(err)
         return
       }
-      if (req.accepts('html')) {
+      if (req.accepts(['json', 'html']) === 'html') {
         res
           .status(500)
+          .type('html')
           .send(renderError('Something went wrong. Please try again.'))
       } else {
         res.status(500).json({ error: 'internal_error' })

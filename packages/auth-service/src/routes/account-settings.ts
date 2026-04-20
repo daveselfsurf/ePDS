@@ -146,7 +146,10 @@ export function createAccountSettingsRouter(
   router.get('/account/backup-email/verify', (req: Request, res: Response) => {
     const token = req.query.token as string | undefined
     if (!token) {
-      res.status(400).send(renderError('Missing verification token.'))
+      res
+        .status(400)
+        .type('html')
+        .send(renderError('Missing verification token.'))
       return
     }
 
@@ -176,7 +179,10 @@ export function createAccountSettingsRouter(
   router.post('/account/backup-email/verify', (req: Request, res: Response) => {
     const token = ((req.body.token as string) || '').trim()
     if (!token) {
-      res.status(400).send(renderError('Missing verification token.'))
+      res
+        .status(400)
+        .type('html')
+        .send(renderError('Missing verification token.'))
       return
     }
 
