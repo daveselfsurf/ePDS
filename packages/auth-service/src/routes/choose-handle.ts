@@ -691,4 +691,3 @@ export function renderChooseHandlePage(
 </body>
 </html>`
 }
-
