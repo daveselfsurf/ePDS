@@ -214,15 +214,16 @@ export function injectScriptIntoHead(
 
 /**
  * Minimal shape of `http.ServerResponse` we need to wrap in the
- * chooser-enrichment middleware. We only call setHeader, end, and
- * removeHeader; keeping the type narrow lets unit tests construct
- * mocks without depending on Node's full http types.
+ * chooser-enrichment middleware. We only call setHeader, end,
+ * removeHeader, and read headersSent; keeping the type narrow lets
+ * unit tests construct mocks without depending on Node's full http types.
  */
 export interface ChooserEnrichmentResponse {
   setHeader: (name: string, value: string | string[] | number) => unknown
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- http.ServerResponse.end has complex overloads
   end: (chunk?: any, ...args: any[]) => unknown
   removeHeader: (name: string) => void
+  readonly headersSent: boolean
 }
 
 /** Minimal Express request shape consumed by the middleware. */
@@ -274,9 +275,22 @@ export function createChooserEnrichmentMiddleware(authHostname: string) {
     }
 
     // Wrap res.end to inject the <script> tag at the start of <head>.
+    //
+    // removeHeader() throws ERR_HTTP_HEADERS_SENT once the upstream has
+    // flushed its status + headers. Upstream's SPA route writes headers
+    // synchronously before calling res.end(), so we must be prepared for
+    // headersSent=true when our wrapped end() fires. Skip the
+    // Content-Length/ETag rewrite in that case — the response will still
+    // reach the client with whatever length upstream declared (undefined
+    // or chunked), which is harmless for this endpoint.
     const origEnd = res.end.bind(res)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- http.ServerResponse.end overloads
     res.end = (chunk: any, ...args: any[]) => {
+      const stripLengthHeaders = () => {
+        if (res.headersSent) return
+        res.removeHeader('Content-Length')
+        res.removeHeader('ETag')
+      }
       if (typeof chunk === 'string') {
         const { body, injected } = injectScriptIntoHead(
           chunk,
@@ -284,8 +298,7 @@ export function createChooserEnrichmentMiddleware(authHostname: string) {
         )
         if (injected) {
           chunk = body
-          res.removeHeader('Content-Length')
-          res.removeHeader('ETag')
+          stripLengthHeaders()
         }
       } else if (Buffer.isBuffer(chunk)) {
         const { body, injected } = injectScriptIntoHead(
@@ -294,8 +307,7 @@ export function createChooserEnrichmentMiddleware(authHostname: string) {
         )
         if (injected) {
           chunk = body
-          res.removeHeader('Content-Length')
-          res.removeHeader('ETag')
+          stripLengthHeaders()
         }
       }
       return origEnd(chunk, ...args)

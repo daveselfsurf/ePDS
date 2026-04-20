@@ -173,17 +173,26 @@ describe('injectScriptIntoHead (HYPER-268)', () => {
 describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
   // Build a fake response object that records every header / body
   // operation so each test can assert on what the middleware did.
-  function makeRes() {
+  function makeRes({ headersSent = false }: { headersSent?: boolean } = {}) {
     const calls = {
       setHeader: [] as Array<[string, unknown]>,
       removedHeaders: [] as string[],
       end: [] as unknown[][],
     }
     const res = {
+      headersSent,
       setHeader: vi.fn((name: string, value: unknown) => {
         calls.setHeader.push([name, value])
       }),
       removeHeader: vi.fn((name: string) => {
+        if (res.headersSent) {
+          // Mirror Node's real behaviour: removeHeader() throws once
+          // the response has been flushed. Tests rely on this shape so
+          // the middleware's headersSent guard is exercised.
+          throw new Error(
+            'Cannot remove headers after they are sent to the client',
+          )
+        }
         calls.removedHeaders.push(name)
       }),
       end: vi.fn((...args: unknown[]) => {
@@ -317,5 +326,41 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
       "default-src 'none'; script-src 'self'",
     )
     expect(r1.calls.setHeader[0][1]).toEqual(r2.calls.setHeader[0][1])
+  })
+
+  // ─── Regression: ERR_HTTP_HEADERS_SENT crash ─────────────────────────
+  //
+  // @atproto/oauth-provider's account-chooser route flushes its headers
+  // before calling res.end(). Before this guard, our wrapped end() called
+  // removeHeader('Content-Length') afterwards, which throws
+  // ERR_HTTP_HEADERS_SENT at Node's HTTP layer. The throw escapes the
+  // Express error pipeline (it's raised from a method replacement on
+  // `res`, not from middleware body) and lands as an uncaught exception,
+  // crashing pds-core. See the comment in chooser-enrichment.ts end()
+  // wrapper for details.
+  it('does not throw when upstream flushes headers before end()', () => {
+    const mw = createChooserEnrichmentMiddleware('auth.pds.example')
+    const { res } = makeRes({ headersSent: true })
+    mw({ method: 'GET', path: '/account' }, res, () => {})
+    expect(() => {
+      res.end('<!DOCTYPE html><html><head></head><body></body></html>')
+    }).not.toThrow()
+  })
+
+  it('skips Content-Length rewrite once headers have been flushed', () => {
+    const mw = createChooserEnrichmentMiddleware('auth.pds.example')
+    const { res, calls } = makeRes({ headersSent: true })
+    mw({ method: 'GET', path: '/account' }, res, () => {})
+    res.end('<!DOCTYPE html><html><head></head><body></body></html>')
+    expect(calls.removedHeaders).toEqual([])
+    expect(calls.end.length).toBe(1)
+  })
+
+  it('still rewrites Content-Length when headers have not been flushed', () => {
+    const mw = createChooserEnrichmentMiddleware('auth.pds.example')
+    const { res, calls } = makeRes({ headersSent: false })
+    mw({ method: 'GET', path: '/account' }, res, () => {})
+    res.end('<!DOCTYPE html><html><head></head><body></body></html>')
+    expect(calls.removedHeaders).toEqual(['Content-Length', 'ETag'])
   })
 })
