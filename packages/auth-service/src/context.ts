@@ -22,7 +22,13 @@ export interface AuthServiceConfig {
   dbLocation: string
   otpLength: number
   otpCharset: 'numeric' | 'alphanumeric'
-  /** OAuth client_id URLs trusted for CSS branding injection. */
+  /**
+   * OAuth client_id URLs trusted for branding injection. Used to gate
+   * CSS branding injection AND client-supplied email templates
+   * (`email_template_uri`, `email_subject_template`, `client_name`-as-
+   * From display name). Untrusted clients always receive the default
+   * PDS email templates.
+   */
   trustedClients: string[]
 }
 
@@ -36,7 +42,7 @@ export class AuthServiceContext {
   constructor(config: AuthServiceConfig) {
     this.config = config
     this.db = new EpdsDb(config.dbLocation)
-    this.emailSender = new EmailSender(config.email)
+    this.emailSender = new EmailSender(config.email, config.trustedClients)
 
     // Cleanup expired tokens every 5 minutes
     setInterval(
