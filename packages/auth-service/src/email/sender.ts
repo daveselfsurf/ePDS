@@ -120,6 +120,8 @@ export class EmailSender {
         toEmail: to,
         fallbackAppName: clientAppName,
         fallbackFromName: this.config.fromName,
+        pdsName,
+        pdsDomain,
         trustedClients: this.trustedClients,
       })
       if (branded) {

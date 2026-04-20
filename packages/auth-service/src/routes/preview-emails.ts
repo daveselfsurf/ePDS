@@ -174,6 +174,7 @@ export function createPreviewEmailsRouter(ctx: AuthServiceContext): Router {
   ): Promise<{ email: RenderedEmail; fromName?: string }> {
     const clientId = queryString(req, 'client_id')
     if (!clientId) return { email: fallback }
+    const { pdsName, pdsDomain } = pdsIdentity(ctx)
     const branded = await buildClientBrandedEmail({
       clientId,
       code,
@@ -181,6 +182,8 @@ export function createPreviewEmailsRouter(ctx: AuthServiceContext): Router {
       toEmail: queryString(req, 'to') ?? FAKE_TO,
       fallbackAppName: queryString(req, 'app') ?? FAKE_APP_NAME,
       fallbackFromName: defaultFromName,
+      pdsName,
+      pdsDomain,
       trustedClients: ctx.config.trustedClients,
     })
     if (!branded) return { email: fallback }

@@ -155,6 +155,8 @@ export async function buildClientBrandedEmail(opts: {
   toEmail: string
   fallbackAppName: string
   fallbackFromName: string
+  pdsName: string
+  pdsDomain: string
   trustedClients: readonly string[]
 }): Promise<(RenderedEmail & { fromName: string }) | null> {
   const {
@@ -164,6 +166,8 @@ export async function buildClientBrandedEmail(opts: {
     toEmail,
     fallbackAppName,
     fallbackFromName,
+    pdsName,
+    pdsDomain,
     trustedClients,
   } = opts
 
@@ -207,7 +211,38 @@ export async function buildClientBrandedEmail(opts: {
     subject = `${formatOtpPlain(code)} is your sign-in code for ${appName}`
   }
 
-  const text = `Your code for ${appName} is: ${code}\n\nThis code expires in 10 minutes.\n\nIf you didn't request this, you can safely ignore this email.`
+  // Plain-text alternative stays PDS-controlled: the remote branded
+  // template only owns the HTML. Mirror buildSignInCodeEmail /
+  // buildWelcomeCodeEmail so clients that see text/plain (mail clients
+  // without HTML, accessibility tools, bounce scanners) get the same
+  // identity and footer as the default path.
+  const text = (
+    isNewUser
+      ? [
+          `Welcome to ${appName}!`,
+          '',
+          `Your verification code:`,
+          '',
+          code,
+          '',
+          `Enter this code to confirm your email and create your account.`,
+          '',
+          `This code expires in 10 minutes.`,
+          '',
+          `If you didn't sign up, you can safely ignore this email.`,
+        ]
+      : [
+          `Your sign-in code for ${appName}:`,
+          '',
+          code,
+          '',
+          `This code expires in 10 minutes.`,
+          '',
+          `If you didn't request this, you can safely ignore this email.`,
+        ]
+  )
+    .concat(['', `--`, `${pdsName} (${pdsDomain})`])
+    .join('\n')
 
   const fromName = metadata.client_name || fallbackFromName
 
