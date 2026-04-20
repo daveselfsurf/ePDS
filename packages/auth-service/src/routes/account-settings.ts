@@ -14,6 +14,29 @@ import { ensurePdsUrl } from '../lib/pds-url.js'
 const logger = createLogger('auth:account-settings')
 
 /**
+ * Resolve the current handle for a DID via the PDS's public describeRepo
+ * XRPC endpoint. Returns null if the PDS can't be reached or returns an
+ * unexpected shape — the settings page falls back to showing just the DID.
+ */
+async function getHandleByDid(
+  did: string,
+  pdsUrl: string,
+): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `${pdsUrl}/xrpc/com.atproto.repo.describeRepo?repo=${encodeURIComponent(did)}`,
+      { signal: AbortSignal.timeout(3000) },
+    )
+    if (!res.ok) return null
+    const data = (await res.json()) as { handle?: string }
+    return typeof data.handle === 'string' ? data.handle : null
+  } catch (err) {
+    logger.warn({ err, did }, 'Failed to resolve handle by DID from PDS')
+    return null
+  }
+}
+
+/**
  * Middleware that validates a better-auth session and injects it into res.locals.
  * If not authenticated, redirects to /account/login.
  */
@@ -63,6 +86,7 @@ export function createAccountSettingsRouter(
     // Look up DID from PDS
     const did = await getDidByEmail(email, pdsUrl, internalSecret)
     const backupEmails = did ? ctx.db.getBackupEmails(did) : []
+    const currentHandle = did ? await getHandleByDid(did, pdsUrl) : null
 
     // Get all better-auth sessions for this user
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- better-auth session type not exported
@@ -81,6 +105,7 @@ export function createAccountSettingsRouter(
         did: did ?? '(unknown)',
         email,
         handleDomain,
+        currentHandle,
         backupEmails,
         sessions,
         currentSessionToken: session.session.token,
@@ -401,6 +426,7 @@ function renderSettingsPage(opts: {
   did: string
   email: string
   handleDomain: string
+  currentHandle: string | null
   backupEmails: Array<{ email: string; verified: number; id: number }>
   sessions: Array<{
     token: string
@@ -478,6 +504,7 @@ function renderSettingsPage(opts: {
     <section class="section">
       <h2>Handle</h2>
       <p class="info">Your handle is your public username on the AT Protocol network.</p>
+      <div class="setting-row"><strong>Current Handle:</strong> <code>${escapeHtml(opts.currentHandle ?? '(unknown)')}</code></div>
       <form method="POST" action="/account/handle" class="inline-form">
         <input type="hidden" name="csrf" value="${escapeHtml(opts.csrfToken)}">
         <input type="text" name="handle" placeholder="yourname" autocomplete="off" autocapitalize="none" spellcheck="false" required>
