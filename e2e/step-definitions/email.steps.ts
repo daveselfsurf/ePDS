@@ -1,7 +1,26 @@
-import { Then } from '@cucumber/cucumber'
+import { Given, Then } from '@cucumber/cucumber'
 import type { EpdsWorld } from '../support/world.js'
 import { testEnv } from '../support/env.js'
-import { waitForEmail, extractOtp } from '../support/mailpit.js'
+import {
+  waitForEmail,
+  extractOtp,
+  mailpitAuthHeader,
+} from '../support/mailpit.js'
+
+Given(
+  'a mail trap is capturing outbound emails',
+  async function (this: EpdsWorld) {
+    if (!testEnv.mailpitPass) return 'pending'
+    const res = await fetch(`${testEnv.mailpitUrl}/api/v1/info`, {
+      headers: { Authorization: mailpitAuthHeader() },
+    })
+    if (!res.ok) {
+      throw new Error(
+        `Mailpit health check failed: ${res.status} at ${testEnv.mailpitUrl}`,
+      )
+    }
+  },
+)
 
 Then(
   'an OTP email arrives in the mail trap for the test email',
@@ -55,3 +74,13 @@ Then(
     }
   },
 )
+
+Then('the email body contains a numeric OTP code', function (this: EpdsWorld) {
+  if (!testEnv.mailpitPass) return 'pending'
+  if (!this.otpCode) {
+    throw new Error('No OTP code extracted — email arrival step must run first')
+  }
+  if (!/^\d+$/.test(this.otpCode)) {
+    throw new Error(`Expected numeric OTP but got: "${this.otpCode}"`)
+  }
+})
