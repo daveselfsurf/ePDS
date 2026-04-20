@@ -67,6 +67,9 @@ describe('buildBackupEmailVerificationEmail', () => {
     expect(subject).toBe('Verify your backup email - Test PDS')
     expect(text).toContain(url)
     expect(html).toContain(`href="${url}"`)
+    // Complete-document shell so the preview iframe renders in standards
+    // mode, matching the other two builders.
+    expect(html).toContain('<!DOCTYPE html>')
   })
 
   it('escapes a malicious verify URL', () => {

@@ -192,8 +192,13 @@ export async function buildClientBrandedEmail(opts: {
 
   let subject: string
   if (metadata.email_subject_template) {
+    // Expose both {{code}} (raw, e.g. "12345678") and {{code_formatted}}
+    // (grouped, e.g. "1234 5678" for lengths >= 8). Fallback subjects use
+    // the formatted form, so clients that want to match PDS readability
+    // UX can opt in with `{{code_formatted}}` in their template.
     subject = renderSubjectTemplate(metadata.email_subject_template, {
       code,
+      code_formatted: formatOtpPlain(code),
       app_name: appName,
     })
   } else if (isNewUser) {

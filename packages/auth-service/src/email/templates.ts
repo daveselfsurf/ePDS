@@ -122,10 +122,16 @@ export function buildBackupEmailVerificationEmail(opts: {
   const text = `Verify your backup email by clicking this link:\n\n${verifyUrl}\n\nThis link expires in 24 hours.\n\n--\n${pdsName} (${pdsDomain})`
 
   const html = `
-<p>Verify your backup email by clicking the link below:</p>
-<p style="margin: 20px 0;"><a href="${escapeHtml(verifyUrl)}" style="background-color: #0f1828; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none;">Verify Email</a></p>
-<p style="color: #666; font-size: 14px;">This link expires in 24 hours.</p>
-<hr style="border: none; border-top: 1px solid #eee;"><p style="color: #999; font-size: 12px;">${escapeHtml(pdsName)} (${escapeHtml(pdsDomain)})</p>`
+<!DOCTYPE html>
+<html>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;">
+  <p>Verify your backup email by clicking the link below:</p>
+  <p style="margin: 20px 0;"><a href="${escapeHtml(verifyUrl)}" style="background-color: #0f1828; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none;">Verify Email</a></p>
+  <p style="color: #666; font-size: 14px;">This link expires in 24 hours.</p>
+  <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+  <p style="color: #999; font-size: 12px;">${escapeHtml(pdsName)} (${escapeHtml(pdsDomain)})</p>
+</body>
+</html>`
 
   return { subject, text, html }
 }

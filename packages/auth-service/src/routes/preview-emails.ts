@@ -59,8 +59,12 @@ function pdsIdentity(ctx: AuthServiceContext): {
   pdsName: string
   pdsDomain: string
 } {
+  // Mirror better-auth.ts: the real sender uses SMTP_FROM_NAME (which
+  // config.email.fromName is built from), not the auth-service hostname.
+  // Using config.hostname here would diverge the preview subject/footer
+  // from what production actually delivers.
   return {
-    pdsName: ctx.config.hostname,
+    pdsName: ctx.config.email.fromName,
     pdsDomain: ctx.config.pdsHostname,
   }
 }

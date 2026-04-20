@@ -38,8 +38,10 @@ function makeCtxStub(): AuthServiceContext {
 let server: Server
 let baseUrl: string
 let app: Express
+let originalPreviewFlag: string | undefined
 
 beforeAll(async () => {
+  originalPreviewFlag = process.env.AUTH_PREVIEW_ROUTES
   app = express()
   app.use(createPreviewEmailsRouter(makeCtxStub()))
   await new Promise<void>((resolve) => {
@@ -52,6 +54,11 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  if (originalPreviewFlag === undefined) {
+    delete process.env.AUTH_PREVIEW_ROUTES
+  } else {
+    process.env.AUTH_PREVIEW_ROUTES = originalPreviewFlag
+  }
   await new Promise<void>((resolve, reject) => {
     server.close((err) => {
       if (err) reject(err)
@@ -88,12 +95,14 @@ describe('preview-emails router — rendering', () => {
     expect(res.headers.get('cache-control')).toBe('no-store')
     const body = await res.text()
     expect(body).toContain('New user')
-    expect(body).toContain('auth.preview.example') // pdsName in subject
+    // pdsName now mirrors better-auth.ts (SMTP_FROM_NAME / fromName),
+    // not the auth-service hostname. Preview must match production.
+    expect(body).toContain('Preview PDS')
     expect(body).toContain('<iframe')
     expect(body).toContain('sandbox=""')
     expect(body).toContain('srcdoc="')
     // The real sender's welcome HTML, escaped for the srcdoc attribute.
-    expect(body).toContain('Welcome to auth.preview.example')
+    expect(body).toContain('Welcome to Preview PDS')
   })
 
   it('renders the returning-user OTP email with the app name', async () => {
@@ -199,11 +208,10 @@ describe('preview-emails router — ?client_id branded path', () => {
     )
     expect(res.status).toBe(200)
     const body = await res.text()
-    // Default subject uses the PDS hostname, not the client's metadata.
-    expect(body).toContain('auth.preview.example')
-    expect(body).not.toContain('pwned')
-    // Default From display name.
+    // Default subject uses the PDS fromName (SMTP_FROM_NAME in prod),
+    // not the untrusted client's metadata.
     expect(body).toContain('Preview PDS')
+    expect(body).not.toContain('pwned')
     expect(body).not.toContain('Evil App')
     expect(body).not.toContain('PWNED')
   })
@@ -219,7 +227,6 @@ describe('preview-emails router — ?client_id branded path', () => {
     )
     expect(res.status).toBe(200)
     const body = await res.text()
-    expect(body).toContain('auth.preview.example')
     expect(body).toContain('Preview PDS')
   })
 })
