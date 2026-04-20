@@ -25,6 +25,31 @@ const TEMPLATE_CACHE_TTL = 10 * 60 * 1000 // 10 minutes
 
 const templateCache = new Map<string, { html: string; fetchedAt: number }>()
 
+// Template URIs can be signed URLs or carry credentials in the query
+// string, so the full URI is treated as sensitive. Log only the parsed
+// hostname/protocol (or a marker when parsing fails) — enough to debug
+// allowlist/fetch problems without leaking secrets into log aggregators.
+function templateLogContext(uri: string): {
+  templateHostname?: string
+  templateProtocol?: string
+  templateUri?: string
+} {
+  try {
+    const url = new URL(uri)
+    return { templateHostname: url.hostname, templateProtocol: url.protocol }
+  } catch {
+    return { templateUri: '<invalid>' }
+  }
+}
+
+// Strip CR/LF from values that end up in SMTP headers (Subject, From
+// display-name). Even trusted clients' remotely-fetched metadata could
+// be compromised; a newline in a header value would let an attacker
+// inject arbitrary headers after it.
+function sanitizeHeaderValue(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').trim()
+}
+
 /** Seed the template cache. Intended for tests only. */
 export function _seedTemplateCacheForTest(uri: string, html: string): void {
   templateCache.set(uri, { html, fetchedAt: Date.now() })
@@ -50,7 +75,7 @@ export async function fetchTemplate(uri: string): Promise<string | null> {
       const hostname = new URL(uri).hostname
       if (!domains.includes(hostname)) {
         logger.warn(
-          { uri, hostname },
+          { hostname },
           'Email template domain not in allowlist, ignoring',
         )
         return null
@@ -71,7 +96,7 @@ export async function fetchTemplate(uri: string): Promise<string | null> {
     const html = await res.text()
     if (html.length > MAX_TEMPLATE_SIZE) {
       logger.warn(
-        { uri, size: html.length },
+        { ...templateLogContext(uri), size: html.length },
         'Email template too large, ignoring',
       )
       return null
@@ -79,7 +104,7 @@ export async function fetchTemplate(uri: string): Promise<string | null> {
 
     if (!html.includes('{{code}}')) {
       logger.warn(
-        { uri },
+        templateLogContext(uri),
         'Email template missing {{code}} placeholder, ignoring',
       )
       return null
@@ -87,7 +112,10 @@ export async function fetchTemplate(uri: string): Promise<string | null> {
     templateCache.set(uri, { html, fetchedAt: Date.now() })
     return html
   } catch (err) {
-    logger.warn({ err, uri }, 'Failed to fetch email template')
+    logger.warn(
+      { err, ...templateLogContext(uri) },
+      'Failed to fetch email template',
+    )
     return null
   }
 }
@@ -246,5 +274,10 @@ export async function buildClientBrandedEmail(opts: {
 
   const fromName = metadata.client_name || fallbackFromName
 
-  return { subject, text, html, fromName }
+  return {
+    subject: sanitizeHeaderValue(subject),
+    text,
+    html,
+    fromName: sanitizeHeaderValue(fromName),
+  }
 }
