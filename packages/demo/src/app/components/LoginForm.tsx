@@ -143,7 +143,12 @@ export function LoginForm() {
         >
           {mode === 'email' ? (
             submitting ? (
-              'Sending verification code...'
+              // Neutral copy rather than "Sending verification code..." —
+              // the demo redirects to auth-service which decides whether
+              // to send an OTP or auto-sign-in via an existing device
+              // session (HYPER-268). Claiming we're sending a code is
+              // inaccurate in the reuse path.
+              'Redirecting...'
             ) : (
               <>
                 <img

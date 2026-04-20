@@ -1,0 +1,5 @@
+---
+'epds': patch
+---
+
+**Operators:** Fix a crash in pds-core triggered by the chooser-enrichment and client-CSS-injection response-rewrite middleware. Upstream `@atproto/oauth-provider` flushes response headers before calling `res.end()` on some routes (notably the React SPA account chooser at `/account`). The wrapped `end()` then called `res.removeHeader('Content-Length')`, which throws `ERR_HTTP_HEADERS_SENT` at Node's HTTP layer. Because the throw escapes Express's error pipeline (it's raised from a method replacement on `res`, not from the middleware body), it lands as an uncaught exception and crashes the process. Docker's `restart: unless-stopped` masked the underlying failure as a transient 502 — users would see a blank page and the container would be restarted in the background. Both middlewares now guard the `removeHeader` calls with a `res.headersSent` check and skip the Content-Length / ETag rewrite when the response has already started. Regression tests in `packages/pds-core/src/__tests__/{chooser-enrichment,client-css-injection}.test.ts` simulate the post-flush state via a mock `removeHeader` that throws, locking in the fix.

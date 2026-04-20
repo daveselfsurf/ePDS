@@ -18,6 +18,11 @@ import { createChooseHandleRouter } from './routes/choose-handle.js'
 import { createPreviewRouter } from './routes/preview.js'
 import { createPreviewEmailsRouter } from './routes/preview-emails.js'
 import { resolveAuthPort } from './lib/resolve-port.js'
+import { createSecurityHeadersMiddleware } from './lib/security-headers.js'
+import {
+  validateOtpCharset,
+  validateOtpLength,
+} from './lib/otp-config-validation.js'
 
 const logger = createLogger('auth-service')
 
@@ -47,43 +52,21 @@ export function createAuthService(config: AuthServiceConfig): {
   app.use(csrfProtection(config.csrfSecret))
   app.use(requestRateLimit({ windowMs: 60_000, maxRequests: 60 }))
 
-  // Security headers
-  app.use((req, res, next) => {
-    res.setHeader('X-Frame-Options', 'DENY')
-    res.setHeader('X-Content-Type-Options', 'nosniff')
-    res.setHeader('Referrer-Policy', 'no-referrer')
-
-    // Build img-src dynamically: allow the client's origin if a client_id URL is present.
-    // Fall back to the stored clientId from the DB flow when client_id is absent from the
-    // query string (e.g. back-navigation from recovery via a bare request_uri link).
-    let imgSrc = "'self' data:"
-    let clientId = (req.query.client_id as string) || req.body?.client_id
-    if (!clientId && req.query.request_uri) {
-      clientId =
-        ctx.db.getAuthFlowByRequestUri(req.query.request_uri as string)
-          ?.clientId ?? undefined
-    }
-    if (clientId && typeof clientId === 'string') {
-      try {
-        const clientOrigin = new URL(clientId).origin
-        if (clientOrigin && clientOrigin !== 'null') {
-          imgSrc += ` ${clientOrigin}`
-        }
-      } catch {
-        /* not a valid URL, keep default */
-      }
-    }
-
-    res.setHeader(
-      'Content-Security-Policy',
-      `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src ${imgSrc}; connect-src 'self'`,
-    )
-    res.setHeader(
-      'Strict-Transport-Security',
-      'max-age=63072000; includeSubDomains; preload',
-    )
-    next()
-  })
+  // Security headers (X-Frame-Options, CSP, HSTS, etc.). The CSP's
+  // img-src is dynamically widened to allow the requesting OAuth
+  // client's origin so client-branded login pages can render their
+  // logo. See packages/auth-service/src/lib/security-headers.ts.
+  //
+  // The authFlowLookup hook covers back-navigation from recovery where
+  // the URL carries only request_uri — we still want the client's
+  // origin in img-src, so fall back to the clientId stored in the
+  // persisted auth_flow row.
+  app.use(
+    createSecurityHeadersMiddleware({
+      authFlowLookup: (requestUri) =>
+        ctx.db.getAuthFlowByRequestUri(requestUri)?.clientId ?? null,
+    }),
+  )
 
   // Routes
   app.use(createLoginPageRouter(ctx))
@@ -162,22 +145,8 @@ async function main() {
     'trusted clients configured',
   )
 
-  if (
-    isNaN(config.otpLength) ||
-    config.otpLength < 4 ||
-    config.otpLength > 12
-  ) {
-    throw new Error(
-      `Invalid OTP_LENGTH: must be between 4 and 12, got "${process.env.OTP_LENGTH}"`,
-    )
-  }
-
-  const validCharsets = ['numeric', 'alphanumeric']
-  if (!validCharsets.includes(config.otpCharset)) {
-    throw new Error(
-      `Invalid OTP_CHARSET: must be 'numeric' or 'alphanumeric', got "${process.env.OTP_CHARSET}"`,
-    )
-  }
+  validateOtpLength(config.otpLength, process.env.OTP_LENGTH)
+  config.otpCharset = validateOtpCharset(config.otpCharset)
 
   await runBetterAuthMigrations(
     config.dbLocation,

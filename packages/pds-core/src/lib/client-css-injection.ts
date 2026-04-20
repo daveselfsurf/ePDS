@@ -35,6 +35,7 @@ type ResponseLike = {
   setHeader: (name: string, value: string | string[]) => unknown
   removeHeader: (name: string) => void
   end: EndLike
+  readonly headersSent: boolean
 }
 
 type NextLike = (err?: unknown) => void
@@ -213,7 +214,11 @@ export function createClientCssInjectionMiddleware({
       const origEnd = response.end.bind(response)
       const wrappedEnd: EndLike = (chunk?: unknown, ...args: unknown[]) => {
         const result = injectStyleTagIntoHtml(chunk, styleTag)
-        if (result.rewritten) {
+        if (result.rewritten && !response.headersSent) {
+          // Skip the Content-Length / ETag rewrite once upstream has
+          // already flushed its headers — removeHeader() would throw
+          // ERR_HTTP_HEADERS_SENT and crash the process. See the matching
+          // guard in chooser-enrichment.ts for the full rationale.
           response.removeHeader('Content-Length')
           response.removeHeader('ETag')
         }

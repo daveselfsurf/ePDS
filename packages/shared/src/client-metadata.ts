@@ -95,7 +95,13 @@ export function getClientMetadataCacheStatus(): Array<{
   return entries
 }
 
-const safeFetch = makeSafeFetch({ timeoutMs: 5_000 })
+// Env-controlled SSRF relaxation for local docker-compose e2e runs where
+// trusted clients are served from docker-internal IPs. NEVER set on
+// internet-facing deployments — same risk profile as PDS_DISABLE_SSRF_PROTECTION.
+const safeFetch = makeSafeFetch({
+  timeoutMs: 5_000,
+  allowPrivateIps: process.env.EPDS_ALLOW_PRIVATE_IPS === 'true',
+})
 
 export async function resolveClientName(clientId: string): Promise<string> {
   const metadata = await resolveClientMetadata(clientId)
