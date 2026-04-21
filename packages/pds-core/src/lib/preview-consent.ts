@@ -214,6 +214,8 @@ async function renderConsentHtml(opts: {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex">
+    <link rel="icon" href="/static/favicon.svg" media="(prefers-color-scheme: light)" type="image/svg+xml">
+    <link rel="icon" href="/static/favicon-dark.svg" media="(prefers-color-scheme: dark)" type="image/svg+xml">
     <title>Consent preview — ${escapeHtml(opts.fixture.clientId)}</title>
     ${styleLinks}
     ${injectedStyle}

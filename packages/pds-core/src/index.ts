@@ -24,6 +24,7 @@ applyPdsPortFallback()
 
 import type * as http from 'node:http'
 import { randomBytes, timingSafeEqual, createHash } from 'node:crypto'
+import * as path from 'node:path'
 import { PDS, envToCfg, envToSecrets, readEnv } from '@atproto/pds'
 import { readFileSync } from 'node:fs'
 /* v8 ignore next 3 -- module-level init, only testable via e2e */
@@ -48,7 +49,7 @@ import {
   findInsertionIndex,
   installCssInjectionMiddleware,
 } from './lib/client-css-injection.js'
-import type { Application, Request, Response } from 'express'
+import express, { type Application, type Request, type Response } from 'express'
 import {
   createPreviewConsentHandler,
   renderPreviewIndex,
@@ -735,6 +736,15 @@ async function main() {
     )
   }
 
+  // Serve /static/favicon*.svg from packages/pds-core/public so the
+  // pds-core-rendered error page and the /preview/consent shell can
+  // reference the Certified favicon without a cross-origin request to
+  // the auth-service host.
+  pds.app.use(
+    '/static',
+    express.static(path.resolve(__dirname, '..', 'public')),
+  )
+
   // =========================================================================
   // Cookie domain broadening (HYPER-268)
   // =========================================================================
@@ -1010,7 +1020,7 @@ async function checkHandleRoute(
 function renderError(message: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="utf-8"><title>Error</title></head>
+<head><meta charset="utf-8"><link rel="icon" href="/static/favicon.svg" media="(prefers-color-scheme: light)" type="image/svg+xml"><link rel="icon" href="/static/favicon-dark.svg" media="(prefers-color-scheme: dark)" type="image/svg+xml"><title>Error</title></head>
 <body><p style="color:red;padding:20px">${escapeHtml(message)}</p></body>
 </html>`
 }

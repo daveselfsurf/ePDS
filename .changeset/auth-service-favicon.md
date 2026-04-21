@@ -2,10 +2,12 @@
 'ePDS': patch
 ---
 
-Sign-in and account pages now show an icon in the browser tab, with separate assets for light and dark browser themes.
+Sign-in, account, error, and OAuth-consent pages now show an icon in the browser tab, with separate assets for light and dark browser themes.
 
 **Affects:** End users, Operators
 
-**End users:** When signing in, recovering an account, choosing a handle, or managing account settings, your browser tab now displays a small icon next to the page title instead of the browser's generic placeholder. The icon automatically switches between a light- and dark-theme variant to match your browser's color scheme.
+**End users:** When signing in, recovering an account, choosing a handle, managing account settings, landing on an error page, or seeing the OAuth consent preview, your browser tab now displays a small icon next to the page title instead of the browser's generic placeholder. The icon automatically switches between a light- and dark-theme variant to match your browser's color scheme.
 
-**Operators:** the auth service now references `/static/favicon.svg` and `/static/favicon-dark.svg` from every rendered page `<head>`, gated by `prefers-color-scheme` media queries. Both files ship by default in `packages/auth-service/public/`. To use your own icons, replace those files (any SVG will do) — no config change required. The existing `/static` mount in `packages/auth-service/src/index.ts` serves them automatically.
+**Operators:** both the auth service and pds-core now reference `/static/favicon.svg` and `/static/favicon-dark.svg` from every rendered page `<head>`, gated by `prefers-color-scheme` media queries. Both files ship by default in `packages/auth-service/public/` and `packages/pds-core/public/` (each service serves its own copy under its own origin). To use your own icons, replace those files (any SVG will do) — no config change required. The existing `/static` mounts in `packages/auth-service/src/index.ts` and `packages/pds-core/src/index.ts` serve them automatically.
+
+Upstream `@atproto/pds`-rendered pages (the account chooser, stock OAuth consent) are not yet covered — wiring favicons into those will be tracked as a follow-up since it requires extending the existing response-rewrite middleware.
