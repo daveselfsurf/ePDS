@@ -27,18 +27,60 @@ export type SessionReuseRequest = {
   query: Record<string, unknown>
 }
 
-/** True if the request carries a `dev-id` cookie, meaning the browser
- *  already has an upstream device session on the pds-core side that the
- *  auth-service should defer to rather than re-prompting for credentials.
+/** True if the request carries BOTH `dev-id` and `ses-id` cookies,
+ *  meaning the browser has a full upstream device-session cookie pair
+ *  on the pds-core side that the auth-service should defer to rather
+ *  than re-prompting for credentials.
+ *
+ *  A half-pair (only `dev-id` or only `ses-id`) is a stale/divergent
+ *  jar state — browser eviction, manual cookie deletion, or the
+ *  remember=0 TTL split between the two cookies can all produce it.
+ *  Upstream's DeviceManager cannot hydrate a session from a half-pair
+ *  and rendering its fallback welcome page is the regression this
+ *  Layer 1 check guards against; see docs/design/session-reuse-bugs.md.
+ *  When only one cookie is present, we return false here so
+ *  auth-service renders its email form, and the orphan cookie gets
+ *  cleared further down the response pipeline.
  *
  *  Uses the parsed cookie bag first (which is produced by cookie-parser
  *  and normalised), then falls back to regex-scanning the raw Cookie
  *  header so we never miss an existing session even in configurations
  *  where cookie-parser is not mounted. */
 export function hasDeviceSessionCookie(req: SessionReuseRequest): boolean {
-  if (req.cookies && typeof req.cookies['dev-id'] === 'string') return true
+  const hasFromBag = (name: string): boolean =>
+    !!req.cookies && typeof req.cookies[name] === 'string'
   const raw = req.headers.cookie ?? ''
-  return /(?:^|;\s*)dev-id=/.test(raw)
+  const hasFromRaw = (name: string): boolean =>
+    new RegExp(`(?:^|;\\s*)${name}=`).test(raw)
+  const hasDevId = hasFromBag('dev-id') || hasFromRaw('dev-id')
+  const hasSesId = hasFromBag('ses-id') || hasFromRaw('ses-id')
+  return hasDevId && hasSesId
+}
+
+/** True if the request carries either `dev-id` or `ses-id` but not
+ *  both — a divergent cookie jar that should trigger a cleanup-clear
+ *  on the next response rather than being treated as a usable session.
+ *
+ *  Split out so callers can distinguish "fresh visitor, no cookies at
+ *  all" (no action) from "orphan cookie needs clearing" (Set-Cookie
+ *  with Max-Age=0) without duplicating the cookie-bag plumbing. */
+export function hasOrphanDeviceCookie(req: SessionReuseRequest): {
+  devId: boolean
+  sesId: boolean
+  isOrphan: boolean
+} {
+  const raw = req.headers.cookie ?? ''
+  const hasDevId =
+    (!!req.cookies && typeof req.cookies['dev-id'] === 'string') ||
+    /(?:^|;\s*)dev-id=/.test(raw)
+  const hasSesId =
+    (!!req.cookies && typeof req.cookies['ses-id'] === 'string') ||
+    /(?:^|;\s*)ses-id=/.test(raw)
+  return {
+    devId: hasDevId,
+    sesId: hasSesId,
+    isOrphan: hasDevId !== hasSesId,
+  }
 }
 
 /** True if the client is asking the authorization server to force a
@@ -58,6 +100,53 @@ export function isForceLoginPrompt(req: SessionReuseRequest): boolean {
 export function shouldReuseSession(req: SessionReuseRequest): boolean {
   if (isForceLoginPrompt(req)) return false
   return hasDeviceSessionCookie(req)
+}
+
+/** Derive the shared parent domain that pds-core's cookie-domain
+ *  middleware uses when broadening upstream device-session cookies, so
+ *  auth-service can emit matching `Domain=` clears when it detects an
+ *  orphan half-pair. Duplicates the relationship rule in pds-core's
+ *  `cookie-domain.ts` intentionally — these helpers run in different
+ *  packages and must stay in lockstep; a divergence here resurfaces
+ *  the Layer 1 regression (orphan survives, half-pair bounce loops).
+ *  Returns null when the hosts are unrelated (e.g. Railway preview
+ *  envs) or identical (cookies already readable without a Domain). */
+export function deriveSharedCookieDomain(
+  authHostname: string,
+  pdsHostname: string,
+): string | null {
+  if (!authHostname || !pdsHostname) return null
+  if (authHostname === pdsHostname) return null
+  if (authHostname.endsWith(`.${pdsHostname}`)) return pdsHostname
+  return null
+}
+
+/** Minimal response shape that
+ *  {@link appendOrphanDeviceCookieClearHeaders} needs. Mirrors the
+ *  narrow interface used by the cookie-domain middleware. */
+export interface OrphanClearResponse {
+  append: (name: string, value: string) => unknown
+}
+
+/** Emit Max-Age=0 Set-Cookie headers that clear dev-id and ses-id in
+ *  both their host-only and domain-scoped variants. Browsers treat the
+ *  two scopes as distinct cookies — clearing only one leaves the other
+ *  behind. We clear both names unconditionally (not just the orphan
+ *  half) because the caller has already confirmed we're in an orphan
+ *  state; purging both is idempotent and simpler than branching. */
+export function appendOrphanDeviceCookieClearHeaders(
+  res: OrphanClearResponse,
+  cookieDomain: string | null,
+): void {
+  for (const name of ['dev-id', 'ses-id']) {
+    res.append('Set-Cookie', `${name}=; Max-Age=0; Path=/`)
+    if (cookieDomain) {
+      res.append(
+        'Set-Cookie',
+        `${name}=; Max-Age=0; Path=/; Domain=${cookieDomain}`,
+      )
+    }
+  }
 }
 
 /** Build the pds-core /oauth/authorize URL to redirect to, preserving

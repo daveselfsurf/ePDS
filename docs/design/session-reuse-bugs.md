@@ -144,6 +144,20 @@ before any cross-service redirect.
 It does NOT catch the stale-but-complete-pair cases (migration purge,
 fixation race, deleted DB row). Those reach pds-core and need Layer 2.
 
+When auth-service's `/oauth/authorize` handler detects a half-pair
+(exactly one of `dev-id` / `ses-id` present) via `hasOrphanDeviceCookie`,
+it also appends `Max-Age=0` `Set-Cookie` headers for **both** cookies in
+**both** the host-only and shared-parent-domain scopes before rendering
+the email form. Browsers treat host-only and domain-scoped variants as
+distinct cookies, so clearing only one leaves the other behind and the
+half-pair state survives into the next OAuth flow. Clearing both names
+in both scopes unconditionally (not just the orphan half) is idempotent
+and avoids branching — the caller has already confirmed we're in an
+orphan state. The shared parent domain is derived with the same rule
+pds-core's cookie-domain middleware uses (auth-service hostname ends
+with `.<PDS_HOSTNAME>` → `PDS_HOSTNAME` is the parent; otherwise no
+domain-scoped clear is needed).
+
 #### Layer 2 — pds-core: pre-route check before upstream renders
 
 The three-button stock welcome page ("Authenticate / Create new account /

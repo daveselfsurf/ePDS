@@ -45,7 +45,10 @@ import { ensurePdsUrl } from '../lib/pds-url.js'
 import { renderOptionalStyleTag } from '../lib/page-helpers.js'
 import { renderError } from '../lib/render-error.js'
 import {
+  appendOrphanDeviceCookieClearHeaders,
   buildPdsAuthorizeRedirect,
+  deriveSharedCookieDomain,
+  hasOrphanDeviceCookie,
   shouldReuseSession,
 } from '../lib/session-reuse.js'
 
@@ -114,14 +117,12 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
     // the dev-id cookie to that parent. On deployments with unrelated
     // hostnames (e.g. Railway preview envs) the cookie stays host-only
     // and this branch is a no-op.
-    if (
-      shouldReuseSession({
-        cookies: (req as unknown as { cookies?: Record<string, string> })
-          .cookies,
-        headers: { cookie: req.headers.cookie },
-        query: req.query as Record<string, unknown>,
-      })
-    ) {
+    const sessionReuseReq = {
+      cookies: (req as unknown as { cookies?: Record<string, string> }).cookies,
+      headers: { cookie: req.headers.cookie },
+      query: req.query as Record<string, unknown>,
+    }
+    if (shouldReuseSession(sessionReuseReq)) {
       const target = buildPdsAuthorizeRedirect(
         ctx.config.pdsPublicUrl,
         req.query as Record<string, unknown>,
@@ -132,6 +133,31 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
       )
       res.redirect(302, target)
       return
+    }
+
+    // Layer 1 cleanup: when exactly one of dev-id / ses-id is present,
+    // the browser jar is in a divergent state that upstream's
+    // DeviceManager cannot hydrate from. Emit Max-Age=0 clears for both
+    // cookies in both host-only and shared-parent-domain scopes so the
+    // next OAuth flow gets a clean slate — otherwise the orphan half
+    // keeps bouncing through pds-core's welcome-page-guard every time.
+    const orphan = hasOrphanDeviceCookie(sessionReuseReq)
+    if (orphan.isOrphan) {
+      const cookieDomain = deriveSharedCookieDomain(
+        ctx.config.hostname,
+        ctx.config.pdsHostname,
+      )
+      appendOrphanDeviceCookieClearHeaders(res, cookieDomain)
+      logger.info(
+        {
+          requestUri,
+          clientId,
+          hasDevId: orphan.devId,
+          hasSesId: orphan.sesId,
+          cookieDomain,
+        },
+        'HYPER-268 orphan device cookie detected, clearing on email-form response',
+      )
     }
 
     // Look up any existing flow for this request_uri early so we can fall back
