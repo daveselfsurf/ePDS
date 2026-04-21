@@ -49,11 +49,12 @@ import {
   findInsertionIndex,
   installCssInjectionMiddleware,
 } from './lib/client-css-injection.js'
-import express, { type Application, type Request, type Response } from 'express'
+import { type Application, type Request, type Response } from 'express'
 import {
   createPreviewConsentHandler,
   renderPreviewIndex,
 } from './lib/preview-consent.js'
+import { mountStaticAssets } from './lib/static-mount.js'
 import {
   createCookieDomainMiddleware,
   deriveCookieDomain,
@@ -740,10 +741,7 @@ async function main() {
   // pds-core-rendered error page and the /preview/consent shell can
   // reference the Certified favicon without a cross-origin request to
   // the auth-service host.
-  pds.app.use(
-    '/static',
-    express.static(path.resolve(__dirname, '..', 'public')),
-  )
+  mountStaticAssets(pds.app, path.resolve(__dirname, '..', 'public'))
 
   // =========================================================================
   // Cookie domain broadening (HYPER-268)
