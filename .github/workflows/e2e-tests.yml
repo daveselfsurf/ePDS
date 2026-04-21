@@ -41,7 +41,7 @@ jobs:
   gate:
     name: gate
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       pull-requests: read
     outputs:
@@ -73,7 +73,7 @@ jobs:
     # `always()` is needed because `gate` is skipped on non-PR
     # events, and GitHub would otherwise cascade-skip this job.
     if: always() && (needs.gate.outputs.relevant == 'true' || github.event_name != 'pull_request')
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 20
     permissions:
       # actions:read is needed by dorny/test-reporter to look up the
