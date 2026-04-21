@@ -657,18 +657,32 @@ async function main() {
     cookieDomain: welcomeGuardCookieDomain,
   })
   pds.app.use(welcomePageGuardMiddleware)
-  if (stack) {
-    const guardLayer = stack.pop()
-    let guardIdx = 0
-    for (let i = 0; i < stack.length; i++) {
-      if (stack[i].name === 'expressInit') {
-        guardIdx = i + 1
-        break
-      }
-    }
-    stack.splice(guardIdx, 0, guardLayer)
-    logger.info('Welcome-page guard installed')
+  // Fail closed: the guard has to run BEFORE upstream's OAuth / account
+  // middleware, otherwise it can never intercept the stock welcome
+  // page. If the Express `_router.stack` we rely on isn't exposed
+  // (Express 5, future pds-core swap), refuse to start rather than
+  // silently run the service with the guard defeated — the whole
+  // security value of this PR depends on the splice succeeding.
+  if (!stack) {
+    throw new Error(
+      'Welcome-page guard install failed: Express _router.stack is unavailable — refusing to start pds-core with an inert guard',
+    )
   }
+  const guardLayer = stack.pop()
+  if (!guardLayer) {
+    throw new Error(
+      'Welcome-page guard install failed: middleware layer missing from stack after pop',
+    )
+  }
+  let guardIdx = 0
+  for (let i = 0; i < stack.length; i++) {
+    if (stack[i].name === 'expressInit') {
+      guardIdx = i + 1
+      break
+    }
+  }
+  stack.splice(guardIdx, 0, guardLayer)
+  logger.info('Welcome-page guard installed')
 
   // =========================================================================
   // CSS injection for trusted OAuth clients

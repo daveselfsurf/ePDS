@@ -129,17 +129,22 @@ export interface OrphanClearResponse {
   append: (name: string, value: string) => unknown
 }
 
-/** Emit Max-Age=0 Set-Cookie headers that clear dev-id and ses-id in
- *  both their host-only and domain-scoped variants. Browsers treat the
- *  two scopes as distinct cookies — clearing only one leaves the other
- *  behind. We clear both names unconditionally (not just the orphan
- *  half) because the caller has already confirmed we're in an orphan
- *  state; purging both is idempotent and simpler than branching. */
+/** Emit Max-Age=0 Set-Cookie headers that clear dev-id and ses-id
+ *  (plus their `:hash` sidecars) in both host-only and domain-scoped
+ *  variants. Browsers treat each scope as a distinct cookie — clearing
+ *  only one leaves the other behind. We clear all four names
+ *  unconditionally (not just the orphan half) because the caller has
+ *  already confirmed we're in an orphan state; purging is idempotent
+ *  and simpler than branching. The `:hash` sidecars only materialise
+ *  when upstream has cookie signing keys configured (which ePDS doesn't
+ *  do today), but the set matches `DEVICE_COOKIE_NAMES` in pds-core so
+ *  a future upstream change can't leave orphan sidecars behind. */
 export function appendOrphanDeviceCookieClearHeaders(
   res: OrphanClearResponse,
   cookieDomain: string | null,
 ): void {
-  for (const name of ['dev-id', 'ses-id']) {
+  const names = ['dev-id', 'dev-id:hash', 'ses-id', 'ses-id:hash']
+  for (const name of names) {
     res.append('Set-Cookie', `${name}=; Max-Age=0; Path=/`)
     if (cookieDomain) {
       res.append(

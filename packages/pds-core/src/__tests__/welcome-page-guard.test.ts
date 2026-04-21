@@ -85,6 +85,22 @@ describe('parseDeviceCookies', () => {
       ),
     ).toEqual({ deviceId: VALID_DEV })
   })
+
+  it('survives a sibling cookie with a malformed percent-escape', () => {
+    // Analytics SDKs (or any app on the shared parent domain) are free
+    // to set cookies with literal `%` characters. An unguarded
+    // decodeURIComponent would throw URIError and crash the guard for
+    // every request. The valid dev-id/ses-id pair must still parse.
+    expect(
+      parseDeviceCookies(
+        `tracking=%GG; dev-id=${VALID_DEV}; ses-id=${VALID_SES}`,
+      ),
+    ).toEqual({ deviceId: VALID_DEV })
+  })
+
+  it('returns null when the dev-id cookie itself has a malformed percent-escape', () => {
+    expect(parseDeviceCookies(`dev-id=%GG; ses-id=${VALID_SES}`)).toBeNull()
+  })
 })
 
 describe('buildBounceUrl', () => {
@@ -151,12 +167,14 @@ function makeResStub(): Response & { _calls: string[][] } {
 }
 
 describe('appendCookieClearHeaders', () => {
-  it('clears dev-id and ses-id host-only when no cookie domain given', () => {
+  it('clears dev-id and ses-id (plus :hash sidecars) host-only when no cookie domain given', () => {
     const res = makeResStub()
     appendCookieClearHeaders(res, null)
     expect(res._calls).toEqual([
       ['Set-Cookie', 'dev-id=; Max-Age=0; Path=/'],
+      ['Set-Cookie', 'dev-id:hash=; Max-Age=0; Path=/'],
       ['Set-Cookie', 'ses-id=; Max-Age=0; Path=/'],
+      ['Set-Cookie', 'ses-id:hash=; Max-Age=0; Path=/'],
     ])
   })
 
@@ -166,8 +184,12 @@ describe('appendCookieClearHeaders', () => {
     expect(res._calls).toEqual([
       ['Set-Cookie', 'dev-id=; Max-Age=0; Path=/'],
       ['Set-Cookie', 'dev-id=; Max-Age=0; Path=/; Domain=pds.example'],
+      ['Set-Cookie', 'dev-id:hash=; Max-Age=0; Path=/'],
+      ['Set-Cookie', 'dev-id:hash=; Max-Age=0; Path=/; Domain=pds.example'],
       ['Set-Cookie', 'ses-id=; Max-Age=0; Path=/'],
       ['Set-Cookie', 'ses-id=; Max-Age=0; Path=/; Domain=pds.example'],
+      ['Set-Cookie', 'ses-id:hash=; Max-Age=0; Path=/'],
+      ['Set-Cookie', 'ses-id:hash=; Max-Age=0; Path=/; Domain=pds.example'],
     ])
   })
 })
@@ -300,9 +322,60 @@ describe('createWelcomePageGuard', () => {
     )
     expect(locationCall?.[1]).toContain('prompt=login')
     expect(locationCall?.[1]).toContain('request_uri=urn%3Ax%3A1')
-    // Four Set-Cookie entries: dev-id host + domain, ses-id host + domain
-    expect(res.append).toHaveBeenCalledTimes(4)
+    // Eight Set-Cookie entries: each of dev-id, dev-id:hash, ses-id,
+    // ses-id:hash in both host-only and domain-scoped variants.
+    expect(res.append).toHaveBeenCalledTimes(8)
     expect(provider.accountManager.listDeviceAccounts).not.toHaveBeenCalled()
+  })
+
+  it('passes /account* through when the URL carries no request_uri (direct nav)', async () => {
+    // A bookmark or typed URL to /account has no OAuth context. Bouncing
+    // to auth-service /oauth/authorize would just produce a 400
+    // "Missing request_uri" — worse than letting upstream render. The
+    // guard explicitly opts out of this case.
+    const provider: FakeProvider = {
+      accountManager: { listDeviceAccounts: vi.fn() },
+    }
+    const mw = createWelcomePageGuard({
+      authHostname: AUTH,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider: provider as any,
+      cookieDomain: 'pds.example',
+    })
+    const res = makeRes()
+    const next = vi.fn()
+    await mw(makeReq({ path: '/account', url: '/account' }), res, next)
+    expect(next).toHaveBeenCalledOnce()
+    expect(res.status).not.toHaveBeenCalled()
+    expect(res.append).not.toHaveBeenCalled()
+    expect(provider.accountManager.listDeviceAccounts).not.toHaveBeenCalled()
+  })
+
+  it('passes /account* through when bindings are zero but there is no request_uri', async () => {
+    const provider: FakeProvider = {
+      accountManager: {
+        listDeviceAccounts: vi.fn().mockResolvedValue([]),
+      },
+    }
+    const mw = createWelcomePageGuard({
+      authHostname: AUTH,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider: provider as any,
+      cookieDomain: null,
+    })
+    const res = makeRes()
+    const next = vi.fn()
+    await mw(
+      makeReq({
+        path: '/account/settings',
+        url: '/account/settings',
+        cookieHeader: `dev-id=${VALID_DEV}; ses-id=${VALID_SES}`,
+      }),
+      res,
+      next,
+    )
+    expect(next).toHaveBeenCalledOnce()
+    expect(res.status).not.toHaveBeenCalled()
   })
 
   it('bounces when cookies parse but bindings are empty', async () => {
@@ -375,6 +448,7 @@ describe('createWelcomePageGuard', () => {
     const next = vi.fn()
     await mw(
       makeReq({
+        url: '/oauth/authorize?request_uri=urn:x:1',
         cookieHeader: `dev-id=${VALID_DEV}; ses-id=${VALID_SES}`,
       }),
       res,

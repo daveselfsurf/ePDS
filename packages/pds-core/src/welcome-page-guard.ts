@@ -51,7 +51,15 @@ export function isGuardedPath(path: string): boolean {
  *  Returns the parsed deviceId when both cookies are present and valid
  *  per upstream's Zod schemas; null otherwise. Matches the parsing rules
  *  in `@atproto/oauth-provider`'s DeviceManager.parseCookie exactly so
- *  our accept/reject decision stays aligned with upstream's. */
+ *  our accept/reject decision stays aligned with upstream's.
+ *
+ *  Only decodes the two names we care about: a sibling cookie with a
+ *  malformed percent-escape (e.g. analytics SDKs that set `x=%GG`) must
+ *  not be able to crash the guard. dev-id/ses-id values are hex strings
+ *  upstream never percent-encodes, so decoding them is nominally a
+ *  no-op, but we keep the decode to stay exactly in step with upstream's
+ *  DeviceManager.parseCookie — and wrap it in try/catch so a pathological
+ *  value returns null rather than throwing URIError. */
 export function parseDeviceCookies(
   cookieHeader: string | undefined,
 ): { deviceId: string } | null {
@@ -61,8 +69,14 @@ export function parseDeviceCookies(
     const eq = part.indexOf('=')
     if (eq <= 0) continue
     const name = part.slice(0, eq)
-    const value = decodeURIComponent(part.slice(eq + 1))
-    if (!Object.hasOwn(jar, name)) jar[name] = value
+    if (name !== 'dev-id' && name !== 'ses-id') continue
+    if (Object.hasOwn(jar, name)) continue
+    const raw = part.slice(eq + 1)
+    try {
+      jar[name] = decodeURIComponent(raw)
+    } catch {
+      return null
+    }
   }
   const devId = jar['dev-id']
   const sesId = jar['ses-id']
@@ -92,14 +106,31 @@ export function buildBounceUrl(authHostname: string, origUrl: string): string {
   return target.toString()
 }
 
-/** Emit Set-Cookie headers that clear dev-id and ses-id in both their
- *  host-only and domain-scoped variants. Browsers treat these as
- *  distinct cookies, so clearing only one leaves the other behind. */
+/** True if the request looks like part of an active OAuth flow — i.e.
+ *  it carries a `request_uri` we can preserve on the bounce. Bare
+ *  `/account*` navigation (bookmarks, direct URL typing) has no
+ *  OAuth context; bouncing such requests to auth-service's
+ *  `/oauth/authorize` would just produce a 400 "Missing request_uri".
+ *  For those we fall through to upstream instead. */
+function hasOauthContext(origUrl: string): boolean {
+  const parsed = new URL(origUrl, 'http://placeholder')
+  return parsed.searchParams.has('request_uri')
+}
+
+/** Emit Set-Cookie headers that clear dev-id and ses-id (plus their
+ *  `:hash` sidecars) in both their host-only and domain-scoped variants.
+ *  Browsers treat each scope as a distinct cookie, so clearing only one
+ *  leaves the other behind. The `:hash` variants only materialise when
+ *  upstream is configured with cookie signing keys (which ePDS doesn't
+ *  do today — `@atproto/pds@0.4.211` never threads them through), but
+ *  the list matches `DEVICE_COOKIE_NAMES` in `cookie-domain.ts` so a
+ *  future upstream change can't leave orphan sidecars behind. */
 export function appendCookieClearHeaders(
   res: Response,
   cookieDomain: string | null,
 ): void {
-  for (const name of ['dev-id', 'ses-id']) {
+  const names = ['dev-id', 'dev-id:hash', 'ses-id', 'ses-id:hash']
+  for (const name of names) {
     res.append('Set-Cookie', `${name}=; Max-Age=0; Path=/`)
     if (cookieDomain) {
       res.append(
@@ -136,8 +167,19 @@ export function createWelcomePageGuard(opts: {
       next()
       return
     }
+    // Bare /account* navigation (bookmark, direct URL) has no OAuth
+    // context to preserve. auth-service's /oauth/authorize rejects such
+    // requests with a 400 "Missing request_uri" — worse UX than the
+    // stock upstream welcome page the guard was meant to suppress. Let
+    // upstream handle these; the PR's @docker-only scenarios only cover
+    // flows that originate at an OAuth entry point.
+    const inOauthFlow = hasOauthContext(req.url)
     const parsed = parseDeviceCookies(req.headers.cookie)
     if (!parsed) {
+      if (!inOauthFlow) {
+        next()
+        return
+      }
       res.status(303)
       appendCookieClearHeaders(res, cookieDomain)
       res.setHeader('Location', buildBounceUrl(authHostname, req.url))
@@ -156,6 +198,10 @@ export function createWelcomePageGuard(opts: {
       bindingCount = 0
     }
     if (bindingCount === 0) {
+      if (!inOauthFlow) {
+        next()
+        return
+      }
       res.status(303)
       appendCookieClearHeaders(res, cookieDomain)
       res.setHeader('Location', buildBounceUrl(authHostname, req.url))

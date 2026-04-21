@@ -197,12 +197,14 @@ export function buildChooserEnrichmentScript(): string {
       }
 
       // Random-handle mode: the handle is server-assigned gibberish
-      // the user never chose, so hiding it from the row reduces visual
-      // clutter on the chooser. Preserve it as a tooltip on the email
-      // so power-users can still inspect which account maps to which
-      // DID. We use visibility/width tricks rather than display:none
-      // so the handle span keeps its accessible-name contribution for
-      // screen readers and the aria-label stays intact.
+      // the user never chose (e.g. "frail-ivy-cabbage.pds.example").
+      // We use display:none — which removes the element from the
+      // accessibility tree — intentionally. Announcing the opaque
+      // string to screen-reader users carries no semantic value and
+      // actively confuses the row's accessible name ("DID xyz, handle
+      // frail-ivy-cabbage, email alice@example"). The email label
+      // immediately below stays visible and announced; power users
+      // can still inspect the handle via the tooltip we set on it.
       if (hideHandle) {
         var ownText = (m.el.textContent || '').trim();
         if (ownText) {
@@ -299,6 +301,19 @@ export function buildChooserEnrichmentScript(): string {
 /** SHA256-in-base64 hash of an arbitrary string, CSP-style. */
 export function sha256Base64(input: string): string {
   return createHash('sha256').update(input).digest('base64')
+}
+
+/** Escape a string for safe interpolation into a double-quoted HTML
+ *  attribute value. Used for operator-configured inputs like authOrigin
+ *  — not strictly user-controlled, but cheap defense-in-depth against
+ *  attribute-escape injection if a misconfigured value contains `"`,
+ *  `<`, or `&`. */
+export function escapeHtmlAttr(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
 }
 
 /**
@@ -464,7 +479,11 @@ export function createChooserEnrichmentMiddleware(
   const enrichmentJs = buildChooserEnrichmentScript()
   const enrichmentScriptHash = sha256Base64(enrichmentJs)
   const enrichmentScriptTag = `<script>${enrichmentJs}</script>`
-  const authOriginMetaTag = `<meta name="epds-auth-origin" content="${authOrigin}">`
+  // authOrigin is operator-configured (derived from AUTH_HOSTNAME) and
+  // always a valid origin URL in practice, but we HTML-escape it
+  // anyway so a misconfiguration can't break the rewritten page or
+  // enable attribute-escape injection.
+  const authOriginMetaTag = `<meta name="epds-auth-origin" content="${escapeHtmlAttr(authOrigin)}">`
 
   return function chooserEnrichmentMiddleware(
     req: ChooserEnrichmentRequest,

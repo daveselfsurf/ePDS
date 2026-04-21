@@ -70,12 +70,29 @@ After(async function (this: EpdsWorld, scenario) {
       const { writeFile } = await import('node:fs/promises')
       const content = await this.page.content()
       await writeFile(`reports/screenshots/${safeName}.html`, content)
-    } catch {
-      /* best-effort */
+    } catch (err) {
+      // Best-effort: if page.content() or writeFile fails (closed context,
+      // disk error), log but don't fail the already-failing scenario.
+      console.warn(
+        `After hook: failed to capture page HTML for "${safeName}":`,
+        err,
+      )
     }
   }
   if (this.secondaryContext) await this.secondaryContext.close()
   if (this.context) await this.context.close()
+
+  // Close the per-scenario console-capture stream so file descriptors
+  // don't leak across a long run and buffered output is flushed to
+  // disk before the next scenario starts. resetBrowserContext may
+  // reattach a new stream mid-scenario — in that case we only close
+  // the most recent one; the earlier streams end up orphaned but are
+  // GC'd with the closed Page object.
+  const consoleCapture = this.consoleCapture
+  this.consoleCapture = undefined
+  if (consoleCapture) {
+    await new Promise<void>((resolve) => consoleCapture.end(resolve))
+  }
 
   // Clear emails sent to this scenario's test email so they don't bleed into the next scenario
   if (testEnv.mailpitPass && this.testEmail) {

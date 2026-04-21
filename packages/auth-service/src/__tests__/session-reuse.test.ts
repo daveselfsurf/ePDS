@@ -277,7 +277,9 @@ describe('appendOrphanDeviceCookieClearHeaders (HYPER-268)', () => {
     appendOrphanDeviceCookieClearHeaders(res, null)
     expect(res.calls).toEqual([
       ['Set-Cookie', 'dev-id=; Max-Age=0; Path=/'],
+      ['Set-Cookie', 'dev-id:hash=; Max-Age=0; Path=/'],
       ['Set-Cookie', 'ses-id=; Max-Age=0; Path=/'],
+      ['Set-Cookie', 'ses-id:hash=; Max-Age=0; Path=/'],
     ])
   })
 
@@ -287,8 +289,12 @@ describe('appendOrphanDeviceCookieClearHeaders (HYPER-268)', () => {
     expect(res.calls).toEqual([
       ['Set-Cookie', 'dev-id=; Max-Age=0; Path=/'],
       ['Set-Cookie', 'dev-id=; Max-Age=0; Path=/; Domain=pds.example'],
+      ['Set-Cookie', 'dev-id:hash=; Max-Age=0; Path=/'],
+      ['Set-Cookie', 'dev-id:hash=; Max-Age=0; Path=/; Domain=pds.example'],
       ['Set-Cookie', 'ses-id=; Max-Age=0; Path=/'],
       ['Set-Cookie', 'ses-id=; Max-Age=0; Path=/; Domain=pds.example'],
+      ['Set-Cookie', 'ses-id:hash=; Max-Age=0; Path=/'],
+      ['Set-Cookie', 'ses-id:hash=; Max-Age=0; Path=/; Domain=pds.example'],
     ])
   })
 })

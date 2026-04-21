@@ -614,6 +614,25 @@ describe('createChooserEnrichmentMiddleware auth-origin meta (Another-account re
     expect(written).toContain('<meta name="epds-auth-origin" content="">')
   })
 
+  it('HTML-escapes authOrigin so a misconfigured value cannot break attribute quoting', () => {
+    // authOrigin is operator-configured, not user-controlled, but a
+    // malformed value with a stray `"` or `<` would otherwise escape the
+    // attribute and break the injected head. Cheap defense-in-depth.
+    const mw = createChooserEnrichmentMiddleware({
+      resolveClientMetadata: () => Promise.resolve({}),
+      authOrigin: 'https://auth.example/"><script>alert(1)</script>',
+    })
+    const { res, calls } = makeRes()
+    mw({ method: 'GET', path: '/account', query: {} }, res, () => {})
+    res.end('<html><head></head></html>')
+    const written = calls.end[0][0] as string
+    expect(written).toContain(
+      '<meta name="epds-auth-origin" content="https://auth.example/&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;">',
+    )
+    // The raw attacker payload must not appear unescaped.
+    expect(written).not.toContain('"><script>alert(1)</script>')
+  })
+
   it('emits both meta tags before the script tag in head', () => {
     // Order matters for the script's synchronous read on DOMContentLoaded.
     const mw = createChooserEnrichmentMiddleware({
