@@ -12,9 +12,6 @@ import express, { type Application } from 'express'
  * `path.resolve(__dirname, '..', 'public')`) so the helper stays
  * agnostic to CJS/ESM callsite conventions.
  */
-export function mountStaticAssets(
-  app: Application,
-  publicDir: string,
-): void {
+export function mountStaticAssets(app: Application, publicDir: string): void {
   app.use('/static', express.static(publicDir))
 }

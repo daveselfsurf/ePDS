@@ -20,7 +20,9 @@ async function fetchFromMounted(
   mountStaticAssets(app, publicDir)
   const server = http.createServer(app)
   await new Promise<void>((resolve) => {
-    server.listen(0, () => { resolve(); })
+    server.listen(0, () => {
+      resolve()
+    })
   })
   try {
     const { port } = server.address() as AddressInfo
@@ -41,7 +43,9 @@ async function fetchFromMounted(
     })
   } finally {
     await new Promise<void>((resolve) => {
-      server.close(() => { resolve(); })
+      server.close(() => {
+        resolve()
+      })
     })
   }
 }
