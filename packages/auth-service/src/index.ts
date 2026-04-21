@@ -20,6 +20,7 @@ import { createPreviewEmailsRouter } from './routes/preview-emails.js'
 import { createRootRouter } from './routes/root.js'
 import { resolveAuthPort } from './lib/resolve-port.js'
 import { createSecurityHeadersMiddleware } from './lib/security-headers.js'
+import { mountStaticAssets } from './lib/static-mount.js'
 import {
   validateOtpCharset,
   validateOtpLength,
@@ -50,7 +51,7 @@ export function createAuthService(config: AuthServiceConfig): {
   app.use(express.urlencoded({ extended: true }))
   app.use(express.json())
   app.use(cookieParser())
-  app.use('/static', express.static(path.resolve(__dirname, '..', 'public')))
+  mountStaticAssets(app, path.resolve(__dirname, '..', 'public'))
   app.use(csrfProtection(config.csrfSecret))
   app.use(requestRateLimit({ windowMs: 60_000, maxRequests: 60 }))
 

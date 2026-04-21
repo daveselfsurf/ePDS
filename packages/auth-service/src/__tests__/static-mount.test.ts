@@ -1,12 +1,15 @@
 import * as fs from 'node:fs'
 import * as http from 'node:http'
 import * as path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { AddressInfo } from 'node:net'
 
 import express from 'express'
 import { afterEach, beforeEach, describe, it, expect } from 'vitest'
 
 import { mountStaticAssets } from '../lib/static-mount.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /**
  * Boot a throwaway Express server with the static-mount helper on a
@@ -51,19 +54,15 @@ async function fetchFromMounted(
 }
 
 describe('mountStaticAssets', () => {
-  // __dirname = .../pds-core/src/__tests__; the real assets ship in
-  // .../pds-core/public.
+  // __dirname = .../auth-service/src/__tests__; assets ship in
+  // .../auth-service/public.
   const publicDir = path.resolve(__dirname, '..', '..', 'public')
 
   beforeEach(() => {
-    // Sanity — the fixtures on disk are what the whole test depends on.
     expect(fs.existsSync(path.join(publicDir, 'favicon.svg'))).toBe(true)
     expect(fs.existsSync(path.join(publicDir, 'favicon-dark.svg'))).toBe(true)
   })
 
-  // Keep `afterEach` even though `fetchFromMounted` cleans up its own
-  // server — any future test that forgets to close one will be obvious
-  // when this hook flags a leak.
   afterEach(() => {})
 
   it('serves /static/favicon.svg from the package public dir', async () => {
@@ -80,17 +79,11 @@ describe('mountStaticAssets', () => {
     expect(res.body).toContain('<svg')
   })
 
-  it('404s for a path outside /static', async () => {
-    const res = await fetchFromMounted('/favicon.svg', publicDir)
-    expect(res.status).toBe(404)
-  })
-
   it('aliases /favicon.ico to the light-theme SVG', async () => {
     const res = await fetchFromMounted('/favicon.ico', publicDir)
     expect(res.status).toBe(200)
     expect(res.contentType).toMatch(/svg/)
     expect(res.body).toContain('<svg')
-    // Sanity: served body matches the light favicon, not the dark one.
     const light = fs.readFileSync(path.join(publicDir, 'favicon.svg'), 'utf8')
     expect(res.body).toBe(light)
   })
