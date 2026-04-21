@@ -99,9 +99,13 @@ export function buildBounceUrl(authHostname: string, origUrl: string): string {
   const authBase = `${authScheme}://${authHostname}`
   const parsed = new URL(origUrl, 'http://placeholder')
   const target = new URL('/oauth/authorize', authBase)
-  parsed.searchParams.forEach((v, k) => {
-    target.searchParams.set(k, v)
-  })
+  // Assign the raw serialized query so repeated params (e.g. `scope`
+  // appearing twice) survive verbatim; searchParams.forEach + set()
+  // would collapse repeats to the last value, contradicting the
+  // "preserves the original query string verbatim" contract below.
+  target.search = parsed.search
+  // We intentionally override any incoming prompt — the forced-login
+  // branch is the whole point of the bounce.
   target.searchParams.set('prompt', 'login')
   return target.toString()
 }

@@ -142,6 +142,22 @@ describe('buildBounceUrl', () => {
     )
     expect(new URL(url).searchParams.get('prompt')).toBe('login')
   })
+
+  it('preserves repeated query params verbatim', () => {
+    // OAuth scope commonly appears as scope=atproto&scope=transition:generic.
+    // A forEach+set() copy would collapse it to the last value; we need both.
+    const url = buildBounceUrl(
+      'auth.pds.example',
+      '/oauth/authorize?scope=atproto&scope=transition:generic&request_uri=urn:x:1',
+    )
+    const parsed = new URL(url)
+    expect(parsed.searchParams.getAll('scope')).toEqual([
+      'atproto',
+      'transition:generic',
+    ])
+    expect(parsed.searchParams.get('request_uri')).toBe('urn:x:1')
+    expect(parsed.searchParams.get('prompt')).toBe('login')
+  })
 })
 
 function makeResStub(): Response & { _calls: string[][] } {

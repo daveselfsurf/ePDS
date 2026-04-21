@@ -108,8 +108,15 @@ export function buildChooserEnrichmentScript(): string {
   // instead of redirecting back to pds-core's chooser. Preserves
   // request_uri / client_id / scope etc. so the OAuth flow resumes
   // after the new account signs in.
+  //
+  // Returns '' when there is no request_uri in the current URL
+  // (standalone /account navigation, bookmark, direct URL) — auth-service
+  // rejects /oauth/authorize without request_uri with a 400, so letting
+  // upstream handle the click is strictly better UX than a hard error
+  // page. The caller skips the rebind in that case.
   function buildAnotherAccountUrl(authOrigin) {
     var params = new URLSearchParams(window.location.search || '');
+    if (!params.has('request_uri')) return '';
     params.set('prompt', 'login');
     return authOrigin + '/oauth/authorize?' + params.toString();
   }
@@ -244,6 +251,10 @@ export function buildChooserEnrichmentScript(): string {
   // root-level listener. Idempotent via dataset.epdsRebound.
   function rebindAnotherAccount(authOrigin) {
     if (!authOrigin) return;
+    // No request_uri on the current URL means we have no OAuth flow to
+    // resume — buildAnotherAccountUrl would produce a URL auth-service
+    // 400s on. Leave upstream's default handler alone in that case.
+    if (!buildAnotherAccountUrl(authOrigin)) return;
     var root = document.getElementById('root');
     if (!root) return;
     // Upstream @atproto/oauth-provider-ui renders this as a

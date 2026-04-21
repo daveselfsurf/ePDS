@@ -84,10 +84,10 @@ After(async function (this: EpdsWorld, scenario) {
 
   // Close the per-scenario console-capture stream so file descriptors
   // don't leak across a long run and buffered output is flushed to
-  // disk before the next scenario starts. resetBrowserContext may
-  // reattach a new stream mid-scenario — in that case we only close
-  // the most recent one; the earlier streams end up orphaned but are
-  // GC'd with the closed Page object.
+  // disk before the next scenario starts. resetBrowserContext
+  // re-attaches THIS same stream to the new Page (see utils.ts) rather
+  // than creating a new one, so there is only ever one stream per
+  // scenario to close here.
   const consoleCapture = this.consoleCapture
   this.consoleCapture = undefined
   if (consoleCapture) {
