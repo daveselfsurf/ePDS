@@ -1,10 +1,11 @@
 /**
- * Ensures every rendered `<head>` in the auth-service routes wires the
- * Certified favicon. The favicon tag is a static one-liner — rather than
- * stand up each render helper with its full `opts` shape, this test scans
- * the route source for every `<head>` block and asserts it contains the
- * expected `<link rel="icon">` reference. This catches future routes /
- * render helpers that forget the tag.
+ * Ensures every rendered `<head>` in the auth-service routes wires both
+ * the light- and dark-mode Certified favicons. The favicon tags are
+ * static one-liners — rather than stand up each render helper with its
+ * full `opts` shape, this test scans the route source for every `<head>`
+ * block and asserts it contains both `<link rel="icon">` variants gated
+ * by `prefers-color-scheme`. This catches future routes / render helpers
+ * that forget the tags or wire only one of the two.
  */
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -15,8 +16,10 @@ import { describe, it, expect } from 'vitest'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROUTES_DIR = path.join(__dirname, '..', 'routes')
 
-const FAVICON_LINK =
-  '<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">'
+const FAVICON_LIGHT =
+  '<link rel="icon" href="/static/favicon.svg" media="(prefers-color-scheme: light)" type="image/svg+xml">'
+const FAVICON_DARK =
+  '<link rel="icon" href="/static/favicon-dark.svg" media="(prefers-color-scheme: dark)" type="image/svg+xml">'
 
 /**
  * Match every `<head>...</head>` block. `[\s\S]` lets the body span
@@ -49,9 +52,10 @@ describe('favicon wiring across auth-service route templates', () => {
   })
 
   for (const { file, heads } of routeFiles) {
-    it(`${file}: every <head> block includes the favicon link`, () => {
+    it(`${file}: every <head> block includes both favicon links`, () => {
       for (const head of heads) {
-        expect(head).toContain(FAVICON_LINK)
+        expect(head).toContain(FAVICON_LIGHT)
+        expect(head).toContain(FAVICON_DARK)
       }
     })
   }
