@@ -736,29 +736,31 @@ async function main() {
   // hard for users to recognise, this is a real UX problem. We need
   // email alongside handle so users can identify themselves.
   //
-  // We also need a "Use a different account" escape hatch so users can
-  // sign in as someone else when the chooser presents only a session
-  // they don't want to reuse.
-  //
   // Strategy — reusing the PR #9 response-rewrite pattern:
   //   1. Intercept HTML responses from the upstream /account routes.
   //   2. Inject a <script> in the <head> (before the hydration script
   //      fires) that (a) captures the upstream deviceSessions payload
   //      via an accessor on window.__deviceSessions, (b) watches the
-  //      DOM after hydration, (c) appends each account's email as a
-  //      small label next to its handle, and (d) renders a
-  //      "Use a different account" link that redirects to
-  //      auth.<parent>/oauth/authorize?prompt=login&... preserving the
-  //      original OAuth params. See cross-client-session-reuse.md for the
-  //      design doc.
+  //      DOM after hydration, and (c) appends each account's email as
+  //      a small label next to its handle. See cross-client-session-reuse.md
+  //      for the design doc.
   //
   // Unlike PR #9's CSS injection, we're inserting JS — which requires
   // adding a script hash to the CSP script-src directive rather than
   // style-src.
 
+  // auth-service origin baked into the injected enrichment script's
+  // "Another account" rebind. Same scheme rule as installPreviewRoutes:
+  // https for real hosts, http for localhost-flavoured dev.
+  const authOriginScheme =
+    authHostname === 'localhost' || authHostname.endsWith('.localhost')
+      ? 'http'
+      : 'https'
+  const authOrigin = `${authOriginScheme}://${authHostname}`
+
   const chooserEnrichmentMiddleware = createChooserEnrichmentMiddleware({
-    authHostname,
     resolveClientMetadata,
+    authOrigin,
   })
 
   pds.app.use(chooserEnrichmentMiddleware)

@@ -208,17 +208,40 @@ The stock welcome page is one of three ways a user could wind up somewhere
 other than the enriched account picker or the email form. The other two
 are surfaced by the chooser itself and by client apps:
 
-- **"Another account" / "Use a different account" link on the chooser.**
-  Already correct today: the chooser-enrichment snippet points it at
+- **"Another account" button on the chooser.** Upstream
+  `@atproto/oauth-provider-ui` renders this as a `<div role="button"
+aria-label="Login to account that is not listed">` inside its hydrated
+  React SPA. A plain-anchor sibling with an `href=".../prompt=login"` is
+  cosmetic — React's delegated root-level click listener fires first and
+  swaps the chooser component for upstream's stock sign-in form before
+  the browser's default navigation has a chance to run. The
+  chooser-enrichment snippet therefore binds a capture-phase click handler
+  directly to the upstream div, calls `preventDefault()` +
+  `stopImmediatePropagation()` so React's listener never sees the event,
+  and drives `window.location.href` to
   `auth.<host>/oauth/authorize?prompt=login&<orig params>`. auth-service's
   `isForceLoginPrompt` short-circuits `shouldReuseSession`, so the email
-  form renders without ever touching pds-core.
-- **"Sign up" link on the stock welcome page.** Only reachable from the
-  stock welcome page, which Layer 2 eliminates — so no separate handling
-  is needed.
+  form renders without ever touching pds-core. The rebind is idempotent
+  via a `dataset.epdsRebound` marker so the MutationObserver driving
+  re-enrichment doesn't double-bind. This preserves the multi-account
+  device-binding model — one `dev-id` + one `ses-id` per browser, N
+  bindings per device in `AccountManager` — so "Another account" _adds_ a
+  new binding to the device rather than replacing the existing ones.
+- **"Sign up" button on the chooser.** Upstream's chooser SPA itself
+  renders a Sign-up affordance, separate from the stock welcome page
+  eliminated by Layer 2. Clicking it in an ePDS deployment drops the user
+  into upstream's signup route, which in turn crashes in the compiled
+  React bundle because ePDS routes account creation through
+  auth-service's OTP flow rather than upstream's signup surface. The
+  chooser-enrichment snippet hides any `<button>`/`<a>` whose trimmed
+  text is exactly "Sign up" via `display: none` + `aria-hidden="true"`,
+  idempotent via a `dataset.epdsHidden` marker. No server-side response
+  rewriting needed; the enrichment script runs post-hydration via the
+  same MutationObserver that handles email enrichment, which is exactly
+  when upstream's SPA has rendered the button.
 
-Covered here for completeness so future contributors don't reintroduce
-either escape hatch as a link back into pds-core's signin flow.
+Covered here so future contributors don't reintroduce either escape
+hatch as a link back into pds-core's signin flow.
 
 #### Layer 4 — hide the handle on the chooser when handleMode is random
 

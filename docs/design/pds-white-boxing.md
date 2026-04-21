@@ -240,9 +240,14 @@ a different Node API for writing `Set-Cookie`.
 
 Middleware intercepts HTML responses for `GET /oauth/authorize` and
 `GET /account*` and injects a `<script>` tag at the start of `<head>` that
-(a) appends each bound account's email next to its handle in the chooser UI
-and (b) injects a "Use a different account" link pointing at
-`auth.<host>/oauth/authorize?prompt=login`. The injected script reads two
+(a) appends each bound account's email next to its handle in the chooser UI,
+(b) hides upstream's "Sign up" button on the chooser (ePDS routes signup
+through auth-service, not upstream), and (c) rebinds upstream's "Another
+account" button (`<div role="button" aria-label="Login to account that is
+not listed">`) with a capture-phase click listener that hard-navigates to
+`auth.<host>/oauth/authorize?prompt=login&<orig params>`, beating React's
+delegated root-level click handler and preventing the SPA from swapping
+the chooser for its stock sign-in form. The injected script reads two
 upstream globals set by the server-rendered SPA:
 
 ```ts

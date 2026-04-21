@@ -235,6 +235,35 @@ Then(
   },
 )
 
+Then(
+  'the upstream stock sign-in form is not shown',
+  async function (this: EpdsWorld) {
+    const page = getPage(this)
+    // Upstream @atproto/oauth-provider-ui's sign-in form has a
+    // <input name="password">; the auth-service email form does not.
+    // Its presence means the SPA swapped to the stock component we're
+    // trying to avoid.
+    await expect(page.locator('input[name="password"]')).toHaveCount(0)
+    await expect(page.locator('input[name="username"]')).toHaveCount(0)
+  },
+)
+
+Then(
+  'no upstream "Sign up" affordance is visible on the chooser',
+  async function (this: EpdsWorld) {
+    const page = getPage(this)
+    // ePDS has not wired upstream's signup flow (account creation goes
+    // through auth-service's OTP path), so upstream's chooser-rendered
+    // "Sign up" button must be hidden by chooser-enrichment.
+    await expect(
+      page.getByRole('button', { name: 'Sign up', exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      page.getByRole('link', { name: 'Sign up', exact: true }),
+    ).toHaveCount(0)
+  },
+)
+
 // ---------------------------------------------------------------------------
 // Post-bounce cookie-clearing assertions
 // ---------------------------------------------------------------------------
@@ -288,9 +317,11 @@ Given(
 )
 
 When(
-  'the user clicks {string} on the enriched account picker',
-  async function (this: EpdsWorld, label: string) {
+  'the user clicks "Another account" on the enriched account picker',
+  async function (this: EpdsWorld) {
     const page = getPage(this)
-    await page.getByRole('link', { name: label }).click()
+    await page
+      .getByRole('button', { name: 'Login to account that is not listed' })
+      .click()
   },
 )

@@ -10,13 +10,8 @@ import {
 } from '../chooser-enrichment.js'
 
 describe('buildChooserEnrichmentScript (HYPER-268)', () => {
-  it('bakes in the auth hostname for the "use a different account" link', () => {
-    const script = buildChooserEnrichmentScript('auth.pds.example')
-    expect(script).toContain('https://auth.pds.example/oauth/authorize')
-  })
-
   it('captures both hydration globals (__sessions, __deviceSessions) via accessors', () => {
-    const script = buildChooserEnrichmentScript('auth.example')
+    const script = buildChooserEnrichmentScript()
     // Upstream uses __sessions on /oauth/authorize (inline chooser) and
     // __deviceSessions on /account (standalone account SPA). The script
     // must intercept BOTH with defineProperty setters so neither path
@@ -30,28 +25,8 @@ describe('buildChooserEnrichmentScript (HYPER-268)', () => {
     )
   })
 
-  it('includes the sign-in-as-different-account label text', () => {
-    const script = buildChooserEnrichmentScript('auth.example')
-    expect(script).toContain('Use a different account')
-  })
-
-  it('is deterministic for a given hostname', () => {
-    const a = buildChooserEnrichmentScript('auth.pds.example')
-    const b = buildChooserEnrichmentScript('auth.pds.example')
-    expect(a).toBe(b)
-  })
-
-  it('produces different scripts for different hostnames', () => {
-    const a = buildChooserEnrichmentScript('auth.pds.example')
-    const b = buildChooserEnrichmentScript('auth.other.example')
-    expect(a).not.toBe(b)
-  })
-
-  it('sets prompt=login on the fallback URL too', () => {
-    // Second instance of prompt=login is the catch-block fallback.
-    const script = buildChooserEnrichmentScript('auth.example')
-    const matches = script.match(/prompt.*login/g) ?? []
-    expect(matches.length).toBeGreaterThanOrEqual(2)
+  it('is deterministic', () => {
+    expect(buildChooserEnrichmentScript()).toBe(buildChooserEnrichmentScript())
   })
 })
 
@@ -218,7 +193,7 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
   }
 
   it('passes non-chooser requests through untouched', () => {
-    const mw = createChooserEnrichmentMiddleware('auth.pds.example')
+    const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes()
     const next = vi.fn()
     mw({ method: 'GET', path: '/oauth/token' }, res, next)
@@ -233,7 +208,7 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
   })
 
   it('passes non-GET requests through untouched', () => {
-    const mw = createChooserEnrichmentMiddleware('auth.pds.example')
+    const mw = createChooserEnrichmentMiddleware()
     const { res } = makeRes()
     const next = vi.fn()
     mw({ method: 'POST', path: '/account' }, res, next)
@@ -241,7 +216,7 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
   })
 
   it('appends the script hash to CSP script-src on chooser requests', () => {
-    const mw = createChooserEnrichmentMiddleware('auth.pds.example')
+    const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes()
     mw({ method: 'GET', path: '/account' }, res, () => {})
     res.setHeader(
@@ -254,7 +229,7 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
   })
 
   it('leaves non-CSP headers untouched on chooser requests', () => {
-    const mw = createChooserEnrichmentMiddleware('auth.pds.example')
+    const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes()
     mw({ method: 'GET', path: '/account' }, res, () => {})
     res.setHeader('Content-Type', 'text/html')
@@ -262,24 +237,23 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
   })
 
   it('injects the enrichment script into the <head> of an HTML body', () => {
-    const mw = createChooserEnrichmentMiddleware('auth.pds.example')
+    const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes()
     mw({ method: 'GET', path: '/account' }, res, () => {})
     res.end('<html><head><title>X</title></head><body></body></html>')
     const written = calls.end[0][0] as string
-    expect(written).toContain('https://auth.pds.example/oauth/authorize')
     // Head rewrite must start with the handle-mode meta (so the script
     // can read it synchronously on DOMContentLoaded), followed by the
     // enrichment <script>. The meta is always present — handleMode
     // resolves to `picker-with-random` when no query / metadata
     // overrides it.
     expect(written).toMatch(
-      /<head><meta name="epds-handle-mode" content="[a-z-]+"><script>/,
+      /<head><meta name="epds-handle-mode" content="[a-z-]+"><meta name="epds-auth-origin" content="[^"]*"><script>/,
     )
   })
 
   it('strips Content-Length / ETag after rewriting the body', () => {
-    const mw = createChooserEnrichmentMiddleware('auth.pds.example')
+    const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes()
     mw({ method: 'GET', path: '/account' }, res, () => {})
     res.end('<html><head></head></html>')
@@ -288,7 +262,7 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
   })
 
   it('does not strip Content-Length when no <head> is present', () => {
-    const mw = createChooserEnrichmentMiddleware('auth.pds.example')
+    const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes()
     mw({ method: 'GET', path: '/account' }, res, () => {})
     res.end('not html, no head here')
@@ -297,20 +271,20 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
   })
 
   it('rewrites a Buffer body that contains <head>', () => {
-    const mw = createChooserEnrichmentMiddleware('auth.pds.example')
+    const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes()
     mw({ method: 'GET', path: '/account' }, res, () => {})
     res.end(Buffer.from('<html><head></head></html>'))
     const written = calls.end[0][0] as string
     expect(typeof written).toBe('string')
     expect(written).toMatch(
-      /<head><meta name="epds-handle-mode" content="[a-z-]+"><script>/,
+      /<head><meta name="epds-handle-mode" content="[a-z-]+"><meta name="epds-auth-origin" content="[^"]*"><script>/,
     )
     expect(calls.removedHeaders).toContain('Content-Length')
   })
 
   it('passes Buffer bodies without <head> through untouched', () => {
-    const mw = createChooserEnrichmentMiddleware('auth.pds.example')
+    const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes()
     mw({ method: 'GET', path: '/account' }, res, () => {})
     const buf = Buffer.from('<not html>')
@@ -322,22 +296,21 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
   })
 
   it('matches /account/foo and /account subpaths', () => {
-    const mw = createChooserEnrichmentMiddleware('auth.pds.example')
+    const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes()
     mw({ method: 'GET', path: '/account/foo' }, res, () => {})
     res.end('<html><head></head></html>')
     expect(calls.end[0][0]).toMatch(
-      /<head><meta name="epds-handle-mode" content="[a-z-]+"><script>/,
+      /<head><meta name="epds-handle-mode" content="[a-z-]+"><meta name="epds-auth-origin" content="[^"]*"><script>/,
     )
   })
 
-  it('reuses the same script (and hash) across all instances built with the same hostname', () => {
+  it('reuses the same script (and hash) across instances', () => {
     // Since the script is deterministic, two middleware instances
-    // built with the same hostname should produce identical script
-    // tags and identical CSP hashes — verifies the factory caches the
-    // script correctly without leaking per-call state.
-    const mw1 = createChooserEnrichmentMiddleware('auth.example')
-    const mw2 = createChooserEnrichmentMiddleware('auth.example')
+    // should produce identical script tags and identical CSP hashes —
+    // verifies the factory doesn't leak per-call state.
+    const mw1 = createChooserEnrichmentMiddleware()
+    const mw2 = createChooserEnrichmentMiddleware()
     const r1 = makeRes()
     const r2 = makeRes()
     mw1({ method: 'GET', path: '/account' }, r1.res, () => {})
@@ -364,7 +337,7 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
   // crashing pds-core. See the comment in chooser-enrichment.ts end()
   // wrapper for details.
   it('does not throw when upstream flushes headers before end()', () => {
-    const mw = createChooserEnrichmentMiddleware('auth.pds.example')
+    const mw = createChooserEnrichmentMiddleware()
     const { res } = makeRes({ headersSent: true })
     mw({ method: 'GET', path: '/account' }, res, () => {})
     expect(() => {
@@ -373,7 +346,7 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
   })
 
   it('skips Content-Length rewrite once headers have been flushed', () => {
-    const mw = createChooserEnrichmentMiddleware('auth.pds.example')
+    const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes({ headersSent: true })
     mw({ method: 'GET', path: '/account' }, res, () => {})
     res.end('<!DOCTYPE html><html><head></head><body></body></html>')
@@ -382,7 +355,7 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
   })
 
   it('still rewrites Content-Length when headers have not been flushed', () => {
-    const mw = createChooserEnrichmentMiddleware('auth.pds.example')
+    const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes({ headersSent: false })
     mw({ method: 'GET', path: '/account' }, res, () => {})
     res.end('<!DOCTYPE html><html><head></head><body></body></html>')
@@ -392,12 +365,12 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
 
 describe('buildChooserEnrichmentScript handle-mode hiding (HYPER-268 Layer 4)', () => {
   it('reads the epds-handle-mode meta tag at runtime', () => {
-    const script = buildChooserEnrichmentScript('auth.example')
+    const script = buildChooserEnrichmentScript()
     expect(script).toContain('querySelector(\'meta[name="epds-handle-mode"]\')')
   })
 
   it("hides the handle span and sets a title tooltip when mode is 'random'", () => {
-    const script = buildChooserEnrichmentScript('auth.example')
+    const script = buildChooserEnrichmentScript()
     // Hiding strategy: display:none on the handle element + title
     // attribute on the email label carrying the original handle text.
     expect(script).toContain("hideHandle = handleMode === 'random'")
@@ -408,7 +381,7 @@ describe('buildChooserEnrichmentScript handle-mode hiding (HYPER-268 Layer 4)', 
   it('leaves the handle visible for picker / picker-with-random', () => {
     // The hideHandle branch is the only path that manipulates the
     // handle element; non-random modes fall through untouched.
-    const script = buildChooserEnrichmentScript('auth.example')
+    const script = buildChooserEnrichmentScript()
     expect(script).toMatch(/if \(hideHandle\)/)
   })
 })
@@ -450,7 +423,6 @@ describe('createChooserEnrichmentMiddleware handle-mode meta (HYPER-268 Layer 4)
 
   it('falls back to picker-with-random when no query / metadata provides a mode', () => {
     const mw = createChooserEnrichmentMiddleware({
-      authHostname: 'auth.example',
       resolveClientMetadata: () => Promise.resolve({}),
     })
     const { res, calls } = makeRes()
@@ -464,7 +436,6 @@ describe('createChooserEnrichmentMiddleware handle-mode meta (HYPER-268 Layer 4)
 
   it('honours the epds_handle_mode query override', () => {
     const mw = createChooserEnrichmentMiddleware({
-      authHostname: 'auth.example',
       resolveClientMetadata: () => Promise.resolve({}),
     })
     const { res, calls } = makeRes()
@@ -489,7 +460,6 @@ describe('createChooserEnrichmentMiddleware handle-mode meta (HYPER-268 Layer 4)
     // else between kicking off the fetch and the Express handler
     // calling res.end().
     const mw = createChooserEnrichmentMiddleware({
-      authHostname: 'auth.example',
       resolveClientMetadata: () =>
         Promise.resolve({ epds_handle_mode: 'random' as const }),
     })
@@ -513,7 +483,6 @@ describe('createChooserEnrichmentMiddleware handle-mode meta (HYPER-268 Layer 4)
 
   it('ignores invalid handle modes from metadata (fall through to fallback)', async () => {
     const mw = createChooserEnrichmentMiddleware({
-      authHostname: 'auth.example',
       resolveClientMetadata: () =>
         // Value shape is intentional: an invalid string should be
         // ignored by the resolver, not propagated into the meta tag.
@@ -540,7 +509,6 @@ describe('createChooserEnrichmentMiddleware handle-mode meta (HYPER-268 Layer 4)
 
   it('degrades silently when the metadata resolver rejects', async () => {
     const mw = createChooserEnrichmentMiddleware({
-      authHostname: 'auth.example',
       resolveClientMetadata: () => Promise.reject(new Error('network error')),
     })
     const { res, calls } = makeRes()
@@ -561,5 +529,106 @@ describe('createChooserEnrichmentMiddleware handle-mode meta (HYPER-268 Layer 4)
     expect(written).toContain(
       '<meta name="epds-handle-mode" content="picker-with-random">',
     )
+  })
+})
+
+describe('buildChooserEnrichmentScript sign-up hide + another-account rebind', () => {
+  it('reads the epds-auth-origin meta tag at runtime', () => {
+    const script = buildChooserEnrichmentScript()
+    expect(script).toContain('querySelector(\'meta[name="epds-auth-origin"]\')')
+  })
+
+  it('hides upstream\'s "Sign up" button and marks it to stay idempotent', () => {
+    const script = buildChooserEnrichmentScript()
+    // Matches by trimmed text content — idempotent via dataset.epdsHidden
+    // so the MutationObserver doesn't re-hide on every tick.
+    expect(script).toContain("text === 'Sign up'")
+    expect(script).toContain("el.style.display = 'none'")
+    expect(script).toContain("el.setAttribute('aria-hidden', 'true'")
+    expect(script).toContain("el.dataset.epdsHidden = '1'")
+  })
+
+  it('rebinds the "Another account" button via capture-phase listener', () => {
+    const script = buildChooserEnrichmentScript()
+    // Capture-phase is essential — React's delegated root-level click
+    // listener fires in bubble phase, so a bubble listener on the button
+    // would run AFTER React swaps to upstream's stock sign-in component.
+    expect(script).toContain(
+      '\'[role="button"][aria-label="Login to account that is not listed"]\'',
+    )
+    expect(script).toContain('e.preventDefault()')
+    expect(script).toContain('e.stopImmediatePropagation()')
+    expect(script).toContain('window.location.href')
+    // The `true` third arg to addEventListener switches to capture phase.
+    expect(script).toMatch(/addEventListener\([\s\S]*?true,?\s*\);/)
+    expect(script).toContain("btn.dataset.epdsRebound = '1'")
+  })
+
+  it('forces prompt=login on the Another-account redirect URL', () => {
+    const script = buildChooserEnrichmentScript()
+    // OIDC's force-reauth signal; auth-service's shouldReuseSession
+    // honours it and falls through to the email form instead of
+    // redirecting back to pds-core's chooser.
+    expect(script).toContain("params.set('prompt', 'login')")
+  })
+})
+
+describe('createChooserEnrichmentMiddleware auth-origin meta (Another-account rebind)', () => {
+  function makeRes() {
+    const calls = { end: [] as unknown[][] }
+    const res = {
+      headersSent: false,
+      setHeader: vi.fn(),
+      removeHeader: vi.fn(),
+      end: vi.fn((...args: unknown[]) => {
+        calls.end.push(args)
+      }),
+    }
+    return { res, calls }
+  }
+
+  it('injects the auth-origin meta tag when authOrigin is provided', () => {
+    const mw = createChooserEnrichmentMiddleware({
+      resolveClientMetadata: () => Promise.resolve({}),
+      authOrigin: 'https://auth.example',
+    })
+    const { res, calls } = makeRes()
+    mw({ method: 'GET', path: '/account', query: {} }, res, () => {})
+    res.end('<html><head></head></html>')
+    const written = calls.end[0][0] as string
+    expect(written).toContain(
+      '<meta name="epds-auth-origin" content="https://auth.example">',
+    )
+  })
+
+  it('injects an empty auth-origin meta tag when authOrigin is omitted', () => {
+    // Empty value signals the script to skip the rebind — fails-open to
+    // upstream's default behaviour rather than throwing on a missing meta.
+    const mw = createChooserEnrichmentMiddleware({
+      resolveClientMetadata: () => Promise.resolve({}),
+    })
+    const { res, calls } = makeRes()
+    mw({ method: 'GET', path: '/account', query: {} }, res, () => {})
+    res.end('<html><head></head></html>')
+    const written = calls.end[0][0] as string
+    expect(written).toContain('<meta name="epds-auth-origin" content="">')
+  })
+
+  it('emits both meta tags before the script tag in head', () => {
+    // Order matters for the script's synchronous read on DOMContentLoaded.
+    const mw = createChooserEnrichmentMiddleware({
+      resolveClientMetadata: () => Promise.resolve({}),
+      authOrigin: 'https://auth.example',
+    })
+    const { res, calls } = makeRes()
+    mw({ method: 'GET', path: '/account', query: {} }, res, () => {})
+    res.end('<html><head></head></html>')
+    const written = calls.end[0][0] as string
+    const handleModeIdx = written.indexOf('epds-handle-mode')
+    const authOriginIdx = written.indexOf('epds-auth-origin')
+    const scriptIdx = written.indexOf('<script>')
+    expect(handleModeIdx).toBeGreaterThan(-1)
+    expect(authOriginIdx).toBeGreaterThan(handleModeIdx)
+    expect(scriptIdx).toBeGreaterThan(authOriginIdx)
   })
 })

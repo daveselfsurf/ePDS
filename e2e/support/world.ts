@@ -58,6 +58,10 @@ export class EpdsWorld extends World {
   /** Computed background colors captured by client-branding scenarios, keyed by label. */
   capturedBgColors?: Record<string, string>
 
+  /** Console-capture stream for the current scenario. Set by hooks on
+   *  scenario start, re-attached after resetBrowserContext. */
+  consoleCapture?: NodeJS.WritableStream
+
   get env() {
     return testEnv
   }

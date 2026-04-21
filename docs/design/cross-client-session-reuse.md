@@ -34,7 +34,7 @@ Branching depends on whether the client started OAuth with a
 | 1    | Single bound account, matches                       | auto-skip OTP, auto-skip chooser (upstream does this via `login_hint`), land directly on consent → redirect back to client |
 | 2    | Single bound account                                | auto-skip OTP, show chooser with the one account (so the user confirms "yes, use this identity"), then consent → redirect  |
 | 2    | Single bound account, pre-approved untrusted client | chooser → confirm → auto-skip consent → redirect                                                                           |
-| 2    | User wants a different account                      | chooser → "Use a different account" link → redirect to auth-service email/OTP form for the new account                     |
+| 2    | User wants a different account                      | chooser → "Another account" button (rebound) → redirect to auth-service email/OTP form for the new account                 |
 | 1/2  | No prior session                                    | current email/OTP flow (unchanged)                                                                                         |
 
 Non-goals for this PR:
@@ -91,13 +91,21 @@ upstream authorization-page responses. We extend the same pattern.
      fall back to a `MutationObserver` that re-applies the patch on
      each render cycle.
 
-4. **"Use a different account" link (pds-core).** Same response-rewrite
-   mechanism. Inject a visible link that points to
-   `https://auth.pds.foo.com/oauth/authorize?...` with the original
-   OAuth params plus a marker (e.g. `prompt=login` or a custom query
-   flag) that tells auth-service "don't redirect me back — render the
-   email form". Auth-service honors that flag by bypassing its session
-   detection.
+4. **"Another account" rebind (pds-core).** Same response-rewrite
+   mechanism, but instead of injecting a new anchor we rebind upstream's
+   existing div (`role="button"`, `aria-label="Login to account that is not listed"`).
+   Injected anchors inside upstream's hydrated React SPA are
+   cosmetic — React's delegated root-level click listener intercepts
+   first and swaps the chooser for upstream's stock sign-in form before
+   the browser's default navigation has a chance to run. The enrichment
+   snippet attaches a capture-phase click listener that calls
+   `preventDefault()` + `stopImmediatePropagation()` so React's listener
+   never sees the event, and then drives `window.location.href` to
+   `https://auth.pds.foo.com/oauth/authorize?...&prompt=login`.
+   auth-service's `isForceLoginPrompt` short-circuits
+   `shouldReuseSession`, so the email form renders without ever touching
+   pds-core. The rebind is idempotent via a `dataset.epdsRebound` marker
+   on the div.
 
 ### Flow summaries
 
@@ -109,7 +117,7 @@ browser → auth.pds.foo.com/oauth/authorize?...
 browser → pds.pds.foo.com/oauth/authorize?...
          → upstream middleware loads device session
          → renders /account (chooser)
-browser → /account  (chooser with injected email display + "use different" link)
+browser → /account  (chooser with injected email display + rebound "Another account")
          → user clicks primary account
          → POST /sign-in + POST /consent via upstream API
          → 302 back to client
@@ -142,8 +150,8 @@ browser → auth.pds.foo.com/oauth/authorize?...
 browser → auth.pds.foo.com/oauth/authorize?...
          → 302 to pds-core chooser as above
 browser → /account  (chooser)
-         → user clicks "Use a different account"
-         → 302 to auth.pds.foo.com/oauth/authorize?...&prompt=login
+         → user clicks "Another account" (rebound via capture-phase handler)
+         → hard-navigate to auth.pds.foo.com/oauth/authorize?...&prompt=login
          → auth-service honors prompt=login, renders email form
          → email + OTP → new account bound to device
          → 302 to pds.pds.foo.com/oauth/authorize → consent → client
@@ -174,8 +182,8 @@ currently on this branch.
 
 4. **D — Flow 2, signed in, user picks "different account"**
    Trusted sign-in, then untrusted flow 2, chooser shown, user clicks
-   "Use a different account", lands on auth-service email form for a
-   fresh account.
+   "Another account" (upstream's rebound button), lands on auth-service
+   email form for a fresh account.
 
 ### New step definitions
 
@@ -189,8 +197,9 @@ currently on this branch.
 - `When the user confirms their account on the chooser`
   (clicks the upstream SPA's account row; selector TBD when we
   inspect the rendered DOM).
-- `When the user clicks "Use a different account" on the chooser`
-  (clicks the injected link).
+- `When the user clicks "Another account" on the chooser`
+  (clicks upstream's rebound `role=button` div; capture-phase handler
+  redirects to auth-service).
 - `Then the browser is on the auth service email form`
   (URL host is auth-subdomain, `#email` input visible).
 

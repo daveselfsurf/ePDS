@@ -351,17 +351,19 @@ When(
 )
 
 /**
- * Click the "Use a different account" escape hatch on the chooser.
- * This link is injected by ePDS's post-hydration script (it is NOT
- * part of upstream's default chooser UI) and must redirect back to
- * auth-service's email/OTP form with a prompt=login (or equivalent)
- * flag so the redirect-on-session-detected path is bypassed.
+ * Click upstream's "Another account" button on the chooser. The button
+ * is rendered by @atproto/oauth-provider-ui with
+ * aria-label="Login to account that is not listed". ePDS must intercept
+ * the click (upstream swaps to its stock sign-in component client-side)
+ * and hard-navigate to the auth-service email/OTP form instead.
  */
 When(
-  'the user clicks {string} on the chooser',
-  async function (this: EpdsWorld, label: string) {
+  'the user clicks "Another account" on the chooser',
+  async function (this: EpdsWorld) {
     const page = getPage(this)
-    await page.getByRole('link', { name: label }).click()
+    await page
+      .getByRole('button', { name: 'Login to account that is not listed' })
+      .click()
   },
 )
 
@@ -371,8 +373,8 @@ When(
 
 /**
  * Assert the browser has landed on auth-service's email input form —
- * used by the "use a different account" scenario to check that the
- * user has been handed off back to the sign-in-as-someone-else path.
+ * used by the "Another account" scenario to check that the user has
+ * been handed off back to the sign-in-as-someone-else path.
  */
 Then(
   'the browser is on the auth service email form',

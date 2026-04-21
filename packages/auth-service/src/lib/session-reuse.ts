@@ -87,8 +87,9 @@ export function hasOrphanDeviceCookie(req: SessionReuseRequest): {
  *  fresh credential prompt. Maps to OIDC's standard `prompt=login`
  *  parameter (https://openid.net/specs/openid-connect-core-1_0.html
  *  #AuthRequest): "The Authorization Server SHOULD prompt the End-User
- *  for reauthentication". The "Use a different account" link injected
- *  into the chooser in pds-core uses this to opt out of session reuse. */
+ *  for reauthentication". The capture-phase rebind of upstream's
+ *  "Another account" button injected into the chooser in pds-core uses
+ *  this to opt out of session reuse. */
 export function isForceLoginPrompt(req: SessionReuseRequest): boolean {
   const p = req.query.prompt
   return typeof p === 'string' && p === 'login'

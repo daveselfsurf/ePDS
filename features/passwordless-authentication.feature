@@ -109,16 +109,19 @@ Feature: Passwordless authentication via email OTP
     Then no consent screen was shown during the second login
     And the browser is redirected back to the untrusted demo client with a valid session
 
-  # Scenario D — Flow 2 "use a different account": from the chooser the
-  # user must be able to opt out of session reuse and sign in as someone
-  # else. That should drop them back on the auth service email form.
+  # Scenario D — Flow 2 "Another account": from the chooser the user must
+  # be able to opt out of session reuse and sign in as someone else.
+  # Upstream's "Another account" button is a client-side component swap
+  # into upstream's stock sign-in form; ePDS must intercept the click and
+  # hard-navigate to the auth-service email/OTP form instead.
   @email @session-reuse
   Scenario: Signed-in user can sign in as a different account from the chooser
     Given the user has just signed in via the trusted demo client in this browser
     When the untrusted demo client initiates an OAuth login via flow 2
     Then the account chooser is displayed
-    When the user clicks "Use a different account" on the chooser
+    When the user clicks "Another account" on the chooser
     Then the browser is on the auth service email form
+    And the upstream stock sign-in form is not shown
 
   # --- OTP configuration ---
 
