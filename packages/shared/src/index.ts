@@ -34,6 +34,7 @@ export {
   LOCAL_PART_MIN,
   LOCAL_PART_MAX,
   VALID_HANDLE_MODES,
+  resolveHandleMode,
 } from './handle.js'
 export type { HandleMode } from './handle.js'
 export {

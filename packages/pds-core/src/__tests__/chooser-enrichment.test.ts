@@ -3,6 +3,7 @@ import {
   appendScriptHashToCsp,
   buildChooserEnrichmentScript,
   createChooserEnrichmentMiddleware,
+  injectHandleModeMeta,
   injectScriptIntoHead,
   isChooserRequest,
   sha256Base64,
@@ -267,8 +268,14 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
     res.end('<html><head><title>X</title></head><body></body></html>')
     const written = calls.end[0][0] as string
     expect(written).toContain('https://auth.pds.example/oauth/authorize')
-    // Script tag must come immediately after the opening <head>.
-    expect(written).toMatch(/<head><script>/)
+    // Head rewrite must start with the handle-mode meta (so the script
+    // can read it synchronously on DOMContentLoaded), followed by the
+    // enrichment <script>. The meta is always present — handleMode
+    // resolves to `picker-with-random` when no query / metadata
+    // overrides it.
+    expect(written).toMatch(
+      /<head><meta name="epds-handle-mode" content="[a-z-]+"><script>/,
+    )
   })
 
   it('strips Content-Length / ETag after rewriting the body', () => {
@@ -296,7 +303,9 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
     res.end(Buffer.from('<html><head></head></html>'))
     const written = calls.end[0][0] as string
     expect(typeof written).toBe('string')
-    expect(written).toContain('<head><script>')
+    expect(written).toMatch(
+      /<head><meta name="epds-handle-mode" content="[a-z-]+"><script>/,
+    )
     expect(calls.removedHeaders).toContain('Content-Length')
   })
 
@@ -317,7 +326,9 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
     const { res, calls } = makeRes()
     mw({ method: 'GET', path: '/account/foo' }, res, () => {})
     res.end('<html><head></head></html>')
-    expect(calls.end[0][0]).toMatch(/<head><script>/)
+    expect(calls.end[0][0]).toMatch(
+      /<head><meta name="epds-handle-mode" content="[a-z-]+"><script>/,
+    )
   })
 
   it('reuses the same script (and hash) across all instances built with the same hostname', () => {
@@ -376,5 +387,179 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
     mw({ method: 'GET', path: '/account' }, res, () => {})
     res.end('<!DOCTYPE html><html><head></head><body></body></html>')
     expect(calls.removedHeaders).toEqual(['Content-Length', 'ETag'])
+  })
+})
+
+describe('buildChooserEnrichmentScript handle-mode hiding (HYPER-268 Layer 4)', () => {
+  it('reads the epds-handle-mode meta tag at runtime', () => {
+    const script = buildChooserEnrichmentScript('auth.example')
+    expect(script).toContain('querySelector(\'meta[name="epds-handle-mode"]\')')
+  })
+
+  it("hides the handle span and sets a title tooltip when mode is 'random'", () => {
+    const script = buildChooserEnrichmentScript('auth.example')
+    // Hiding strategy: display:none on the handle element + title
+    // attribute on the email label carrying the original handle text.
+    expect(script).toContain("hideHandle = handleMode === 'random'")
+    expect(script).toContain("m.el.style.display = 'none'")
+    expect(script).toContain('label.title = ownText')
+  })
+
+  it('leaves the handle visible for picker / picker-with-random', () => {
+    // The hideHandle branch is the only path that manipulates the
+    // handle element; non-random modes fall through untouched.
+    const script = buildChooserEnrichmentScript('auth.example')
+    expect(script).toMatch(/if \(hideHandle\)/)
+  })
+})
+
+describe('injectHandleModeMeta (HYPER-268 Layer 4)', () => {
+  it('inserts a meta tag carrying the handle mode into <head>', () => {
+    const html =
+      '<!DOCTYPE html><html><head><title>X</title></head><body></body></html>'
+    const result = injectHandleModeMeta(html, 'random')
+    expect(result.injected).toBe(true)
+    expect(result.body).toContain(
+      '<meta name="epds-handle-mode" content="random">',
+    )
+  })
+
+  it('returns injected=false when no <head> is present', () => {
+    const html = '<html><body>no head</body></html>'
+    const result = injectHandleModeMeta(html, 'picker-with-random')
+    expect(result.injected).toBe(false)
+    expect(result.body).toBe(html)
+  })
+})
+
+describe('createChooserEnrichmentMiddleware handle-mode meta (HYPER-268 Layer 4)', () => {
+  function makeRes({ headersSent = false }: { headersSent?: boolean } = {}) {
+    const calls = {
+      end: [] as unknown[][],
+    }
+    const res = {
+      headersSent,
+      setHeader: vi.fn(),
+      removeHeader: vi.fn(),
+      end: vi.fn((...args: unknown[]) => {
+        calls.end.push(args)
+      }),
+    }
+    return { res, calls }
+  }
+
+  it('falls back to picker-with-random when no query / metadata provides a mode', () => {
+    const mw = createChooserEnrichmentMiddleware({
+      authHostname: 'auth.example',
+      resolveClientMetadata: () => Promise.resolve({}),
+    })
+    const { res, calls } = makeRes()
+    mw({ method: 'GET', path: '/account', query: {} }, res, () => {})
+    res.end('<html><head></head></html>')
+    const written = calls.end[0][0] as string
+    expect(written).toContain(
+      '<meta name="epds-handle-mode" content="picker-with-random">',
+    )
+  })
+
+  it('honours the epds_handle_mode query override', () => {
+    const mw = createChooserEnrichmentMiddleware({
+      authHostname: 'auth.example',
+      resolveClientMetadata: () => Promise.resolve({}),
+    })
+    const { res, calls } = makeRes()
+    mw(
+      {
+        method: 'GET',
+        path: '/account',
+        query: { epds_handle_mode: 'random' },
+      },
+      res,
+      () => {},
+    )
+    res.end('<html><head></head></html>')
+    const written = calls.end[0][0] as string
+    expect(written).toContain('<meta name="epds-handle-mode" content="random">')
+  })
+
+  it('falls through to client metadata when query has no override (warm cache path)', async () => {
+    // Simulate the cache-hit path by giving the resolver a
+    // synchronously-resolved promise — the .then() microtask runs
+    // before res.end() fires because the middleware awaits nothing
+    // else between kicking off the fetch and the Express handler
+    // calling res.end().
+    const mw = createChooserEnrichmentMiddleware({
+      authHostname: 'auth.example',
+      resolveClientMetadata: () =>
+        Promise.resolve({ epds_handle_mode: 'random' as const }),
+    })
+    const { res, calls } = makeRes()
+    mw(
+      {
+        method: 'GET',
+        path: '/account',
+        query: { client_id: 'https://demo.example/client' },
+      },
+      res,
+      () => {},
+    )
+    // Flush the microtask queue so the metadata .then() runs before
+    // we call res.end().
+    await Promise.resolve()
+    res.end('<html><head></head></html>')
+    const written = calls.end[0][0] as string
+    expect(written).toContain('<meta name="epds-handle-mode" content="random">')
+  })
+
+  it('ignores invalid handle modes from metadata (fall through to fallback)', async () => {
+    const mw = createChooserEnrichmentMiddleware({
+      authHostname: 'auth.example',
+      resolveClientMetadata: () =>
+        // Value shape is intentional: an invalid string should be
+        // ignored by the resolver, not propagated into the meta tag.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberate bad value
+        Promise.resolve({ epds_handle_mode: 'garbage' as any }),
+    })
+    const { res, calls } = makeRes()
+    mw(
+      {
+        method: 'GET',
+        path: '/account',
+        query: { client_id: 'https://demo.example/client' },
+      },
+      res,
+      () => {},
+    )
+    await Promise.resolve()
+    res.end('<html><head></head></html>')
+    const written = calls.end[0][0] as string
+    expect(written).toContain(
+      '<meta name="epds-handle-mode" content="picker-with-random">',
+    )
+  })
+
+  it('degrades silently when the metadata resolver rejects', async () => {
+    const mw = createChooserEnrichmentMiddleware({
+      authHostname: 'auth.example',
+      resolveClientMetadata: () => Promise.reject(new Error('network error')),
+    })
+    const { res, calls } = makeRes()
+    mw(
+      {
+        method: 'GET',
+        path: '/account',
+        query: { client_id: 'https://demo.example/client' },
+      },
+      res,
+      () => {},
+    )
+    await Promise.resolve()
+    await Promise.resolve()
+    res.end('<html><head></head></html>')
+    const written = calls.end[0][0] as string
+    // Falls back to the default — no network means no upgrade.
+    expect(written).toContain(
+      '<meta name="epds-handle-mode" content="picker-with-random">',
+    )
   })
 })

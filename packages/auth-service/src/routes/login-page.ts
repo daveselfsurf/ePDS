@@ -32,7 +32,7 @@ import {
 import {
   escapeHtml,
   createLogger,
-  VALID_HANDLE_MODES,
+  resolveHandleMode as sharedResolveHandleMode,
   type HandleMode,
 } from '@certified-app/shared'
 import { socialProviders } from '../better-auth.js'
@@ -67,20 +67,17 @@ export async function safeResolveClientMetadata(
   }
 }
 
+/**
+ * Thin wrapper around the shared resolver that accepts a full `ClientMetadata`
+ * object for ergonomics. The shared resolver takes the narrower
+ * `epds_handle_mode` field because it is also called by pds-core, which only
+ * has the same three-level precedence to apply.
+ */
 export function resolveHandleMode(
   queryParam: string | undefined,
   clientMeta: ClientMetadata,
 ): HandleMode {
-  for (const raw of [
-    queryParam,
-    clientMeta.epds_handle_mode,
-    process.env.EPDS_DEFAULT_HANDLE_MODE,
-  ]) {
-    if (raw && (VALID_HANDLE_MODES as readonly string[]).includes(raw)) {
-      return raw as HandleMode
-    }
-  }
-  return 'picker-with-random'
+  return sharedResolveHandleMode(queryParam, clientMeta.epds_handle_mode)
 }
 
 export function createLoginPageRouter(ctx: AuthServiceContext): Router {

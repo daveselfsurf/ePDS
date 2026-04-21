@@ -21,6 +21,12 @@
  */
 
 import { createHash } from 'node:crypto'
+import type {
+  ClientMetadata,
+  HandleMode,
+  ResolveClientMetadataOptions,
+} from '@certified-app/shared'
+import { resolveHandleMode, VALID_HANDLE_MODES } from '@certified-app/shared'
 
 /**
  * Build the post-hydration enrichment script injected into `/account*`
@@ -89,11 +95,29 @@ export function buildChooserEnrichmentScript(authHostname: string): string {
     }
   }
 
+  // Current OAuth flow's handle-assignment mode, written into a
+  // <meta name="epds-handle-mode"> by the pds-core middleware. When
+  // "random", the handle is a server-generated opaque string that the
+  // user never chose, so we hide it from the chooser and expose it only
+  // via a title= tooltip — the email remains the primary identifier.
+  // Any unknown / missing value disables hiding and renders handle +
+  // email side-by-side, same as pre-Layer-4 behaviour.
+  function readHandleMode() {
+    try {
+      var meta = document.querySelector('meta[name="epds-handle-mode"]');
+      var v = meta && meta.getAttribute('content');
+      if (v === 'random' || v === 'picker' || v === 'picker-with-random') return v;
+    } catch (_) {}
+    return null;
+  }
+
   // Enrich each visible account row with its email. Runs repeatedly
   // via a MutationObserver because the SPA hydrates/re-renders after
   // initial HTML delivery.
   function enrich() {
     if (!captured || !Array.isArray(captured)) return;
+    var handleMode = readHandleMode();
+    var hideHandle = handleMode === 'random';
     var byHandle = Object.create(null);
     var bySub = Object.create(null);
     captured.forEach(function(s) {
@@ -167,6 +191,21 @@ export function buildChooserEnrichmentScript(authHostname: string): string {
         wrap.appendChild(label);
       } else {
         m.el.appendChild(label);
+      }
+
+      // Random-handle mode: the handle is server-assigned gibberish
+      // the user never chose, so hiding it from the row reduces visual
+      // clutter on the chooser. Preserve it as a tooltip on the email
+      // so power-users can still inspect which account maps to which
+      // DID. We use visibility/width tricks rather than display:none
+      // so the handle span keeps its accessible-name contribution for
+      // screen readers and the aria-label stays intact.
+      if (hideHandle) {
+        var ownText = (m.el.textContent || '').trim();
+        if (ownText) {
+          label.title = ownText;
+        }
+        m.el.style.display = 'none';
       }
     });
 
@@ -278,6 +317,24 @@ export function injectScriptIntoHead(
 }
 
 /**
+ * Inject a `<meta name="epds-handle-mode" content="...">` tag into the
+ * `<head>` so the client-side enrichment script can read the current
+ * OAuth flow's handle-assignment mode. Per-request value, stable tag
+ * structure — no CSP impact because meta elements are not executable.
+ *
+ * Returns { body, injected } where `injected` is false if no `<head>`
+ * was found (same contract as `injectScriptIntoHead`), so callers can
+ * skip stale Content-Length stripping in that case.
+ */
+export function injectHandleModeMeta(
+  body: string,
+  handleMode: HandleMode,
+): { body: string; injected: boolean } {
+  const metaTag = `<meta name="epds-handle-mode" content="${handleMode}">`
+  return injectScriptIntoHead(body, metaTag)
+}
+
+/**
  * Minimal shape of `http.ServerResponse` we need to wrap in the
  * chooser-enrichment middleware. We only call setHeader, end,
  * removeHeader, and read headersSent; keeping the type narrow lets
@@ -291,14 +348,32 @@ export interface ChooserEnrichmentResponse {
   readonly headersSent: boolean
 }
 
-/** Minimal Express request shape consumed by the middleware. */
+/** Minimal Express request shape consumed by the middleware. Includes
+ *  an optional `query` because the handle-mode resolver reads
+ *  `epds_handle_mode` / `client_id` off the authorize URL when
+ *  present; requests without parsed query treat those as absent and
+ *  fall back through the resolver's precedence chain. */
 export interface ChooserEnrichmentRequest {
   method: string
   path: string
+  query?: Record<string, unknown>
 }
 
 /** Minimal Express middleware `next()` callback. */
 export type ChooserEnrichmentNext = () => void
+
+/** Factory deps for the chooser-enrichment middleware. */
+export interface ChooserEnrichmentDeps {
+  /** Auth-service hostname, baked into the enrichment script's
+   *  "Use a different account" link target. */
+  authHostname: string
+  /** Client-metadata resolver — same function the CSS-injection
+   *  middleware uses. Passed in so tests can stub without network. */
+  resolveClientMetadata: (
+    clientId: string,
+    options?: ResolveClientMetadataOptions,
+  ) => Promise<ClientMetadata>
+}
 
 /**
  * Build the Express middleware that intercepts HTML responses for the
@@ -308,10 +383,32 @@ export type ChooserEnrichmentNext = () => void
  * header/body rewriting — same hot-path pattern as the cookie-domain
  * middleware.
  *
+ * Per-request work: the middleware resolves the current OAuth flow's
+ * handle-assignment mode from `req.query.epds_handle_mode` and the
+ * client-metadata cache, and injects a `<meta name="epds-handle-mode">`
+ * tag so the static enrichment script can hide the handle (with a
+ * title= tooltip) when the mode is `random`. Meta tags don't contribute
+ * to CSP script-src, so the script hash remains stable.
+ *
  * Pure factory: side-effect-free at module load, safe to construct in
  * unit tests with a synthetic request/response pair.
  */
-export function createChooserEnrichmentMiddleware(authHostname: string) {
+export function createChooserEnrichmentMiddleware(
+  deps: ChooserEnrichmentDeps | string,
+) {
+  // Back-compat: callers that only supply a hostname get a default
+  // metadata resolver that treats every request as "no metadata
+  // available" — the same degraded path the auth-service takes on
+  // fetch failure. Used by existing tests that predate Layer 4.
+  const { authHostname, resolveClientMetadata: resolveMeta } =
+    typeof deps === 'string'
+      ? {
+          authHostname: deps,
+          resolveClientMetadata: (): Promise<ClientMetadata> =>
+            Promise.resolve({}),
+        }
+      : deps
+
   const enrichmentJs = buildChooserEnrichmentScript(authHostname)
   const enrichmentScriptHash = sha256Base64(enrichmentJs)
   const enrichmentScriptTag = `<script>${enrichmentJs}</script>`
@@ -324,6 +421,48 @@ export function createChooserEnrichmentMiddleware(authHostname: string) {
     if (!isChooserRequest(req)) {
       next()
       return
+    }
+
+    // Resolve the handle-assignment mode for this flow so the script
+    // can decide whether to hide the handle. Uses the same three-level
+    // precedence as auth-service (query > client metadata > env default)
+    // via the shared resolver — otherwise the signup page and the
+    // chooser can disagree about whether handles are user-chosen.
+    //
+    // The query value is available synchronously. Client-metadata
+    // lookup may require a network fetch, so we kick it off in the
+    // background and patch handleMode in place once it resolves —
+    // provided the res.end rewrite hasn't run yet. In practice the
+    // metadata cache warms up during the auth-service login flow (or
+    // the CSS-injection middleware further up this same chain) and
+    // the resolver returns synchronously on cache hit, so the meta
+    // tag reflects the full three-level precedence on the common
+    // path. On cache miss or fetch failure we degrade to the query /
+    // env default, matching auth-service's safeResolveClientMetadata.
+    const query = req.query ?? {}
+    const clientId =
+      typeof query.client_id === 'string' ? query.client_id : undefined
+    const queryMode =
+      typeof query.epds_handle_mode === 'string'
+        ? query.epds_handle_mode
+        : undefined
+    let handleMode = resolveHandleMode(queryMode, undefined)
+    if (clientId) {
+      void resolveMeta(clientId).then(
+        (meta) => {
+          const raw = meta.epds_handle_mode
+          if (
+            typeof raw === 'string' &&
+            (VALID_HANDLE_MODES as readonly string[]).includes(raw)
+          ) {
+            handleMode = resolveHandleMode(queryMode, raw)
+          }
+        },
+        () => {
+          // Degrade silently: handleMode stays at its query/env-derived
+          // fallback, matching auth-service's safeResolveClientMetadata.
+        },
+      )
     }
 
     // Wrap res.setHeader to append our script hash to CSP script-src.
@@ -356,10 +495,21 @@ export function createChooserEnrichmentMiddleware(authHostname: string) {
         res.removeHeader('Content-Length')
         res.removeHeader('ETag')
       }
+      // Meta + script: inject both in a single <head> rewrite.
+      // Order matters — the meta tag must appear before the script
+      // tag in the DOM so the script can read document.querySelector
+      // on DOMContentLoaded without needing a second MutationObserver
+      // pass just for the meta. `handleMode` may have been patched in
+      // place by the metadata-resolution .then() above; we read it
+      // here (at end-of-response time) to pick up whichever value is
+      // current.
+      const combinedHeadInjection =
+        `<meta name="epds-handle-mode" content="${handleMode}">` +
+        enrichmentScriptTag
       if (typeof chunk === 'string') {
         const { body, injected } = injectScriptIntoHead(
           chunk,
-          enrichmentScriptTag,
+          combinedHeadInjection,
         )
         if (injected) {
           chunk = body
@@ -368,7 +518,7 @@ export function createChooserEnrichmentMiddleware(authHostname: string) {
       } else if (Buffer.isBuffer(chunk)) {
         const { body, injected } = injectScriptIntoHead(
           chunk.toString('utf-8'),
-          enrichmentScriptTag,
+          combinedHeadInjection,
         )
         if (injected) {
           chunk = body

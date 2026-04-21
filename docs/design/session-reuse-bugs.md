@@ -220,13 +220,22 @@ each handle. In random mode we invert that: hide the handle visually and
 surface it as a `title` tooltip only. Email becomes the sole primary
 identifier the user sees.
 
-Handle-mode precedence matches the signup flow exactly
-(`packages/auth-service/src/routes/login-page.ts` `resolveHandleMode`):
-query param → client metadata's `epds_handle_mode` → env var
-`EPDS_DEFAULT_HANDLE_MODE`. The resolved value for the current flow is
-persisted on `auth_flow.handle_mode`. pds-core retrieves it via a new
-internal endpoint on auth-service keyed by `request_uri`, and the
-middleware injects it as a literal into the chooser-enrichment script.
+Handle-mode precedence matches the signup flow exactly. The resolver has
+moved into the shared package (`packages/shared/src/handle.ts`
+`resolveHandleMode`) and both services import it, so there is no risk of
+pds-core and auth-service disagreeing about the effective mode for a given
+flow: query param `epds_handle_mode` → client metadata's
+`epds_handle_mode` → env var `EPDS_DEFAULT_HANDLE_MODE` →
+`picker-with-random`. The chooser middleware resolves the mode per
+request (client metadata comes from the same in-memory cache the
+CSS-injection middleware uses, so the hot path is a single map read)
+and injects a `<meta name="epds-handle-mode">` tag into `<head>` next to
+the enrichment script. The static script reads that meta at runtime and
+hides the handle when the mode is `random`. No new internal HTTP
+endpoint and no database lookup on the pds-core side — the chooser
+doesn't consult `auth_flow.handle_mode` directly because many chooser
+requests are rendered for flows that never went through auth-service
+(session-reuse redirect straight to pds-core's `/oauth/authorize`).
 
 Per-row per-account answers would be more correct — accounts on this PDS
 may have been created by different clients under different handle-mode

@@ -258,6 +258,17 @@ whose own text contains a known handle or DID, and appends the email as a
 sibling span. The middleware also appends a `sha256-<hash>` of the injected
 script to the response's CSP `script-src` directive.
 
+Per-request, the middleware additionally resolves the current OAuth flow's
+handle-assignment mode (query `epds_handle_mode` → client metadata
+`epds_handle_mode` → `EPDS_DEFAULT_HANDLE_MODE` env → `picker-with-random`,
+shared with auth-service via `resolveHandleMode` in
+`@certified-app/shared`) and injects a `<meta name="epds-handle-mode">`
+tag alongside the enrichment script. When the mode resolves to `random`,
+the runtime script hides each handle row and exposes the handle via a
+`title=` tooltip on the email label — the email remains the primary
+identifier. `meta` elements do not contribute to `script-src`, so the
+enrichment script stays hash-stable across all requests.
+
 Depends on:
 
 - The `/account` and `/oauth/authorize` chooser routes being server-rendered

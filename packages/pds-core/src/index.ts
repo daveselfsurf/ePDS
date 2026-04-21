@@ -756,8 +756,10 @@ async function main() {
   // adding a script hash to the CSP script-src directive rather than
   // style-src.
 
-  const chooserEnrichmentMiddleware =
-    createChooserEnrichmentMiddleware(authHostname)
+  const chooserEnrichmentMiddleware = createChooserEnrichmentMiddleware({
+    authHostname,
+    resolveClientMetadata,
+  })
 
   pds.app.use(chooserEnrichmentMiddleware)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing Express internal _router stack
