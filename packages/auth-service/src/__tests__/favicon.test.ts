@@ -14,14 +14,6 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROUTES_DIR = path.join(__dirname, '..', 'routes')
 
-const ROUTE_FILES = [
-  'login-page.ts',
-  'recovery.ts',
-  'choose-handle.ts',
-  'account-login.ts',
-  'account-settings.ts',
-]
-
 const FAVICON_LINK =
   '<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">'
 
@@ -32,12 +24,31 @@ const FAVICON_LINK =
  */
 const HEAD_BLOCK = /<head\b[^>]*>[\s\S]*?<\/head>/g
 
+/**
+ * Auto-discover every route file that renders at least one `<head>` block.
+ * A hardcoded list silently misses new rendered pages; raw `readdirSync`
+ * false-fails on route files that never render HTML (e.g. `complete.ts`).
+ * Filtering by "contains a `<head>`" catches future renderers automatically
+ * while excluding non-HTML routes.
+ */
+const routeFiles = fs
+  .readdirSync(ROUTES_DIR)
+  .filter((file) => file.endsWith('.ts'))
+  .map((file) => ({
+    file,
+    heads:
+      fs.readFileSync(path.join(ROUTES_DIR, file), 'utf8').match(HEAD_BLOCK) ??
+      [],
+  }))
+  .filter(({ heads }) => heads.length > 0)
+
 describe('favicon wiring across auth-service route templates', () => {
-  for (const file of ROUTE_FILES) {
+  it('discovers at least one route that renders HTML', () => {
+    expect(routeFiles.length).toBeGreaterThan(0)
+  })
+
+  for (const { file, heads } of routeFiles) {
     it(`${file}: every <head> block includes the favicon link`, () => {
-      const source = fs.readFileSync(path.join(ROUTES_DIR, file), 'utf8')
-      const heads = source.match(HEAD_BLOCK) ?? []
-      expect(heads.length).toBeGreaterThan(0)
       for (const head of heads) {
         expect(head).toContain(FAVICON_LINK)
       }
