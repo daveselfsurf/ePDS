@@ -27,7 +27,7 @@ this era too — users just never saw them, because auth-service never
 looked at them.
 
 PR #96 intentionally broadened the cookie scope to the shared parent
-domain so auth-service could *see* the upstream session and skip the
+domain so auth-service could _see_ the upstream session and skip the
 email form when one was present — the cross-client session-reuse fast
 path. At the same time it added `shouldReuseSession()` in auth-service,
 which checks for `dev-id` and, if present, 302-redirects the browser

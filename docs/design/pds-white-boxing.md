@@ -303,6 +303,49 @@ re-authorization prompts for email/OTP again. If upstream starts setting
 session, we'd redirect unconditionally and the user would bounce through
 pds-core back to the auth-service in a loop.
 
+### 18. Welcome-page guard pre-routes `/oauth/authorize` and `/account*`
+
+**File:** `packages/pds-core/src/welcome-page-guard.ts`, wired in
+`packages/pds-core/src/index.ts`
+
+A pre-route Express middleware intercepts `GET /oauth/authorize` and
+`GET /account*` before upstream's signin handler runs, parses the
+`dev-id`/`ses-id` cookie pair side-effect-free, and calls
+`provider.accountManager.listDeviceAccounts(deviceId)` to count bound
+accounts on the device. If the cookies are missing/malformed or the
+device has zero bindings, it responds `303` to auth-service's email
+form and clears the stale cookies. This makes upstream's three-button
+stock welcome page ("Authenticate / Create new account / Sign in /
+Cancel") structurally unreachable. See
+`docs/design/session-reuse-bugs.md` for the full failure-mode taxonomy.
+
+Depends on:
+
+- The public exports `DEVICE_ID_PREFIX`, `DEVICE_ID_BYTES_LENGTH`,
+  `SESSION_ID_PREFIX`, `SESSION_ID_BYTES_LENGTH`, and the `DeviceId`
+  branded type from `@atproto/oauth-provider`. Regex built from the
+  prefix and hex byte-length must keep parity with upstream's Zod
+  schemas in `device-id.ts` / `session-id.ts`.
+- `provider.accountManager.listDeviceAccounts(deviceId)` — the public
+  method that returns the DeviceAccount rows for a device. This is the
+  same call used by upstream's own chooser to populate `__sessions`.
+- `/oauth/authorize` and `/account*` remaining the only routes through
+  which upstream can render the stock welcome page.
+- Express `_router.stack` manipulation to splice this middleware right
+  after `expressInit` (same technique as items 4, 5, 15, 16).
+
+**Breakage scenario:** Upstream renames a constant, changes the DeviceId
+cookie format (e.g. switches from hex to base64url or from a "dev-"
+prefix), introduces a third route that can render the welcome page, or
+renames/removes `listDeviceAccounts` on the public AccountManager. The
+regex stops matching valid cookies — every request fails the parse step
+and bounces to auth-service, trapping users in a tight redirect loop
+even for completely valid sessions. A renamed `listDeviceAccounts` fails
+at build time (typecheck catches it), a changed signature fails
+similarly. Silent regression risk: a new upstream route that shows the
+welcome page without being `/oauth/authorize` or `/account*` is not
+caught by the guard and the stock page reappears.
+
 ## Moderate Risk (public APIs, less likely to break)
 
 ### 11. `@atproto/syntax` exports

@@ -60,6 +60,7 @@ import {
 } from './cookie-domain.js'
 import { createChooserEnrichmentMiddleware } from './chooser-enrichment.js'
 import { createUpstreamFaviconMiddleware } from './upstream-favicon.js'
+import { createWelcomePageGuard } from './welcome-page-guard.js'
 
 const logger = createLogger('pds-core')
 
@@ -630,6 +631,46 @@ async function main() {
   }
 
   // =========================================================================
+  // Welcome-page guard: never let upstream render the three-button page
+  // =========================================================================
+  //
+  // The stock @atproto/oauth-provider welcome page (Authenticate / Create
+  // new account / Sign in / Cancel) appears whenever upstream ends up with
+  // a device that has zero bound accounts — due to partial cookie pairs,
+  // stale pairs, fixation-race device deletions, or the migration-005 1h
+  // TTL purge of remember=0 bindings. ePDS must never surface that page;
+  // users should always land on the email/OTP form or the enriched
+  // account picker. See docs/design/session-reuse-bugs.md.
+  //
+  // The guard intercepts /oauth/authorize and /account* before upstream's
+  // own middleware, checks for a valid cookie pair and non-empty bindings,
+  // and bounces to auth-service with stale cookies cleared when either
+  // check fails. All other requests pass through unchanged.
+
+  const welcomeGuardCookieDomain = deriveCookieDomain(
+    authHostname,
+    handleDomain,
+  )
+  const welcomePageGuardMiddleware = createWelcomePageGuard({
+    authHostname,
+    provider: provider ?? null,
+    cookieDomain: welcomeGuardCookieDomain,
+  })
+  pds.app.use(welcomePageGuardMiddleware)
+  if (stack) {
+    const guardLayer = stack.pop()
+    let guardIdx = 0
+    for (let i = 0; i < stack.length; i++) {
+      if (stack[i].name === 'expressInit') {
+        guardIdx = i + 1
+        break
+      }
+    }
+    stack.splice(guardIdx, 0, guardLayer)
+    logger.info('Welcome-page guard installed')
+  }
+
+  // =========================================================================
   // CSS injection for trusted OAuth clients
   // =========================================================================
   //
@@ -785,7 +826,7 @@ async function main() {
   // Upstream's DeviceManager has no domain option, so we rewrite headers
   // rather than pass config.
 
-  const cookieDomain = deriveCookieDomain(authHostname, handleDomain)
+  const cookieDomain = welcomeGuardCookieDomain
   if (cookieDomain) {
     const cookieDomainMiddleware = createCookieDomainMiddleware(cookieDomain)
 
