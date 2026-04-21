@@ -6,10 +6,11 @@
  * expected `<link rel="icon">` reference. This catches future routes /
  * render helpers that forget the tag.
  */
-import { describe, it, expect } from 'vitest'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import { describe, it, expect } from 'vitest'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROUTES_DIR = path.join(__dirname, '..', 'routes')
