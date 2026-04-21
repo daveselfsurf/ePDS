@@ -75,21 +75,13 @@ Feature: Session-reuse resilience against stale device cookies
     Then the browser lands on the ePDS enriched account picker
     And no upstream "Sign up" affordance is visible on the chooser
 
-  @pending
   Scenario: Chooser hides handles when the flow resolves to random handle mode
-    Given the demo client's metadata sets epds_handle_mode to random
-    And the browser holds cookies for a device with at least one bound account
-    When the demo client starts a new OAuth flow
-    Then the enriched account picker renders without the handle visible
+    Given the browser holds cookies for a device with at least one bound account
+    When the demo client starts a new OAuth flow with random handle mode
+    Then the browser lands on the ePDS enriched account picker
+    And the enriched account picker renders without the handle visible
     And each row exposes the handle only via a title tooltip
     And the email remains visible as the primary identifier
-
-  @pending
-  Scenario: Chooser shows handles when the flow resolves to chooser handle mode
-    Given the demo client's metadata sets epds_handle_mode to chooser
-    And the browser holds cookies for a device with at least one bound account
-    When the demo client starts a new OAuth flow
-    Then the enriched account picker renders with the handle visible alongside the email
 
   @pending
   # The purged-bindings repro needs server-side white-box access to delete

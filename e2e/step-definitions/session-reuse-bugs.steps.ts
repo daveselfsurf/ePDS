@@ -171,6 +171,24 @@ When(
   },
 )
 
+When(
+  'the demo client starts a new OAuth flow with random handle mode',
+  async function (this: EpdsWorld) {
+    // flow3 forwards handle_mode=random through to auth-service, which
+    // carries epds_handle_mode=random in the /oauth/authorize query that
+    // pds-core's chooser middleware reads to inject
+    // <meta name="epds-handle-mode" content="random"> into the chooser's
+    // <head>. The enrichment script reads that meta and hides the handle
+    // span (display:none on .epds-handle-label, title= on
+    // .epds-email-label) without touching the DB or the account's actual
+    // stored handle.
+    const page = getPage(this)
+    const base = testEnv.demoTrustedUrl.replace(/\/$/, '')
+    await page.goto(`${base}/flow3`)
+    await page.click('button[type=submit]')
+  },
+)
+
 // ---------------------------------------------------------------------------
 // Assertions on landing page
 // ---------------------------------------------------------------------------
@@ -261,6 +279,72 @@ Then(
     await expect(
       page.getByRole('link', { name: 'Sign up', exact: true }),
     ).toHaveCount(0)
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Random-handle-mode assertions on the enriched chooser (Layer 4 coverage)
+// ---------------------------------------------------------------------------
+
+Then(
+  'the enriched account picker renders without the handle visible',
+  async function (this: EpdsWorld) {
+    const page = getPage(this)
+    // The enrichment script marks the original handle span with
+    // .epds-handle-label and, when the flow resolves to random mode,
+    // sets display:none on it. Wait for at least one row's email label
+    // to appear (a signal that the script has run) before asserting the
+    // handle is hidden — otherwise we race the MutationObserver.
+    await expect(page.locator('.epds-email-label').first()).toBeVisible({
+      timeout: 10_000,
+    })
+    const handleLabels = page.locator('.epds-handle-label')
+    await expect(handleLabels.first()).toBeAttached()
+    const count = await handleLabels.count()
+    for (let i = 0; i < count; i++) {
+      await expect(handleLabels.nth(i)).not.toBeVisible()
+    }
+  },
+)
+
+Then(
+  'each row exposes the handle only via a title tooltip',
+  async function (this: EpdsWorld) {
+    const page = getPage(this)
+    // The script copies the hidden handle span's text into a title=
+    // attribute on the adjacent .epds-email-label so power-users can
+    // still inspect which account maps to which DID without the
+    // gibberish random handle cluttering the visual hierarchy.
+    const emailLabels = page.locator('.epds-email-label')
+    const count = await emailLabels.count()
+    expect(count).toBeGreaterThan(0)
+    for (let i = 0; i < count; i++) {
+      const title = await emailLabels.nth(i).getAttribute('title')
+      expect(
+        title,
+        `Row ${i}: expected .epds-email-label to carry the hidden handle as title=, got ${title === null ? 'null' : `"${title}"`}`,
+      ).toBeTruthy()
+      expect(title!.trim().length).toBeGreaterThan(0)
+    }
+  },
+)
+
+Then(
+  'the email remains visible as the primary identifier',
+  async function (this: EpdsWorld) {
+    const page = getPage(this)
+    if (!this.testEmail) {
+      throw new Error(
+        'world.testEmail missing — Background step must have set it via createAccountViaOAuth',
+      )
+    }
+    // Assert at least one row's email label renders the test email as
+    // visible text. Random mode hides the handle; the email must remain
+    // the user-facing identifier on each row.
+    const emailLabel = page
+      .locator('.epds-email-label')
+      .filter({ hasText: this.testEmail })
+    await expect(emailLabel.first()).toBeVisible({ timeout: 5_000 })
   },
 )
 
