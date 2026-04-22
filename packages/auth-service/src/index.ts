@@ -1,4 +1,8 @@
-import { createLogger, getEpdsVersion } from '@certified-app/shared'
+import {
+  createLogger,
+  getEpdsVersion,
+  mountStaticAssets,
+} from '@certified-app/shared'
 import express from 'express'
 import cookieParser from 'cookie-parser'
 import * as path from 'node:path'
@@ -20,7 +24,6 @@ import { createPreviewEmailsRouter } from './routes/preview-emails.js'
 import { createRootRouter } from './routes/root.js'
 import { resolveAuthPort } from './lib/resolve-port.js'
 import { createSecurityHeadersMiddleware } from './lib/security-headers.js'
-import { mountStaticAssets } from './lib/static-mount.js'
 import {
   validateOtpCharset,
   validateOtpLength,

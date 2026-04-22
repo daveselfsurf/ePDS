@@ -43,6 +43,7 @@ import {
   getClientMetadataCacheStatus,
   getEpdsVersion,
   validateClientMetadataForPreview,
+  mountStaticAssets,
 } from '@certified-app/shared'
 import { shouldRewriteSecFetchSite } from './lib/sec-fetch-site-rewrite.js'
 import {
@@ -54,7 +55,6 @@ import {
   createPreviewConsentHandler,
   renderPreviewIndex,
 } from './lib/preview-consent.js'
-import { mountStaticAssets } from './lib/static-mount.js'
 import {
   createCookieDomainMiddleware,
   deriveCookieDomain,

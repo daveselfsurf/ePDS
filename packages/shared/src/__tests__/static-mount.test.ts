@@ -1,12 +1,28 @@
 import * as fs from 'node:fs'
 import * as http from 'node:http'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import type { AddressInfo } from 'node:net'
 
 import express from 'express'
-import { afterEach, beforeEach, describe, it, expect } from 'vitest'
+import { afterAll, beforeAll, describe, it, expect } from 'vitest'
 
-import { mountStaticAssets } from '../lib/static-mount.js'
+import { mountStaticAssets } from '../static-mount.js'
+
+const LIGHT_SVG = '<svg data-variant="light"><!-- light --></svg>'
+const DARK_SVG = '<svg data-variant="dark"><!-- dark --></svg>'
+
+let fixtureDir: string
+
+beforeAll(() => {
+  fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'static-mount-'))
+  fs.writeFileSync(path.join(fixtureDir, 'favicon.svg'), LIGHT_SVG)
+  fs.writeFileSync(path.join(fixtureDir, 'favicon-dark.svg'), DARK_SVG)
+})
+
+afterAll(() => {
+  fs.rmSync(fixtureDir, { recursive: true, force: true })
+})
 
 /**
  * Boot a throwaway Express server with the static-mount helper on a
@@ -14,10 +30,9 @@ import { mountStaticAssets } from '../lib/static-mount.js'
  */
 async function fetchFromMounted(
   pathOnServer: string,
-  publicDir: string,
 ): Promise<{ status: number; body: string; contentType?: string }> {
   const app = express()
-  mountStaticAssets(app, publicDir)
+  mountStaticAssets(app, fixtureDir)
   const server = http.createServer(app)
   await new Promise<void>((resolve) => {
     server.listen(0, () => {
@@ -51,47 +66,29 @@ async function fetchFromMounted(
 }
 
 describe('mountStaticAssets', () => {
-  // __dirname = .../pds-core/src/__tests__; the real assets ship in
-  // .../pds-core/public.
-  const publicDir = path.resolve(__dirname, '..', '..', 'public')
-
-  beforeEach(() => {
-    // Sanity — the fixtures on disk are what the whole test depends on.
-    expect(fs.existsSync(path.join(publicDir, 'favicon.svg'))).toBe(true)
-    expect(fs.existsSync(path.join(publicDir, 'favicon-dark.svg'))).toBe(true)
-  })
-
-  // Keep `afterEach` even though `fetchFromMounted` cleans up its own
-  // server — any future test that forgets to close one will be obvious
-  // when this hook flags a leak.
-  afterEach(() => {})
-
-  it('serves /static/favicon.svg from the package public dir', async () => {
-    const res = await fetchFromMounted('/static/favicon.svg', publicDir)
+  it('serves /static/favicon.svg from the given public dir', async () => {
+    const res = await fetchFromMounted('/static/favicon.svg')
     expect(res.status).toBe(200)
     expect(res.contentType).toMatch(/svg/)
-    expect(res.body).toContain('<svg')
+    expect(res.body).toBe(LIGHT_SVG)
   })
 
-  it('serves /static/favicon-dark.svg from the package public dir', async () => {
-    const res = await fetchFromMounted('/static/favicon-dark.svg', publicDir)
+  it('serves /static/favicon-dark.svg from the given public dir', async () => {
+    const res = await fetchFromMounted('/static/favicon-dark.svg')
     expect(res.status).toBe(200)
     expect(res.contentType).toMatch(/svg/)
-    expect(res.body).toContain('<svg')
+    expect(res.body).toBe(DARK_SVG)
   })
 
-  it('404s for a path outside /static', async () => {
-    const res = await fetchFromMounted('/favicon.svg', publicDir)
+  it('404s for a path outside /static and not the /favicon.ico alias', async () => {
+    const res = await fetchFromMounted('/not-a-real-path')
     expect(res.status).toBe(404)
   })
 
   it('aliases /favicon.ico to the light-theme SVG', async () => {
-    const res = await fetchFromMounted('/favicon.ico', publicDir)
+    const res = await fetchFromMounted('/favicon.ico')
     expect(res.status).toBe(200)
     expect(res.contentType).toMatch(/svg/)
-    expect(res.body).toContain('<svg')
-    // Sanity: served body matches the light favicon, not the dark one.
-    const light = fs.readFileSync(path.join(publicDir, 'favicon.svg'), 'utf8')
-    expect(res.body).toBe(light)
+    expect(res.body).toBe(LIGHT_SVG)
   })
 })
