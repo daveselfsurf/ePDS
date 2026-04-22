@@ -4,10 +4,10 @@
  * content negotiation (JSON for Accept: * / *, HTML for browser Accept)
  * plus the headersSent guard that delegates to Express's default handler.
  */
+import type { Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import express, { type Express } from 'express'
-import type { AddressInfo } from 'node:net'
-import type { Server } from 'node:http'
 import { errorHandler, notFoundHandler } from '../lib/error-middleware.js'
 
 let server: Server
