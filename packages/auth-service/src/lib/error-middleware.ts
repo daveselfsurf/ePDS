@@ -12,6 +12,7 @@ export function notFoundHandler(
   req: express.Request,
   res: express.Response,
 ): void {
+  res.vary('Accept')
   if (req.accepts(['json', 'html']) === 'html') {
     res
       .status(404)
@@ -43,6 +44,7 @@ export function errorHandler(
     next(err)
     return
   }
+  res.vary('Accept')
   if (req.accepts(['json', 'html']) === 'html') {
     res
       .status(500)

@@ -53,6 +53,7 @@ describe('notFoundHandler', () => {
     const res = await fetch(`${baseUrl}/nope`)
     expect(res.status).toBe(404)
     expect(res.headers.get('content-type')).toMatch(/application\/json/)
+    expect(res.headers.get('vary')).toMatch(/\bAccept\b/i)
     expect(await res.json()).toEqual({ error: 'not_found' })
   })
 
@@ -73,6 +74,7 @@ describe('notFoundHandler', () => {
     })
     expect(res.status).toBe(404)
     expect(res.headers.get('content-type')).toMatch(/text\/html/)
+    expect(res.headers.get('vary')).toMatch(/\bAccept\b/i)
     const body = await res.text()
     expect(body).toContain('<title>Page not found</title>')
     expect(body).toContain("doesn't exist")
@@ -83,6 +85,7 @@ describe('errorHandler', () => {
   it('returns JSON for Accept: */*', async () => {
     const res = await fetch(`${baseUrl}/boom`)
     expect(res.status).toBe(500)
+    expect(res.headers.get('vary')).toMatch(/\bAccept\b/i)
     expect(await res.json()).toEqual({ error: 'internal_error' })
   })
 
@@ -92,6 +95,7 @@ describe('errorHandler', () => {
     })
     expect(res.status).toBe(500)
     expect(res.headers.get('content-type')).toMatch(/text\/html/)
+    expect(res.headers.get('vary')).toMatch(/\bAccept\b/i)
     const body = await res.text()
     expect(body).toContain('<title>Error</title>')
     expect(body).toContain('Something went wrong')
