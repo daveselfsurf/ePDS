@@ -46,6 +46,12 @@ export class EpdsWorld extends World {
   /** Parsed JSON body from the most recent direct HTTP call — set by API steps. */
   lastHttpJson?: Record<string, unknown>
 
+  /** Raw text body from the most recent direct HTTP call — set by steps fetching HTML/SVG. */
+  lastHttpBody?: string
+
+  /** Content-Type header from the most recent direct HTTP call. */
+  lastHttpContentType?: string
+
   /** Most recent PAR request_uri — set by PAR submission steps. */
   lastRequestUri?: string
 
