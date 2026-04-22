@@ -192,11 +192,11 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
     return { res, calls }
   }
 
-  it('passes non-chooser requests through untouched', () => {
+  it('passes non-chooser requests through untouched', async () => {
     const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes()
     const next = vi.fn()
-    mw({ method: 'GET', path: '/oauth/token' }, res, next)
+    await mw({ method: 'GET', path: '/oauth/token' }, res, next)
     expect(next).toHaveBeenCalledTimes(1)
     // setHeader should not be wrapped — calling it should record the
     // raw call without any rewriting.
@@ -207,18 +207,18 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
     ])
   })
 
-  it('passes non-GET requests through untouched', () => {
+  it('passes non-GET requests through untouched', async () => {
     const mw = createChooserEnrichmentMiddleware()
     const { res } = makeRes()
     const next = vi.fn()
-    mw({ method: 'POST', path: '/account' }, res, next)
+    await mw({ method: 'POST', path: '/account' }, res, next)
     expect(next).toHaveBeenCalledTimes(1)
   })
 
-  it('appends the script hash to CSP script-src on chooser requests', () => {
+  it('appends the script hash to CSP script-src on chooser requests', async () => {
     const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes()
-    mw({ method: 'GET', path: '/account' }, res, () => {})
+    await mw({ method: 'GET', path: '/account' }, res, () => {})
     res.setHeader(
       'Content-Security-Policy',
       "default-src 'none'; script-src 'self'",
@@ -228,18 +228,18 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
     expect(newCsp).toMatch(/script-src 'self' 'sha256-[A-Za-z0-9+/=]+='/)
   })
 
-  it('leaves non-CSP headers untouched on chooser requests', () => {
+  it('leaves non-CSP headers untouched on chooser requests', async () => {
     const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes()
-    mw({ method: 'GET', path: '/account' }, res, () => {})
+    await mw({ method: 'GET', path: '/account' }, res, () => {})
     res.setHeader('Content-Type', 'text/html')
     expect(calls.setHeader[0]).toEqual(['Content-Type', 'text/html'])
   })
 
-  it('injects the enrichment script into the <head> of an HTML body', () => {
+  it('injects the enrichment script into the <head> of an HTML body', async () => {
     const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes()
-    mw({ method: 'GET', path: '/account' }, res, () => {})
+    await mw({ method: 'GET', path: '/account' }, res, () => {})
     res.end('<html><head><title>X</title></head><body></body></html>')
     const written = calls.end[0][0] as string
     // Head rewrite must start with the handle-mode meta (so the script
@@ -252,28 +252,28 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
     )
   })
 
-  it('strips Content-Length / ETag after rewriting the body', () => {
+  it('strips Content-Length / ETag after rewriting the body', async () => {
     const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes()
-    mw({ method: 'GET', path: '/account' }, res, () => {})
+    await mw({ method: 'GET', path: '/account' }, res, () => {})
     res.end('<html><head></head></html>')
     expect(calls.removedHeaders).toContain('Content-Length')
     expect(calls.removedHeaders).toContain('ETag')
   })
 
-  it('does not strip Content-Length when no <head> is present', () => {
+  it('does not strip Content-Length when no <head> is present', async () => {
     const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes()
-    mw({ method: 'GET', path: '/account' }, res, () => {})
+    await mw({ method: 'GET', path: '/account' }, res, () => {})
     res.end('not html, no head here')
     expect(calls.removedHeaders).not.toContain('Content-Length')
     expect(calls.end[0][0]).toBe('not html, no head here')
   })
 
-  it('rewrites a Buffer body that contains <head>', () => {
+  it('rewrites a Buffer body that contains <head>', async () => {
     const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes()
-    mw({ method: 'GET', path: '/account' }, res, () => {})
+    await mw({ method: 'GET', path: '/account' }, res, () => {})
     res.end(Buffer.from('<html><head></head></html>'))
     const written = calls.end[0][0] as string
     expect(typeof written).toBe('string')
@@ -283,10 +283,10 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
     expect(calls.removedHeaders).toContain('Content-Length')
   })
 
-  it('passes Buffer bodies without <head> through untouched', () => {
+  it('passes Buffer bodies without <head> through untouched', async () => {
     const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes()
-    mw({ method: 'GET', path: '/account' }, res, () => {})
+    await mw({ method: 'GET', path: '/account' }, res, () => {})
     const buf = Buffer.from('<not html>')
     res.end(buf)
     // Original buffer is preserved (the wrapped end is called with
@@ -295,17 +295,17 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
     expect(calls.removedHeaders).not.toContain('Content-Length')
   })
 
-  it('matches /account/foo and /account subpaths', () => {
+  it('matches /account/foo and /account subpaths', async () => {
     const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes()
-    mw({ method: 'GET', path: '/account/foo' }, res, () => {})
+    await mw({ method: 'GET', path: '/account/foo' }, res, () => {})
     res.end('<html><head></head></html>')
     expect(calls.end[0][0]).toMatch(
       /<head><meta name="epds-handle-mode" content="[a-z-]+"><meta name="epds-auth-origin" content="[^"]*"><script>/,
     )
   })
 
-  it('reuses the same script (and hash) across instances', () => {
+  it('reuses the same script (and hash) across instances', async () => {
     // Since the script is deterministic, two middleware instances
     // should produce identical script tags and identical CSP hashes —
     // verifies the factory doesn't leak per-call state.
@@ -313,8 +313,8 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
     const mw2 = createChooserEnrichmentMiddleware()
     const r1 = makeRes()
     const r2 = makeRes()
-    mw1({ method: 'GET', path: '/account' }, r1.res, () => {})
-    mw2({ method: 'GET', path: '/account' }, r2.res, () => {})
+    await mw1({ method: 'GET', path: '/account' }, r1.res, () => {})
+    await mw2({ method: 'GET', path: '/account' }, r2.res, () => {})
     r1.res.setHeader(
       'Content-Security-Policy',
       "default-src 'none'; script-src 'self'",
@@ -336,28 +336,28 @@ describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
   // `res`, not from middleware body) and lands as an uncaught exception,
   // crashing pds-core. See the comment in chooser-enrichment.ts end()
   // wrapper for details.
-  it('does not throw when upstream flushes headers before end()', () => {
+  it('does not throw when upstream flushes headers before end()', async () => {
     const mw = createChooserEnrichmentMiddleware()
     const { res } = makeRes({ headersSent: true })
-    mw({ method: 'GET', path: '/account' }, res, () => {})
+    await mw({ method: 'GET', path: '/account' }, res, () => {})
     expect(() => {
       res.end('<!DOCTYPE html><html><head></head><body></body></html>')
     }).not.toThrow()
   })
 
-  it('skips Content-Length rewrite once headers have been flushed', () => {
+  it('skips Content-Length rewrite once headers have been flushed', async () => {
     const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes({ headersSent: true })
-    mw({ method: 'GET', path: '/account' }, res, () => {})
+    await mw({ method: 'GET', path: '/account' }, res, () => {})
     res.end('<!DOCTYPE html><html><head></head><body></body></html>')
     expect(calls.removedHeaders).toEqual([])
     expect(calls.end.length).toBe(1)
   })
 
-  it('still rewrites Content-Length when headers have not been flushed', () => {
+  it('still rewrites Content-Length when headers have not been flushed', async () => {
     const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes({ headersSent: false })
-    mw({ method: 'GET', path: '/account' }, res, () => {})
+    await mw({ method: 'GET', path: '/account' }, res, () => {})
     res.end('<!DOCTYPE html><html><head></head><body></body></html>')
     expect(calls.removedHeaders).toEqual(['Content-Length', 'ETag'])
   })
@@ -421,12 +421,12 @@ describe('createChooserEnrichmentMiddleware handle-mode meta (HYPER-268 Layer 4)
     return { res, calls }
   }
 
-  it('falls back to picker-with-random when no query / metadata provides a mode', () => {
+  it('falls back to picker-with-random when no query / metadata provides a mode', async () => {
     const mw = createChooserEnrichmentMiddleware({
       resolveClientMetadata: () => Promise.resolve({}),
     })
     const { res, calls } = makeRes()
-    mw({ method: 'GET', path: '/account', query: {} }, res, () => {})
+    await mw({ method: 'GET', path: '/account', query: {} }, res, () => {})
     res.end('<html><head></head></html>')
     const written = calls.end[0][0] as string
     expect(written).toContain(
@@ -434,12 +434,12 @@ describe('createChooserEnrichmentMiddleware handle-mode meta (HYPER-268 Layer 4)
     )
   })
 
-  it('honours the epds_handle_mode query override', () => {
+  it('honours the epds_handle_mode query override', async () => {
     const mw = createChooserEnrichmentMiddleware({
       resolveClientMetadata: () => Promise.resolve({}),
     })
     const { res, calls } = makeRes()
-    mw(
+    await mw(
       {
         method: 'GET',
         path: '/account',
@@ -453,18 +453,16 @@ describe('createChooserEnrichmentMiddleware handle-mode meta (HYPER-268 Layer 4)
     expect(written).toContain('<meta name="epds-handle-mode" content="random">')
   })
 
-  it('falls through to client metadata when query has no override (warm cache path)', async () => {
-    // Simulate the cache-hit path by giving the resolver a
-    // synchronously-resolved promise — the .then() microtask runs
-    // before res.end() fires because the middleware awaits nothing
-    // else between kicking off the fetch and the Express handler
-    // calling res.end().
+  it('falls through to client metadata when query has no override', async () => {
+    // The middleware awaits the metadata resolver before calling
+    // next(), so the resolved value is always incorporated into the
+    // meta tag — no races with upstream's synchronous res.end.
     const mw = createChooserEnrichmentMiddleware({
       resolveClientMetadata: () =>
         Promise.resolve({ epds_handle_mode: 'random' as const }),
     })
     const { res, calls } = makeRes()
-    mw(
+    await mw(
       {
         method: 'GET',
         path: '/account',
@@ -473,9 +471,6 @@ describe('createChooserEnrichmentMiddleware handle-mode meta (HYPER-268 Layer 4)
       res,
       () => {},
     )
-    // Flush the microtask queue so the metadata .then() runs before
-    // we call res.end().
-    await Promise.resolve()
     res.end('<html><head></head></html>')
     const written = calls.end[0][0] as string
     expect(written).toContain('<meta name="epds-handle-mode" content="random">')
@@ -490,7 +485,7 @@ describe('createChooserEnrichmentMiddleware handle-mode meta (HYPER-268 Layer 4)
         Promise.resolve({ epds_handle_mode: 'garbage' as any }),
     })
     const { res, calls } = makeRes()
-    mw(
+    await mw(
       {
         method: 'GET',
         path: '/account',
@@ -499,7 +494,6 @@ describe('createChooserEnrichmentMiddleware handle-mode meta (HYPER-268 Layer 4)
       res,
       () => {},
     )
-    await Promise.resolve()
     res.end('<html><head></head></html>')
     const written = calls.end[0][0] as string
     expect(written).toContain(
@@ -512,7 +506,7 @@ describe('createChooserEnrichmentMiddleware handle-mode meta (HYPER-268 Layer 4)
       resolveClientMetadata: () => Promise.reject(new Error('network error')),
     })
     const { res, calls } = makeRes()
-    mw(
+    await mw(
       {
         method: 'GET',
         path: '/account',
@@ -521,8 +515,6 @@ describe('createChooserEnrichmentMiddleware handle-mode meta (HYPER-268 Layer 4)
       res,
       () => {},
     )
-    await Promise.resolve()
-    await Promise.resolve()
     res.end('<html><head></head></html>')
     const written = calls.end[0][0] as string
     // Falls back to the default — no network means no upgrade.
@@ -587,13 +579,13 @@ describe('createChooserEnrichmentMiddleware auth-origin meta (Another-account re
     return { res, calls }
   }
 
-  it('injects the auth-origin meta tag when authOrigin is provided', () => {
+  it('injects the auth-origin meta tag when authOrigin is provided', async () => {
     const mw = createChooserEnrichmentMiddleware({
       resolveClientMetadata: () => Promise.resolve({}),
       authOrigin: 'https://auth.example',
     })
     const { res, calls } = makeRes()
-    mw({ method: 'GET', path: '/account', query: {} }, res, () => {})
+    await mw({ method: 'GET', path: '/account', query: {} }, res, () => {})
     res.end('<html><head></head></html>')
     const written = calls.end[0][0] as string
     expect(written).toContain(
@@ -601,20 +593,20 @@ describe('createChooserEnrichmentMiddleware auth-origin meta (Another-account re
     )
   })
 
-  it('injects an empty auth-origin meta tag when authOrigin is omitted', () => {
+  it('injects an empty auth-origin meta tag when authOrigin is omitted', async () => {
     // Empty value signals the script to skip the rebind — fails-open to
     // upstream's default behaviour rather than throwing on a missing meta.
     const mw = createChooserEnrichmentMiddleware({
       resolveClientMetadata: () => Promise.resolve({}),
     })
     const { res, calls } = makeRes()
-    mw({ method: 'GET', path: '/account', query: {} }, res, () => {})
+    await mw({ method: 'GET', path: '/account', query: {} }, res, () => {})
     res.end('<html><head></head></html>')
     const written = calls.end[0][0] as string
     expect(written).toContain('<meta name="epds-auth-origin" content="">')
   })
 
-  it('HTML-escapes authOrigin so a misconfigured value cannot break attribute quoting', () => {
+  it('HTML-escapes authOrigin so a misconfigured value cannot break attribute quoting', async () => {
     // authOrigin is operator-configured, not user-controlled, but a
     // malformed value with a stray `"` or `<` would otherwise escape the
     // attribute and break the injected head. Cheap defense-in-depth.
@@ -623,7 +615,7 @@ describe('createChooserEnrichmentMiddleware auth-origin meta (Another-account re
       authOrigin: 'https://auth.example/"><script>alert(1)</script>',
     })
     const { res, calls } = makeRes()
-    mw({ method: 'GET', path: '/account', query: {} }, res, () => {})
+    await mw({ method: 'GET', path: '/account', query: {} }, res, () => {})
     res.end('<html><head></head></html>')
     const written = calls.end[0][0] as string
     expect(written).toContain(
@@ -633,14 +625,14 @@ describe('createChooserEnrichmentMiddleware auth-origin meta (Another-account re
     expect(written).not.toContain('"><script>alert(1)</script>')
   })
 
-  it('emits both meta tags before the script tag in head', () => {
+  it('emits both meta tags before the script tag in head', async () => {
     // Order matters for the script's synchronous read on DOMContentLoaded.
     const mw = createChooserEnrichmentMiddleware({
       resolveClientMetadata: () => Promise.resolve({}),
       authOrigin: 'https://auth.example',
     })
     const { res, calls } = makeRes()
-    mw({ method: 'GET', path: '/account', query: {} }, res, () => {})
+    await mw({ method: 'GET', path: '/account', query: {} }, res, () => {})
     res.end('<html><head></head></html>')
     const written = calls.end[0][0] as string
     const handleModeIdx = written.indexOf('epds-handle-mode')

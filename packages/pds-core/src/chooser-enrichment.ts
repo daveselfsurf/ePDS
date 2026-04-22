@@ -496,11 +496,11 @@ export function createChooserEnrichmentMiddleware(
   // enable attribute-escape injection.
   const authOriginMetaTag = `<meta name="epds-auth-origin" content="${escapeHtmlAttr(authOrigin)}">`
 
-  return function chooserEnrichmentMiddleware(
+  return async function chooserEnrichmentMiddleware(
     req: ChooserEnrichmentRequest,
     res: ChooserEnrichmentResponse,
     next: ChooserEnrichmentNext,
-  ): void {
+  ): Promise<void> {
     if (!isChooserRequest(req)) {
       next()
       return
@@ -512,16 +512,15 @@ export function createChooserEnrichmentMiddleware(
     // via the shared resolver — otherwise the signup page and the
     // chooser can disagree about whether handles are user-chosen.
     //
-    // The query value is available synchronously. Client-metadata
-    // lookup may require a network fetch, so we kick it off in the
-    // background and patch handleMode in place once it resolves —
-    // provided the res.end rewrite hasn't run yet. In practice the
-    // metadata cache warms up during the auth-service login flow (or
-    // the CSS-injection middleware further up this same chain) and
-    // the resolver returns synchronously on cache hit, so the meta
-    // tag reflects the full three-level precedence on the common
-    // path. On cache miss or fetch failure we degrade to the query /
-    // env default, matching auth-service's safeResolveClientMetadata.
+    // We await the client-metadata lookup before wiring up res.end so
+    // the injected <meta name="epds-handle-mode"> deterministically
+    // reflects whatever the resolver returns. A fire-and-forget
+    // .then() would race against upstream's synchronous res.end, which
+    // can run in the same call stack as next() and beat the microtask.
+    // On a warm cache the resolver is effectively synchronous; on
+    // cache miss we pay the network fetch here, matching auth-
+    // service's safeResolveClientMetadata contract. Failure degrades
+    // silently to the query/env-derived fallback.
     const query = req.query ?? {}
     const clientId =
       typeof query.client_id === 'string' ? query.client_id : undefined
@@ -529,24 +528,23 @@ export function createChooserEnrichmentMiddleware(
       typeof query.epds_handle_mode === 'string'
         ? query.epds_handle_mode
         : undefined
-    let handleMode = resolveHandleMode(queryMode, undefined)
+    let metaMode: string | undefined
     if (clientId) {
-      void resolveMeta(clientId).then(
-        (meta) => {
-          const raw = meta.epds_handle_mode
-          if (
-            typeof raw === 'string' &&
-            (VALID_HANDLE_MODES as readonly string[]).includes(raw)
-          ) {
-            handleMode = resolveHandleMode(queryMode, raw)
-          }
-        },
-        () => {
-          // Degrade silently: handleMode stays at its query/env-derived
-          // fallback, matching auth-service's safeResolveClientMetadata.
-        },
-      )
+      try {
+        const meta = await resolveMeta(clientId)
+        const raw = meta.epds_handle_mode
+        if (
+          typeof raw === 'string' &&
+          (VALID_HANDLE_MODES as readonly string[]).includes(raw)
+        ) {
+          metaMode = raw
+        }
+      } catch {
+        // Degrade silently: metaMode stays undefined so resolveHandleMode
+        // falls through to the query value or the env default.
+      }
     }
+    const handleMode = resolveHandleMode(queryMode, metaMode)
 
     // Wrap res.setHeader to append our script hash to CSP script-src.
     const origSetHeader = res.setHeader.bind(res)
@@ -582,10 +580,9 @@ export function createChooserEnrichmentMiddleware(
       // Order matters — the meta tag must appear before the script
       // tag in the DOM so the script can read document.querySelector
       // on DOMContentLoaded without needing a second MutationObserver
-      // pass just for the meta. `handleMode` may have been patched in
-      // place by the metadata-resolution .then() above; we read it
-      // here (at end-of-response time) to pick up whichever value is
-      // current.
+      // pass just for the meta. `handleMode` was finalised above
+      // before next() ran, so no race with upstream's synchronous
+      // res.end.
       const combinedHeadInjection =
         `<meta name="epds-handle-mode" content="${handleMode}">` +
         authOriginMetaTag +
