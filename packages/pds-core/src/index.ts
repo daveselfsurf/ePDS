@@ -655,6 +655,7 @@ async function main() {
     authHostname,
     provider: provider ?? null,
     cookieDomain: welcomeGuardCookieDomain,
+    logger,
   })
   pds.app.use(welcomePageGuardMiddleware)
   // Fail closed: the guard has to run BEFORE upstream's OAuth / account

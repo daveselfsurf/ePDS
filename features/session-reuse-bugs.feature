@@ -30,14 +30,18 @@ Feature: Session-reuse resilience against stale device cookies
     When the demo client starts a new OAuth flow
     Then the browser lands on the auth-service email-and-OTP form
     And the stock upstream welcome page is not shown
-    And the response clears the dev-id cookie
+    # Both cookies (and their parent-domain variants) must clear on any
+    # half-pair bounce — auth-service's contract is that a half-pair
+    # never survives into the next flow. Asserting only the orphan half
+    # would let a regression that clears only one cookie sneak through.
+    And the response clears the dev-id and ses-id cookies
 
   Scenario: Only ses-id is present (dev-id missing)
     Given the dev-id cookie has been evicted from the browser
     When the demo client starts a new OAuth flow
     Then the browser lands on the auth-service email-and-OTP form
     And the stock upstream welcome page is not shown
-    And the response clears the ses-id cookie
+    And the response clears the dev-id and ses-id cookies
 
   Scenario: dev-id is stale, ses-id is valid
     Given the dev-id cookie has been replaced with a well-formed but server-unknown value

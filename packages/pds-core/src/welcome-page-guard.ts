@@ -28,6 +28,7 @@ import {
   SESSION_ID_BYTES_LENGTH,
   SESSION_ID_PREFIX,
 } from '@atproto/oauth-provider'
+import type { Logger } from 'pino'
 
 const DEVICE_ID_RE = new RegExp(
   `^${DEVICE_ID_PREFIX}[0-9a-f]{${DEVICE_ID_BYTES_LENGTH * 2}}$`,
@@ -97,13 +98,23 @@ export function buildBounceUrl(authHostname: string, origUrl: string): string {
       ? 'http'
       : 'https'
   const authBase = `${authScheme}://${authHostname}`
-  const parsed = new URL(origUrl, 'https://placeholder')
   const target = new URL('/oauth/authorize', authBase)
-  // Assign the raw serialized query so repeated params (e.g. `scope`
-  // appearing twice) survive verbatim; searchParams.forEach + set()
-  // would collapse repeats to the last value, contradicting the
-  // "preserves the original query string verbatim" contract below.
-  target.search = parsed.search
+  // Parse the original URL to lift its query string. Malformed
+  // percent-encoding (e.g. `?x=%GG`) would otherwise throw and 500 the
+  // request before the bounce; on parse failure drop the inherited
+  // query rather than propagate the exception — the bounce still
+  // succeeds with just `prompt=login`, and auth-service will render
+  // its own error for a truly broken request_uri.
+  try {
+    const parsed = new URL(origUrl, 'https://placeholder')
+    // Assign the raw serialized query so repeated params (e.g. `scope`
+    // appearing twice) survive verbatim; searchParams.forEach + set()
+    // would collapse repeats to the last value, contradicting the
+    // "preserves the original query string verbatim" contract below.
+    target.search = parsed.search
+  } catch {
+    // Leave target.search empty; prompt=login is appended below.
+  }
   // We intentionally override any incoming prompt — the forced-login
   // branch is the whole point of the bounce.
   target.searchParams.set('prompt', 'login')
@@ -117,8 +128,14 @@ export function buildBounceUrl(authHostname: string, origUrl: string): string {
  *  `/oauth/authorize` would just produce a 400 "Missing request_uri".
  *  For those we fall through to upstream instead. */
 function hasOauthContext(origUrl: string): boolean {
-  const parsed = new URL(origUrl, 'https://placeholder')
-  return parsed.searchParams.has('request_uri')
+  // Degrade safely on malformed percent-encoding — returning false lets
+  // the request fall through to upstream rather than 500ing on `?x=%GG`.
+  try {
+    const parsed = new URL(origUrl, 'https://placeholder')
+    return parsed.searchParams.has('request_uri')
+  } catch {
+    return false
+  }
 }
 
 /** Emit Set-Cookie headers that clear dev-id and ses-id (plus their
@@ -152,8 +169,9 @@ export function createWelcomePageGuard(opts: {
   authHostname: string
   provider: OAuthProvider | null
   cookieDomain: string | null
+  logger?: Pick<Logger, 'error'>
 }) {
-  const { authHostname, provider, cookieDomain } = opts
+  const { authHostname, provider, cookieDomain, logger } = opts
   return async function welcomePageGuard(
     req: Request,
     res: Response,
@@ -197,8 +215,15 @@ export function createWelcomePageGuard(opts: {
         parsed.deviceId as DeviceId,
       )
       bindingCount = bindings.length
-    } catch {
-      // Fail closed to the email form rather than leaking a stock-welcome render.
+    } catch (err) {
+      // Fail closed to the email form rather than leaking a stock-welcome
+      // render, but log so a genuine provider fault (DB outage, schema
+      // drift, upstream assertion) doesn't disappear into an indistinguishable
+      // surge of 303s to auth-service with no correlated error line.
+      logger?.error(
+        { err, deviceId: parsed.deviceId },
+        'welcome-page-guard: listDeviceAccounts failed; bouncing to auth-service',
+      )
       bindingCount = 0
     }
     if (bindingCount === 0) {

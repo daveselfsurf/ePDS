@@ -158,6 +158,20 @@ describe('buildBounceUrl', () => {
     expect(parsed.searchParams.get('request_uri')).toBe('urn:x:1')
     expect(parsed.searchParams.get('prompt')).toBe('login')
   })
+
+  it("falls back to prompt=login alone when origUrl can't be parsed", () => {
+    // Node's URL parser is forgiving but not bulletproof — e.g. a bare
+    // `//` throws ERR_INVALID_URL (empty authority). Without the guard
+    // this used to 500 the request; the bounce must still succeed with
+    // just prompt=login and let auth-service render its own error.
+    const url = buildBounceUrl('auth.pds.example', '//')
+    const parsed = new URL(url)
+    expect(parsed.origin + parsed.pathname).toBe(
+      'https://auth.pds.example/oauth/authorize',
+    )
+    expect(parsed.searchParams.get('prompt')).toBe('login')
+    expect(parsed.searchParams.has('request_uri')).toBe(false)
+  })
 })
 
 function makeResStub(): Response & { _calls: string[][] } {
@@ -472,5 +486,63 @@ describe('createWelcomePageGuard', () => {
     )
     expect(next).not.toHaveBeenCalled()
     expect(res.status).toHaveBeenCalledWith(303)
+  })
+
+  it('logs the listDeviceAccounts rejection so real DB faults stay visible', async () => {
+    // Silent fail-closed was hiding DB/provider faults as a surge of 303s
+    // with no correlated log line — verify the structured error log fires
+    // before the fail-closed bounce.
+    const err = new Error('db down')
+    const provider: FakeProvider = {
+      accountManager: { listDeviceAccounts: vi.fn().mockRejectedValue(err) },
+    }
+    const logger = { error: vi.fn() }
+    const mw = createWelcomePageGuard({
+      authHostname: AUTH,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider: provider as any,
+      cookieDomain: null,
+      logger,
+    })
+    await mw(
+      makeReq({
+        url: '/oauth/authorize?request_uri=urn:x:1',
+        cookieHeader: `dev-id=${VALID_DEV}; ses-id=${VALID_SES}`,
+      }),
+      makeRes(),
+      vi.fn(),
+    )
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ err, deviceId: VALID_DEV }),
+      expect.stringContaining('listDeviceAccounts failed'),
+    )
+  })
+
+  it("degrades to fall-through instead of 500ing when req.url can't be parsed", async () => {
+    // Node's URL parser is forgiving but not bulletproof (a bare `//`
+    // triggers ERR_INVALID_URL). The guard must treat an unparseable URL
+    // as "no OAuth context" and call next() rather than crash the request.
+    const provider: FakeProvider = {
+      accountManager: { listDeviceAccounts: vi.fn() },
+    }
+    const mw = createWelcomePageGuard({
+      authHostname: AUTH,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider: provider as any,
+      cookieDomain: null,
+    })
+    const res = makeRes()
+    const next = vi.fn()
+    await mw(
+      makeReq({
+        path: '/oauth/authorize',
+        url: '//',
+        cookieHeader: undefined,
+      }),
+      res,
+      next,
+    )
+    expect(next).toHaveBeenCalledTimes(1)
+    expect(res.status).not.toHaveBeenCalled()
   })
 })

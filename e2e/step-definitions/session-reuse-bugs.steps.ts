@@ -365,14 +365,6 @@ async function assertCookieCleared(
   ).toBeUndefined()
 }
 
-Then('the response clears the dev-id cookie', async function (this: EpdsWorld) {
-  await assertCookieCleared(this, 'dev-id')
-})
-
-Then('the response clears the ses-id cookie', async function (this: EpdsWorld) {
-  await assertCookieCleared(this, 'ses-id')
-})
-
 Then(
   'the response clears the dev-id and ses-id cookies',
   async function (this: EpdsWorld) {
