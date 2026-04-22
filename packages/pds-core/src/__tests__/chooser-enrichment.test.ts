@@ -160,38 +160,57 @@ describe('injectScriptIntoHead (HYPER-268)', () => {
   })
 })
 
-describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
-  // Build a fake response object that records every header / body
-  // operation so each test can assert on what the middleware did.
-  function makeRes({ headersSent = false }: { headersSent?: boolean } = {}) {
-    const calls = {
-      setHeader: [] as Array<[string, unknown]>,
-      removedHeaders: [] as string[],
-      end: [] as unknown[][],
-    }
-    const res = {
-      headersSent,
-      setHeader: vi.fn((name: string, value: unknown) => {
-        calls.setHeader.push([name, value])
-      }),
-      removeHeader: vi.fn((name: string) => {
-        if (res.headersSent) {
-          // Mirror Node's real behaviour: removeHeader() throws once
-          // the response has been flushed. Tests rely on this shape so
-          // the middleware's headersSent guard is exercised.
-          throw new Error(
-            'Cannot remove headers after they are sent to the client',
-          )
-        }
-        calls.removedHeaders.push(name)
-      }),
-      end: vi.fn((...args: unknown[]) => {
-        calls.end.push(args)
-      }),
-    }
-    return { res, calls }
+// Fake response object used across every middleware describe below.
+// Records every header / body operation so tests can assert on what
+// the middleware did.
+function makeRes({ headersSent = false }: { headersSent?: boolean } = {}) {
+  const calls = {
+    setHeader: [] as Array<[string, unknown]>,
+    removedHeaders: [] as string[],
+    end: [] as unknown[][],
   }
+  const res = {
+    headersSent,
+    setHeader: vi.fn((name: string, value: unknown) => {
+      calls.setHeader.push([name, value])
+    }),
+    removeHeader: vi.fn((name: string) => {
+      if (res.headersSent) {
+        // Mirror Node's real behaviour: removeHeader() throws once
+        // the response has been flushed. Tests rely on this shape so
+        // the middleware's headersSent guard is exercised.
+        throw new Error(
+          'Cannot remove headers after they are sent to the client',
+        )
+      }
+      calls.removedHeaders.push(name)
+    }),
+    end: vi.fn((...args: unknown[]) => {
+      calls.end.push(args)
+    }),
+  }
+  return { res, calls }
+}
 
+// Drive the middleware against a chooser request and return the
+// HTML body that upstream would have received (i.e. what was passed
+// to the wrapped res.end). Collapses the boilerplate of
+// `createChooserEnrichmentMiddleware + makeRes + await mw + res.end +
+// read calls.end[0][0]` that otherwise repeats across every
+// meta-tag / rewrite test.
+async function captureWrittenHtml(
+  opts: Parameters<typeof createChooserEnrichmentMiddleware>[0],
+  query: Record<string, string> = {},
+  body = '<html><head></head></html>',
+): Promise<string> {
+  const mw = createChooserEnrichmentMiddleware(opts)
+  const { res, calls } = makeRes()
+  await mw({ method: 'GET', path: '/account', query }, res, () => {})
+  res.end(body)
+  return calls.end[0][0] as string
+}
+
+describe('createChooserEnrichmentMiddleware (HYPER-268)', () => {
   it('passes non-chooser requests through untouched', async () => {
     const mw = createChooserEnrichmentMiddleware()
     const { res, calls } = makeRes()
@@ -406,50 +425,20 @@ describe('injectHandleModeMeta (HYPER-268 Layer 4)', () => {
 })
 
 describe('createChooserEnrichmentMiddleware handle-mode meta (HYPER-268 Layer 4)', () => {
-  function makeRes({ headersSent = false }: { headersSent?: boolean } = {}) {
-    const calls = {
-      end: [] as unknown[][],
-    }
-    const res = {
-      headersSent,
-      setHeader: vi.fn(),
-      removeHeader: vi.fn(),
-      end: vi.fn((...args: unknown[]) => {
-        calls.end.push(args)
-      }),
-    }
-    return { res, calls }
-  }
-
   it('falls back to picker-with-random when no query / metadata provides a mode', async () => {
-    const mw = createChooserEnrichmentMiddleware({
+    const written = await captureWrittenHtml({
       resolveClientMetadata: () => Promise.resolve({}),
     })
-    const { res, calls } = makeRes()
-    await mw({ method: 'GET', path: '/account', query: {} }, res, () => {})
-    res.end('<html><head></head></html>')
-    const written = calls.end[0][0] as string
     expect(written).toContain(
       '<meta name="epds-handle-mode" content="picker-with-random">',
     )
   })
 
   it('honours the epds_handle_mode query override', async () => {
-    const mw = createChooserEnrichmentMiddleware({
-      resolveClientMetadata: () => Promise.resolve({}),
-    })
-    const { res, calls } = makeRes()
-    await mw(
-      {
-        method: 'GET',
-        path: '/account',
-        query: { epds_handle_mode: 'random' },
-      },
-      res,
-      () => {},
+    const written = await captureWrittenHtml(
+      { resolveClientMetadata: () => Promise.resolve({}) },
+      { epds_handle_mode: 'random' },
     )
-    res.end('<html><head></head></html>')
-    const written = calls.end[0][0] as string
     expect(written).toContain('<meta name="epds-handle-mode" content="random">')
   })
 
@@ -457,66 +446,39 @@ describe('createChooserEnrichmentMiddleware handle-mode meta (HYPER-268 Layer 4)
     // The middleware awaits the metadata resolver before calling
     // next(), so the resolved value is always incorporated into the
     // meta tag — no races with upstream's synchronous res.end.
-    const mw = createChooserEnrichmentMiddleware({
-      resolveClientMetadata: () =>
-        Promise.resolve({ epds_handle_mode: 'random' as const }),
-    })
-    const { res, calls } = makeRes()
-    await mw(
+    const written = await captureWrittenHtml(
       {
-        method: 'GET',
-        path: '/account',
-        query: { client_id: 'https://demo.example/client' },
+        resolveClientMetadata: () =>
+          Promise.resolve({ epds_handle_mode: 'random' as const }),
       },
-      res,
-      () => {},
+      { client_id: 'https://demo.example/client' },
     )
-    res.end('<html><head></head></html>')
-    const written = calls.end[0][0] as string
     expect(written).toContain('<meta name="epds-handle-mode" content="random">')
   })
 
   it('ignores invalid handle modes from metadata (fall through to fallback)', async () => {
-    const mw = createChooserEnrichmentMiddleware({
-      resolveClientMetadata: () =>
-        // Value shape is intentional: an invalid string should be
-        // ignored by the resolver, not propagated into the meta tag.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberate bad value
-        Promise.resolve({ epds_handle_mode: 'garbage' as any }),
-    })
-    const { res, calls } = makeRes()
-    await mw(
+    const written = await captureWrittenHtml(
       {
-        method: 'GET',
-        path: '/account',
-        query: { client_id: 'https://demo.example/client' },
+        resolveClientMetadata: () =>
+          // Value shape is intentional: an invalid string should be
+          // ignored by the resolver, not propagated into the meta tag.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberate bad value
+          Promise.resolve({ epds_handle_mode: 'garbage' as any }),
       },
-      res,
-      () => {},
+      { client_id: 'https://demo.example/client' },
     )
-    res.end('<html><head></head></html>')
-    const written = calls.end[0][0] as string
     expect(written).toContain(
       '<meta name="epds-handle-mode" content="picker-with-random">',
     )
   })
 
   it('degrades silently when the metadata resolver rejects', async () => {
-    const mw = createChooserEnrichmentMiddleware({
-      resolveClientMetadata: () => Promise.reject(new Error('network error')),
-    })
-    const { res, calls } = makeRes()
-    await mw(
+    const written = await captureWrittenHtml(
       {
-        method: 'GET',
-        path: '/account',
-        query: { client_id: 'https://demo.example/client' },
+        resolveClientMetadata: () => Promise.reject(new Error('network error')),
       },
-      res,
-      () => {},
+      { client_id: 'https://demo.example/client' },
     )
-    res.end('<html><head></head></html>')
-    const written = calls.end[0][0] as string
     // Falls back to the default — no network means no upgrade.
     expect(written).toContain(
       '<meta name="epds-handle-mode" content="picker-with-random">',
@@ -566,28 +528,11 @@ describe('buildChooserEnrichmentScript sign-up hide + another-account rebind', (
 })
 
 describe('createChooserEnrichmentMiddleware auth-origin meta (Another-account rebind)', () => {
-  function makeRes() {
-    const calls = { end: [] as unknown[][] }
-    const res = {
-      headersSent: false,
-      setHeader: vi.fn(),
-      removeHeader: vi.fn(),
-      end: vi.fn((...args: unknown[]) => {
-        calls.end.push(args)
-      }),
-    }
-    return { res, calls }
-  }
-
   it('injects the auth-origin meta tag when authOrigin is provided', async () => {
-    const mw = createChooserEnrichmentMiddleware({
+    const written = await captureWrittenHtml({
       resolveClientMetadata: () => Promise.resolve({}),
       authOrigin: 'https://auth.example',
     })
-    const { res, calls } = makeRes()
-    await mw({ method: 'GET', path: '/account', query: {} }, res, () => {})
-    res.end('<html><head></head></html>')
-    const written = calls.end[0][0] as string
     expect(written).toContain(
       '<meta name="epds-auth-origin" content="https://auth.example">',
     )
@@ -596,13 +541,9 @@ describe('createChooserEnrichmentMiddleware auth-origin meta (Another-account re
   it('injects an empty auth-origin meta tag when authOrigin is omitted', async () => {
     // Empty value signals the script to skip the rebind — fails-open to
     // upstream's default behaviour rather than throwing on a missing meta.
-    const mw = createChooserEnrichmentMiddleware({
+    const written = await captureWrittenHtml({
       resolveClientMetadata: () => Promise.resolve({}),
     })
-    const { res, calls } = makeRes()
-    await mw({ method: 'GET', path: '/account', query: {} }, res, () => {})
-    res.end('<html><head></head></html>')
-    const written = calls.end[0][0] as string
     expect(written).toContain('<meta name="epds-auth-origin" content="">')
   })
 
@@ -610,14 +551,10 @@ describe('createChooserEnrichmentMiddleware auth-origin meta (Another-account re
     // authOrigin is operator-configured, not user-controlled, but a
     // malformed value with a stray `"` or `<` would otherwise escape the
     // attribute and break the injected head. Cheap defense-in-depth.
-    const mw = createChooserEnrichmentMiddleware({
+    const written = await captureWrittenHtml({
       resolveClientMetadata: () => Promise.resolve({}),
       authOrigin: 'https://auth.example/"><script>alert(1)</script>',
     })
-    const { res, calls } = makeRes()
-    await mw({ method: 'GET', path: '/account', query: {} }, res, () => {})
-    res.end('<html><head></head></html>')
-    const written = calls.end[0][0] as string
     expect(written).toContain(
       '<meta name="epds-auth-origin" content="https://auth.example/&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;">',
     )
@@ -627,14 +564,10 @@ describe('createChooserEnrichmentMiddleware auth-origin meta (Another-account re
 
   it('emits both meta tags before the script tag in head', async () => {
     // Order matters for the script's synchronous read on DOMContentLoaded.
-    const mw = createChooserEnrichmentMiddleware({
+    const written = await captureWrittenHtml({
       resolveClientMetadata: () => Promise.resolve({}),
       authOrigin: 'https://auth.example',
     })
-    const { res, calls } = makeRes()
-    await mw({ method: 'GET', path: '/account', query: {} }, res, () => {})
-    res.end('<html><head></head></html>')
-    const written = calls.end[0][0] as string
     const handleModeIdx = written.indexOf('epds-handle-mode')
     const authOriginIdx = written.indexOf('epds-auth-origin')
     const scriptIdx = written.indexOf('<script>')

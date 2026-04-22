@@ -97,7 +97,7 @@ export function buildBounceUrl(authHostname: string, origUrl: string): string {
       ? 'http'
       : 'https'
   const authBase = `${authScheme}://${authHostname}`
-  const parsed = new URL(origUrl, 'http://placeholder')
+  const parsed = new URL(origUrl, 'https://placeholder')
   const target = new URL('/oauth/authorize', authBase)
   // Assign the raw serialized query so repeated params (e.g. `scope`
   // appearing twice) survive verbatim; searchParams.forEach + set()
@@ -117,7 +117,7 @@ export function buildBounceUrl(authHostname: string, origUrl: string): string {
  *  `/oauth/authorize` would just produce a 400 "Missing request_uri".
  *  For those we fall through to upstream instead. */
 function hasOauthContext(origUrl: string): boolean {
-  const parsed = new URL(origUrl, 'http://placeholder')
+  const parsed = new URL(origUrl, 'https://placeholder')
   return parsed.searchParams.has('request_uri')
 }
 
