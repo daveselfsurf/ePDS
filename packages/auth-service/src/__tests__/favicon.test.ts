@@ -14,7 +14,10 @@ import { fileURLToPath } from 'node:url'
 import { describe, it, expect } from 'vitest'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const ROUTES_DIR = path.join(__dirname, '..', 'routes')
+const SCAN_DIRS = [
+  path.join(__dirname, '..', 'routes'),
+  path.join(__dirname, '..', 'lib'),
+]
 
 const FAVICON_LIGHT =
   '<link rel="icon" href="/static/favicon.svg" media="(prefers-color-scheme: light)" type="image/svg+xml">'
@@ -29,22 +32,24 @@ const FAVICON_DARK =
 const HEAD_BLOCK = /<head\b[^>]*>[\s\S]*?<\/head>/g
 
 /**
- * Auto-discover every route file that renders at least one `<head>` block.
+ * Auto-discover every source file that renders at least one `<head>` block.
  * A hardcoded list silently misses new rendered pages; raw `readdirSync`
- * false-fails on route files that never render HTML (e.g. `complete.ts`).
+ * false-fails on files that never render HTML (e.g. `complete.ts`).
  * Filtering by "contains a `<head>`" catches future renderers automatically
- * while excluding non-HTML routes.
+ * while excluding non-HTML sources. `lib/` is scanned as well as `routes/`
+ * because shared render helpers (e.g. `render-error.ts`) live there.
  */
-const routeFiles = fs
-  .readdirSync(ROUTES_DIR)
-  .filter((file) => file.endsWith('.ts'))
-  .map((file) => ({
-    file,
-    heads:
-      fs.readFileSync(path.join(ROUTES_DIR, file), 'utf8').match(HEAD_BLOCK) ??
-      [],
-  }))
-  .filter(({ heads }) => heads.length > 0)
+const routeFiles = SCAN_DIRS.flatMap((dir) =>
+  fs
+    .readdirSync(dir)
+    .filter((file) => file.endsWith('.ts'))
+    .map((file) => ({
+      file: `${path.basename(dir)}/${file}`,
+      heads:
+        fs.readFileSync(path.join(dir, file), 'utf8').match(HEAD_BLOCK) ?? [],
+    }))
+    .filter(({ heads }) => heads.length > 0),
+)
 
 describe('favicon wiring across auth-service route templates', () => {
   it('discovers at least one route that renders HTML', () => {
