@@ -60,6 +60,7 @@ import {
   deriveCookieDomain,
 } from './cookie-domain.js'
 import { createChooserEnrichmentMiddleware } from './chooser-enrichment.js'
+import { createUpstreamFaviconMiddleware } from './upstream-favicon.js'
 
 const logger = createLogger('pds-core')
 
@@ -735,6 +736,20 @@ async function main() {
       { insertIdx },
       'Account chooser enrichment middleware installed (HYPER-268)',
     )
+  }
+
+  // Favicon injection for upstream `@atproto/oauth-provider`-rendered
+  // pages (`/account*`, `/oauth/*`). Same post-compression placement as
+  // chooser-enrichment so our wrapped end() sees the raw uncompressed
+  // HTML and can find `<head>`.
+  pds.app.use(createUpstreamFaviconMiddleware())
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing Express internal _router stack
+  const faviconStack = (pds.app as any)._router?.stack
+  if (faviconStack) {
+    const faviconLayer = faviconStack.pop()
+    const insertIdx = findInsertionIndex(faviconStack)
+    faviconStack.splice(insertIdx, 0, faviconLayer)
+    logger.info({ insertIdx }, 'Upstream favicon middleware installed')
   }
 
   // Serve /static/favicon*.svg from packages/pds-core/public so the
