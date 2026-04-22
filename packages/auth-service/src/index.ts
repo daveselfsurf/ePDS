@@ -24,6 +24,7 @@ import {
   validateOtpCharset,
   validateOtpLength,
 } from './lib/otp-config-validation.js'
+import { errorHandler, notFoundHandler } from './lib/error-middleware.js'
 
 const logger = createLogger('auth-service')
 
@@ -106,6 +107,9 @@ export function createAuthService(config: AuthServiceConfig): {
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', service: 'auth', version: getEpdsVersion() })
   })
+
+  app.use(notFoundHandler)
+  app.use(errorHandler)
 
   return { app, ctx }
 }
