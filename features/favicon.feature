@@ -2,8 +2,8 @@ Feature: Favicon on rendered pages
   ePDS ships a Certified favicon (light + dark SVG variants) on every
   HTML page it serves or rewrites. This includes auth-service pages
   (login, recovery, choose-handle, error) as well as upstream
-  @atproto/oauth-provider pages (the /account* SPA, the /oauth
-  authorize flow) that pds-core rewrites on the response path to
+  oauth-provider pages (the /account* SPA, the /oauth authorize
+  flow) that pds-core rewrites on the response path to
   prepend favicon <link> tags. The SVG assets live under /static on
   each service, plus a /favicon.ico alias covers non-HTML responses
   where browsers auto-fetch the legacy path.
