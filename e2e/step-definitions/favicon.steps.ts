@@ -40,13 +40,14 @@ async function fetchAndRecord(world: EpdsWorld, url: string): Promise<void> {
 When(
   'the auth-service login page is fetched directly',
   async function (this: EpdsWorld) {
-    // The auth-service root redirects into /account which in turn
-    // renders the login page. We hit the login template via the
-    // untrusted preview route shape — in real flows it's only reached
-    // through PAR + authorize, but the HTML shell is the same template.
-    // Use a realistic request_uri-less URL: the auth-service's
-    // /account/sign-in page renders the login template directly.
-    await fetchAndRecord(this, `${testEnv.authUrl}/account/sign-in`)
+    // The primary OAuth login template at /oauth/authorize requires a
+    // valid PAR request_uri and can't be reached cold. /account/login is
+    // the account-settings sign-in page on the same auth-service — same
+    // favicon wiring, reachable with no prior state, no CSRF gate on GET.
+    // The unit test in packages/auth-service/src/__tests__/favicon.test.ts
+    // already asserts every route template includes the favicon tags; this
+    // e2e step's job is to prove the full middleware stack serves them.
+    await fetchAndRecord(this, `${testEnv.authUrl}/account/login`)
   },
 )
 
