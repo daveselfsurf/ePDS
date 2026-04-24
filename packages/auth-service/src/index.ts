@@ -1,8 +1,4 @@
-import {
-  createLogger,
-  getEpdsVersion,
-  mountStaticAssets,
-} from '@certified-app/shared'
+import { createLogger, getEpdsVersion } from '@certified-app/shared'
 import express from 'express'
 import cookieParser from 'cookie-parser'
 import * as path from 'node:path'
@@ -54,7 +50,11 @@ export function createAuthService(config: AuthServiceConfig): {
   app.use(express.urlencoded({ extended: true }))
   app.use(express.json())
   app.use(cookieParser())
-  mountStaticAssets(app, path.resolve(__dirname, '..', 'public'))
+  const publicDir = path.resolve(__dirname, '..', 'public')
+  app.get('/favicon.ico', (_req, res) => {
+    res.sendFile(path.join(publicDir, 'favicon.svg'))
+  })
+  app.use('/static', express.static(publicDir))
   app.use(csrfProtection(config.csrfSecret))
   app.use(requestRateLimit({ windowMs: 60_000, maxRequests: 60 }))
 

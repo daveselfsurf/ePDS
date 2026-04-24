@@ -43,14 +43,13 @@ import {
   getClientMetadataCacheStatus,
   getEpdsVersion,
   validateClientMetadataForPreview,
-  mountStaticAssets,
 } from '@certified-app/shared'
 import { shouldRewriteSecFetchSite } from './lib/sec-fetch-site-rewrite.js'
 import {
   findInsertionIndex,
   installCssInjectionMiddleware,
 } from './lib/client-css-injection.js'
-import { type Application, type Request, type Response } from 'express'
+import express, { type Application, type Request, type Response } from 'express'
 import {
   createPreviewConsentHandler,
   renderPreviewIndex,
@@ -756,7 +755,11 @@ async function main() {
   // pds-core-rendered error page and the /preview/consent shell can
   // reference the Certified favicon without a cross-origin request to
   // the auth-service host.
-  mountStaticAssets(pds.app, path.resolve(__dirname, '..', 'public'))
+  const publicDir = path.resolve(__dirname, '..', 'public')
+  pds.app.get('/favicon.ico', (_req, res) => {
+    res.sendFile(path.join(publicDir, 'favicon.svg'))
+  })
+  pds.app.use('/static', express.static(publicDir))
 
   // =========================================================================
   // Cookie domain broadening (HYPER-268)
