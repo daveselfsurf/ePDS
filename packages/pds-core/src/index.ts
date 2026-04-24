@@ -24,6 +24,7 @@ applyPdsPortFallback()
 
 import type * as http from 'node:http'
 import { randomBytes, timingSafeEqual, createHash } from 'node:crypto'
+import * as path from 'node:path'
 import { PDS, envToCfg, envToSecrets, readEnv } from '@atproto/pds'
 import { readFileSync } from 'node:fs'
 /* v8 ignore next 3 -- module-level init, only testable via e2e */
@@ -48,7 +49,7 @@ import {
   findInsertionIndex,
   installCssInjectionMiddleware,
 } from './lib/client-css-injection.js'
-import type { Application, Request, Response } from 'express'
+import express, { type Application, type Request, type Response } from 'express'
 import {
   createPreviewConsentHandler,
   renderPreviewIndex,
@@ -58,6 +59,7 @@ import {
   deriveCookieDomain,
 } from './cookie-domain.js'
 import { createChooserEnrichmentMiddleware } from './chooser-enrichment.js'
+import { createUpstreamFaviconMiddleware } from './upstream-favicon.js'
 
 const logger = createLogger('pds-core')
 
@@ -735,6 +737,30 @@ async function main() {
     )
   }
 
+  // Favicon injection for upstream `@atproto/oauth-provider`-rendered
+  // pages (`/account*`, `/oauth/*`). Same post-compression placement as
+  // chooser-enrichment so our wrapped end() sees the raw uncompressed
+  // HTML and can find `<head>`.
+  pds.app.use(createUpstreamFaviconMiddleware())
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing Express internal _router stack
+  const faviconStack = (pds.app as any)._router?.stack
+  if (faviconStack) {
+    const faviconLayer = faviconStack.pop()
+    const insertIdx = findInsertionIndex(faviconStack)
+    faviconStack.splice(insertIdx, 0, faviconLayer)
+    logger.info({ insertIdx }, 'Upstream favicon middleware installed')
+  }
+
+  // Serve /static/favicon*.svg from packages/pds-core/public so the
+  // pds-core-rendered error page and the /preview/consent shell can
+  // reference the Certified favicon without a cross-origin request to
+  // the auth-service host.
+  const publicDir = path.resolve(__dirname, '..', 'public')
+  pds.app.get('/favicon.ico', (_req, res) => {
+    res.sendFile(path.join(publicDir, 'favicon.svg'))
+  })
+  pds.app.use('/static', express.static(publicDir))
+
   // =========================================================================
   // Cookie domain broadening (HYPER-268)
   // =========================================================================
@@ -1010,7 +1036,7 @@ async function checkHandleRoute(
 function renderError(message: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="utf-8"><title>Error</title></head>
+<head><meta charset="utf-8"><link rel="icon" href="/static/favicon.svg" media="(prefers-color-scheme: light)" type="image/svg+xml"><link rel="icon" href="/static/favicon-dark.svg" media="(prefers-color-scheme: dark)" type="image/svg+xml"><title>Error</title></head>
 <body><p style="color:red;padding:20px">${escapeHtml(message)}</p></body>
 </html>`
 }

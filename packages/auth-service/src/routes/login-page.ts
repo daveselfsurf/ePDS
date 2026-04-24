@@ -369,6 +369,8 @@ export function renderLoginPage(opts: {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="/static/favicon.svg" media="(prefers-color-scheme: light)" type="image/svg+xml">
+  <link rel="icon" href="/static/favicon-dark.svg" media="(prefers-color-scheme: dark)" type="image/svg+xml">
   <title>Sign in to ${escapeHtml(appName)}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
