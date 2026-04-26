@@ -68,6 +68,31 @@ describe('renderPreviewLinksSections', () => {
     )
   })
 
+  it('marks the auth-service list as two-column and pds-core as single-column', () => {
+    // Auth list grows long enough to warrant two columns on wider
+    // viewports; pds-core's stays single. The actual layout is driven by
+    // CSS in renderPreviewIndexPage; here we just assert the class hooks
+    // are present on the right <ul>.
+    const html = renderPreviewLinksSections({
+      currentService: 'auth',
+      authPublicUrl: AUTH_URL,
+      pdsPublicUrl: PDS_URL,
+    })
+    expect(html).toContain('class="preview-routes preview-routes-auth"')
+    expect(html).toContain('class="preview-routes preview-routes-pds"')
+  })
+
+  it('embeds the column-count CSS rule in the rendered index page', () => {
+    // The CSS lives on the index page (not in this section helper), so
+    // assert it on renderPreviewIndexPage to lock the styling contract.
+    const html = renderPreviewIndexPage({
+      currentService: 'auth',
+      authPublicUrl: AUTH_URL,
+      pdsPublicUrl: PDS_URL,
+    })
+    expect(html).toContain('.preview-routes-auth { column-count: 2;')
+  })
+
   it('tags every link with data-preview-link so the wire-up script finds it', () => {
     const html = renderPreviewLinksSections({
       currentService: 'auth',

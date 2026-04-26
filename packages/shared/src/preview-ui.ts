@@ -81,7 +81,10 @@ function renderRouteList(
   const items = routes.map((r) => {
     const qs = r.query ? `?${r.query}` : ''
     const href = baseUrl ? `${baseUrl}${r.path}${qs}` : `${r.path}${qs}`
-    return `<li><a href="${href}" data-preview-link>${r.label}</a></li>`
+    // Wrap each item's content so CSS multi-column layout
+    // (.preview-routes-auth) doesn't break a single <li> across columns —
+    // the inline-block on .preview-route-item keeps the row atomic.
+    return `<li><span class="preview-route-item"><a href="${href}" data-preview-link>${r.label}</a></span></li>`
   })
   return items.join('\n    ')
 }
@@ -122,13 +125,13 @@ export function renderPreviewLinksSections(opts: {
       : `<a href="${opts.pdsPublicUrl}/preview" data-preview-link>pds-core</a>`
   return `<section class="preview-group">
   <h2>${authHeading}</h2>
-  <ul>
+  <ul class="preview-routes preview-routes-auth">
     ${authList}
   </ul>
 </section>
 <section class="preview-group">
   <h2>${pdsHeading}</h2>
-  <ul>
+  <ul class="preview-routes preview-routes-pds">
     ${pdsList}
   </ul>
 </section>`
@@ -142,6 +145,17 @@ const PREVIEW_INDEX_STYLES = `body { font-family: -apple-system, BlinkMacSystemF
     pre { background: #f0f0f0; padding: 10px 12px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
     pre code { background: none; padding: 0; font-size: 13px; }
     ul { line-height: 2; }
+    /* The auth-service list is long enough to warrant two columns on
+       wider viewports; pds-core's stays single-column. column-count is
+       used (rather than CSS grid) so list items flow naturally and the
+       source order is preserved top-to-bottom-then-left-to-right.
+       .preview-route-item is inline-block so a single row never breaks
+       across the column boundary. */
+    .preview-routes { padding-left: 24px; }
+    .preview-route-item { display: inline-block; }
+    @media (min-width: 600px) {
+      .preview-routes-auth { column-count: 2; column-gap: 32px; }
+    }
     a { color: #0b5ed7; }
     label { display: block; margin: 16px 0 6px; font-weight: 500; }
     input[type="url"] { width: 100%; padding: 8px 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
