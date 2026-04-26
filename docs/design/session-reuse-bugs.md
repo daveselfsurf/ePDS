@@ -168,32 +168,43 @@ middleware, mounted early in pds-core's stack on `/oauth/authorize` and
 `/account`, short-circuits the request before upstream's signin handler
 runs:
 
-1. Call `provider.deviceManager.load(req, res)` — the same API pds-core
-   already uses in its `/oauth/epds-callback` handler. This parses the
-   dev-id/ses-id cookie pair exactly as upstream would, applying the
-   same fixation-delete and "missing device row → create new"
-   branches. The result is either a real device row with some bound
-   account count, or a freshly-created empty device row.
-2. Count bound accounts on the resulting device via
-   `provider.accountManager.listDeviceAccounts(deviceId)` (or equivalent
-   exported API).
-3. If the count is zero: respond with `303` + `Location:` pointing at
-   auth-service's `/oauth/authorize` with the original query string plus
+1. Parse the `dev-id` + `ses-id` cookie pair side-effect-free using
+   upstream's exported Zod schemas (not `deviceManager.load`, which
+   has a side effect — it deletes the device row on a partial pair
+   and would race the bounce-and-clear path below). A missing or
+   malformed pair short-circuits straight to step 4.
+2. Validate `ses-id` against the device row's active session id by
+   calling `provider.deviceManager.store.readDevice(deviceId)`. The
+   `store` field is TS-private on `DeviceManager` but accessible at
+   runtime via a narrow structural cast — only the `sessionId` field
+   is consulted, keeping the dependency surface tiny. This rejects a
+   syntactically-valid cookie pair whose `ses-id` no longer matches
+   the persisted row (logout/rotation race, restored backup, manual
+   deletion of the device row, fixation reset, etc.) — exactly the
+   case that would otherwise sail past step 3 and let upstream
+   render its stock welcome page.
+3. Count bound accounts on the device via
+   `provider.accountManager.listDeviceAccounts(deviceId)`.
+4. If either check fails (no/half/stale cookies, or zero bindings):
+   respond with `303` + `Location:` pointing at auth-service's
+   `/oauth/authorize` with the original query string plus
    `prompt=login`, and `Set-Cookie: dev-id=; Max-Age=0` (same for
-   `ses-id`) to clear the stale pair.
-4. Otherwise: call `next()` and let upstream's signin handler render the
-   chooser as today. The existing chooser-enrichment middleware then
-   injects branding and enrichment as today.
+   `ses-id`, plus their `:hash` sidecars, in both host-only and
+   domain-scoped variants) to clear the stale pair.
+5. Otherwise: call `next()` and let upstream's signin handler render
+   the chooser as today. The existing chooser-enrichment middleware
+   then injects branding and enrichment as today.
 
-Using upstream's own exported APIs (not internals) means this tracks
-upstream's definition of "device" across future versions without having
-to fork `@atproto/oauth-provider` or monkey-patch internals. The stock
-welcome page is never rendered, so no response-body rewrite or HTML
-inspection is needed.
+Using upstream's own exported APIs and schemas (rather than forking
+`@atproto/oauth-provider` or monkey-patching internals) means this
+tracks upstream's definition of "device" across future versions. The
+stock welcome page is never rendered, so no response-body rewrite or
+HTML inspection is needed.
 
-This catches **all** known causes because the check is on the observable
-invariant (empty device bindings at decision time) rather than on any
-particular upstream state-transition.
+This catches **all** known causes because the checks are on observable
+invariants at decision time (cookie pair present and valid, ses-id
+matches the persisted row, device has at least one binding) rather than
+on any particular upstream state-transition.
 
 #### Why both layers
 

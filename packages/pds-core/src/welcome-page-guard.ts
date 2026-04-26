@@ -49,10 +49,19 @@ export function isGuardedPath(path: string): boolean {
 }
 
 /** Parse dev-id + ses-id from the Cookie header without any side effects.
- *  Returns the parsed deviceId when both cookies are present and valid
- *  per upstream's Zod schemas; null otherwise. Matches the parsing rules
- *  in `@atproto/oauth-provider`'s DeviceManager.parseCookie exactly so
- *  our accept/reject decision stays aligned with upstream's.
+ *  Returns both ids when both cookies are present and valid per upstream's
+ *  Zod schemas; null otherwise. Matches the parsing rules in
+ *  `@atproto/oauth-provider`'s DeviceManager.parseCookie exactly so our
+ *  accept/reject decision stays aligned with upstream's.
+ *
+ *  Both ids are returned because the guard validates the sessionId
+ *  against the device row server-side: the device cookie pair can be
+ *  syntactically well-formed yet semantically stale (cookie-jar
+ *  divergence after a logout/rotation race, restored backup, manual
+ *  deletion of the server-side row, etc.). A fresh-looking cookie pair
+ *  whose ses-id no longer matches the stored sessionId is exactly the
+ *  case that lets a request slip past the bindings check and land on
+ *  upstream's stock welcome page.
  *
  *  Only decodes the two names we care about: a sibling cookie with a
  *  malformed percent-escape (e.g. analytics SDKs that set `x=%GG`) must
@@ -63,7 +72,7 @@ export function isGuardedPath(path: string): boolean {
  *  value returns null rather than throwing URIError. */
 export function parseDeviceCookies(
   cookieHeader: string | undefined,
-): { deviceId: string } | null {
+): { deviceId: string; sessionId: string } | null {
   if (!cookieHeader) return null
   const jar: Record<string, string> = {}
   for (const part of cookieHeader.split(/;\s*/)) {
@@ -84,7 +93,7 @@ export function parseDeviceCookies(
   if (!devId || !sesId) return null
   if (!DEVICE_ID_RE.test(devId)) return null
   if (!SESSION_ID_RE.test(sesId)) return null
-  return { deviceId: devId }
+  return { deviceId: devId, sessionId: sesId }
 }
 
 /** Build the auth-service URL we bounce empty-device requests to.
@@ -162,6 +171,16 @@ export function appendCookieClearHeaders(
   }
 }
 
+/** Minimal contract the guard needs from upstream's DeviceStore: read
+ *  the persisted device row by id, returning the active sessionId (and
+ *  whatever else upstream stores) or null when the row is absent. We
+ *  avoid importing `DeviceStore` directly so the guard doesn't take a
+ *  hard dependency on the full upstream interface — the only field we
+ *  actually consult is `sessionId`. */
+type DeviceStoreLike = {
+  readDevice: (deviceId: DeviceId) => Promise<{ sessionId: string } | null>
+}
+
 /** Create the Express middleware. `cookieDomain` may be null when the
  *  auth-service and pds-core don't share a common parent domain — in
  *  that case there's no domain-scoped cookie to clear. */
@@ -172,6 +191,16 @@ export function createWelcomePageGuard(opts: {
   logger?: Pick<Logger, 'error'>
 }) {
   const { authHostname, provider, cookieDomain, logger } = opts
+  // Upstream's `OAuthProvider` exposes only `deviceManager` publicly;
+  // the underlying `DeviceStore` is held in the manager's TS-private
+  // `store` field, but is needed by the guard to validate that the
+  // ses-id cookie still matches the device row's active session id.
+  // Accessing the runtime field via a narrow structural cast keeps
+  // the dependency surface small (we only look at `sessionId`) while
+  // sidestepping the private declaration.
+  const deviceStore: DeviceStoreLike | null = provider
+    ? (provider.deviceManager as unknown as { store: DeviceStoreLike }).store
+    : null
   return async function welcomePageGuard(
     req: Request,
     res: Response,
@@ -196,8 +225,7 @@ export function createWelcomePageGuard(opts: {
     // upstream handle these; the PR's @docker-only scenarios only cover
     // flows that originate at an OAuth entry point.
     const inOauthFlow = hasOauthContext(req.url)
-    const parsed = parseDeviceCookies(req.headers.cookie)
-    if (!parsed) {
+    const bounceOrPass = (): void => {
       if (!inOauthFlow) {
         next()
         return
@@ -207,7 +235,42 @@ export function createWelcomePageGuard(opts: {
       res.setHeader('Location', buildBounceUrl(authHostname, req.url))
       res.setHeader('Cache-Control', 'no-store')
       res.end()
+    }
+    const parsed = parseDeviceCookies(req.headers.cookie)
+    if (!parsed) {
+      bounceOrPass()
       return
+    }
+    // Validate the cookie's ses-id against the device row's active
+    // sessionId. A syntactically-valid cookie pair whose ses-id no
+    // longer matches the stored value (logout/rotation race, restored
+    // backup, manual deletion of the server-side row, fixation reset,
+    // etc.) would otherwise sail past the bindings check and let
+    // upstream render its stock welcome page. Treat any miss the same
+    // as a missing cookie: bounce to auth-service with the stale pair
+    // cleared.
+    if (deviceStore) {
+      let activeSessionId: string | null
+      try {
+        const data = await deviceStore.readDevice(parsed.deviceId as DeviceId)
+        activeSessionId = data?.sessionId ?? null
+      } catch (err) {
+        // Mirror the listDeviceAccounts fail-closed branch below so a
+        // provider fault still degrades to the email form rather than
+        // leaking a stock welcome render — and log it for the same
+        // reason: an unobservable surge of 303s with no correlated
+        // error is a worse failure than a noisy one.
+        logger?.error(
+          { err, deviceId: parsed.deviceId },
+          'welcome-page-guard: readDevice failed; bouncing to auth-service',
+        )
+        bounceOrPass()
+        return
+      }
+      if (activeSessionId !== parsed.sessionId) {
+        bounceOrPass()
+        return
+      }
     }
     let bindingCount: number
     try {
@@ -227,15 +290,7 @@ export function createWelcomePageGuard(opts: {
       bindingCount = 0
     }
     if (bindingCount === 0) {
-      if (!inOauthFlow) {
-        next()
-        return
-      }
-      res.status(303)
-      appendCookieClearHeaders(res, cookieDomain)
-      res.setHeader('Location', buildBounceUrl(authHostname, req.url))
-      res.setHeader('Cache-Control', 'no-store')
-      res.end()
+      bounceOrPass()
       return
     }
     next()

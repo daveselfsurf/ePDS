@@ -32,10 +32,10 @@ describe('isGuardedPath', () => {
 })
 
 describe('parseDeviceCookies', () => {
-  it('returns the deviceId when both cookies are valid', () => {
+  it('returns both ids when both cookies are valid', () => {
     expect(
       parseDeviceCookies(`dev-id=${VALID_DEV}; ses-id=${VALID_SES}`),
-    ).toEqual({ deviceId: VALID_DEV })
+    ).toEqual({ deviceId: VALID_DEV, sessionId: VALID_SES })
   })
 
   it('returns null when the Cookie header is missing', () => {
@@ -74,7 +74,7 @@ describe('parseDeviceCookies', () => {
       parseDeviceCookies(
         `csrf=abc; dev-id=${VALID_DEV}; junk=1; ses-id=${VALID_SES}`,
       ),
-    ).toEqual({ deviceId: VALID_DEV })
+    ).toEqual({ deviceId: VALID_DEV, sessionId: VALID_SES })
   })
 
   it('uses the first occurrence of a repeated cookie name', () => {
@@ -83,7 +83,7 @@ describe('parseDeviceCookies', () => {
       parseDeviceCookies(
         `dev-id=${VALID_DEV}; dev-id=${other}; ses-id=${VALID_SES}`,
       ),
-    ).toEqual({ deviceId: VALID_DEV })
+    ).toEqual({ deviceId: VALID_DEV, sessionId: VALID_SES })
   })
 
   it('survives a sibling cookie with a malformed percent-escape', () => {
@@ -95,7 +95,7 @@ describe('parseDeviceCookies', () => {
       parseDeviceCookies(
         `tracking=%GG; dev-id=${VALID_DEV}; ses-id=${VALID_SES}`,
       ),
-    ).toEqual({ deviceId: VALID_DEV })
+    ).toEqual({ deviceId: VALID_DEV, sessionId: VALID_SES })
   })
 
   it('returns null when the dev-id cookie itself has a malformed percent-escape', () => {
@@ -228,6 +228,35 @@ type FakeProvider = {
   accountManager: {
     listDeviceAccounts: (id: string) => Promise<unknown[]>
   }
+  deviceManager: {
+    store: {
+      readDevice: (id: string) => Promise<{ sessionId: string } | null>
+    }
+  }
+}
+
+/** Build a FakeProvider whose deviceStore returns a row matching the
+ *  given sessionId by default — the common-case fixture used by every
+ *  test that doesn't specifically exercise the stale-session branch. */
+function makeProvider(opts: {
+  bindings?: () => Promise<unknown[]>
+  sessionId?: string | null
+  readDevice?: () => Promise<{ sessionId: string } | null>
+}): FakeProvider {
+  const ses = opts.sessionId === undefined ? VALID_SES : opts.sessionId
+  return {
+    accountManager: {
+      listDeviceAccounts: vi.fn(opts.bindings ?? (() => Promise.resolve([]))),
+    },
+    deviceManager: {
+      store: {
+        readDevice: vi.fn(
+          opts.readDevice ??
+            (() => Promise.resolve(ses === null ? null : { sessionId: ses })),
+        ),
+      },
+    },
+  }
 }
 
 function makeReq(opts: {
@@ -273,9 +302,7 @@ describe('createWelcomePageGuard', () => {
   const AUTH = 'auth.pds.example'
 
   it('passes non-GET requests through', async () => {
-    const provider: FakeProvider = {
-      accountManager: { listDeviceAccounts: vi.fn() },
-    }
+    const provider = makeProvider({})
     const mw = createWelcomePageGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -293,9 +320,7 @@ describe('createWelcomePageGuard', () => {
   })
 
   it('passes unguarded paths through', async () => {
-    const provider: FakeProvider = {
-      accountManager: { listDeviceAccounts: vi.fn() },
-    }
+    const provider = makeProvider({})
     const mw = createWelcomePageGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -324,11 +349,7 @@ describe('createWelcomePageGuard', () => {
   })
 
   it('bounces with cookie clears when cookies are missing', async () => {
-    const provider: FakeProvider = {
-      accountManager: {
-        listDeviceAccounts: vi.fn().mockResolvedValue([]),
-      },
-    }
+    const provider = makeProvider({ bindings: () => Promise.resolve([]) })
     const mw = createWelcomePageGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -363,9 +384,7 @@ describe('createWelcomePageGuard', () => {
     // to auth-service /oauth/authorize would just produce a 400
     // "Missing request_uri" — worse than letting upstream render. The
     // guard explicitly opts out of this case.
-    const provider: FakeProvider = {
-      accountManager: { listDeviceAccounts: vi.fn() },
-    }
+    const provider = makeProvider({})
     const mw = createWelcomePageGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -382,11 +401,7 @@ describe('createWelcomePageGuard', () => {
   })
 
   it('passes /account* through when bindings are zero but there is no request_uri', async () => {
-    const provider: FakeProvider = {
-      accountManager: {
-        listDeviceAccounts: vi.fn().mockResolvedValue([]),
-      },
-    }
+    const provider = makeProvider({ bindings: () => Promise.resolve([]) })
     const mw = createWelcomePageGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -409,11 +424,7 @@ describe('createWelcomePageGuard', () => {
   })
 
   it('bounces when cookies parse but bindings are empty', async () => {
-    const provider: FakeProvider = {
-      accountManager: {
-        listDeviceAccounts: vi.fn().mockResolvedValue([]),
-      },
-    }
+    const provider = makeProvider({ bindings: () => Promise.resolve([]) })
     const mw = createWelcomePageGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -438,11 +449,9 @@ describe('createWelcomePageGuard', () => {
   })
 
   it('calls next() when cookies parse and bindings exist', async () => {
-    const provider: FakeProvider = {
-      accountManager: {
-        listDeviceAccounts: vi.fn().mockResolvedValue([{ some: 'binding' }]),
-      },
-    }
+    const provider = makeProvider({
+      bindings: () => Promise.resolve([{ some: 'binding' }]),
+    })
     const mw = createWelcomePageGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -463,11 +472,9 @@ describe('createWelcomePageGuard', () => {
   })
 
   it('bounces when listDeviceAccounts throws', async () => {
-    const provider: FakeProvider = {
-      accountManager: {
-        listDeviceAccounts: vi.fn().mockRejectedValue(new Error('db down')),
-      },
-    }
+    const provider = makeProvider({
+      bindings: () => Promise.reject(new Error('db down')),
+    })
     const mw = createWelcomePageGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -493,9 +500,7 @@ describe('createWelcomePageGuard', () => {
     // with no correlated log line — verify the structured error log fires
     // before the fail-closed bounce.
     const err = new Error('db down')
-    const provider: FakeProvider = {
-      accountManager: { listDeviceAccounts: vi.fn().mockRejectedValue(err) },
-    }
+    const provider = makeProvider({ bindings: () => Promise.reject(err) })
     const logger = { error: vi.fn() }
     const mw = createWelcomePageGuard({
       authHostname: AUTH,
@@ -522,9 +527,7 @@ describe('createWelcomePageGuard', () => {
     // Node's URL parser is forgiving but not bulletproof (a bare `//`
     // triggers ERR_INVALID_URL). The guard must treat an unparseable URL
     // as "no OAuth context" and call next() rather than crash the request.
-    const provider: FakeProvider = {
-      accountManager: { listDeviceAccounts: vi.fn() },
-    }
+    const provider = makeProvider({})
     const mw = createWelcomePageGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -544,5 +547,135 @@ describe('createWelcomePageGuard', () => {
     )
     expect(next).toHaveBeenCalledTimes(1)
     expect(res.status).not.toHaveBeenCalled()
+  })
+
+  it('bounces when the cookie ses-id no longer matches the device row', async () => {
+    // Cookie pair is well-formed and the device has bindings (so the
+    // bindings check would let it through), but the persisted device
+    // row's sessionId has been rotated/replaced — exactly the case that
+    // would otherwise leak a stock-welcome render. Bounces with a full
+    // cookie clear so the user gets a clean slate at auth-service.
+    const STALE_SES = 'ses-1111111111111111111111111111111111111111'
+    const ACTIVE_SES = 'ses-2222222222222222222222222222222222222222'
+    const provider = makeProvider({
+      bindings: () => Promise.resolve([{ some: 'binding' }]),
+      sessionId: ACTIVE_SES,
+    })
+    const mw = createWelcomePageGuard({
+      authHostname: AUTH,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider: provider as any,
+      cookieDomain: 'pds.example',
+    })
+    const res = makeRes()
+    const next = vi.fn()
+    await mw(
+      makeReq({
+        cookieHeader: `dev-id=${VALID_DEV}; ses-id=${STALE_SES}`,
+        url: '/oauth/authorize?request_uri=urn:x:1',
+      }),
+      res,
+      next,
+    )
+    expect(next).not.toHaveBeenCalled()
+    expect(res.status).toHaveBeenCalledWith(303)
+    // The mismatch short-circuits the request before bindings are read.
+    expect(provider.accountManager.listDeviceAccounts).not.toHaveBeenCalled()
+    expect(res.append).toHaveBeenCalledTimes(8)
+  })
+
+  it('bounces when the device row is missing entirely', async () => {
+    // A valid-looking cookie pair whose dev-id has no row at all
+    // (manual server-side cleanup, dropped DB, expired purge) is the
+    // mirror image of the stale-ses-id case: same risk of falling
+    // through to upstream's welcome page if we trust the cookie alone.
+    const provider = makeProvider({
+      bindings: () => Promise.resolve([{ some: 'binding' }]),
+      sessionId: null,
+    })
+    const mw = createWelcomePageGuard({
+      authHostname: AUTH,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider: provider as any,
+      cookieDomain: null,
+    })
+    const res = makeRes()
+    const next = vi.fn()
+    await mw(
+      makeReq({
+        cookieHeader: `dev-id=${VALID_DEV}; ses-id=${VALID_SES}`,
+        url: '/oauth/authorize?request_uri=urn:x:1',
+      }),
+      res,
+      next,
+    )
+    expect(next).not.toHaveBeenCalled()
+    expect(res.status).toHaveBeenCalledWith(303)
+    expect(provider.accountManager.listDeviceAccounts).not.toHaveBeenCalled()
+  })
+
+  it('passes /account* through on a ses-id mismatch when there is no request_uri', async () => {
+    // Mirrors the existing "/account* without request_uri" carve-out
+    // for the bindings branch: bouncing direct /account* navigation to
+    // auth-service /oauth/authorize would just produce a 400 "Missing
+    // request_uri", which is worse than letting upstream render.
+    const STALE_SES = 'ses-1111111111111111111111111111111111111111'
+    const ACTIVE_SES = 'ses-2222222222222222222222222222222222222222'
+    const provider = makeProvider({
+      bindings: () => Promise.resolve([{ some: 'binding' }]),
+      sessionId: ACTIVE_SES,
+    })
+    const mw = createWelcomePageGuard({
+      authHostname: AUTH,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider: provider as any,
+      cookieDomain: null,
+    })
+    const res = makeRes()
+    const next = vi.fn()
+    await mw(
+      makeReq({
+        path: '/account/settings',
+        url: '/account/settings',
+        cookieHeader: `dev-id=${VALID_DEV}; ses-id=${STALE_SES}`,
+      }),
+      res,
+      next,
+    )
+    expect(next).toHaveBeenCalledOnce()
+    expect(res.status).not.toHaveBeenCalled()
+  })
+
+  it('bounces and logs when readDevice throws', async () => {
+    // Same fail-closed posture as the listDeviceAccounts branch: an
+    // unobservable surge of 303s with no correlated log line is a
+    // worse failure than a noisy one.
+    const err = new Error('readDevice down')
+    const provider = makeProvider({
+      bindings: () => Promise.resolve([{ some: 'binding' }]),
+      readDevice: () => Promise.reject(err),
+    })
+    const logger = { error: vi.fn() }
+    const mw = createWelcomePageGuard({
+      authHostname: AUTH,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider: provider as any,
+      cookieDomain: null,
+      logger,
+    })
+    const res = makeRes()
+    await mw(
+      makeReq({
+        url: '/oauth/authorize?request_uri=urn:x:1',
+        cookieHeader: `dev-id=${VALID_DEV}; ses-id=${VALID_SES}`,
+      }),
+      res,
+      vi.fn(),
+    )
+    expect(res.status).toHaveBeenCalledWith(303)
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ err, deviceId: VALID_DEV }),
+      expect.stringContaining('readDevice failed'),
+    )
   })
 })
