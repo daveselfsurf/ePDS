@@ -27,6 +27,7 @@ import {
   createLogger,
   getClientMetadataCacheStatus,
   renderPreviewIndexPage,
+  resolveHandleMode,
   validateClientMetadataForPreview,
   type ClientMetadata,
 } from '@certified-app/shared'
@@ -210,36 +211,27 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
   })
 
   router.get('/preview/choose-handle', async (req: Request, res: Response) => {
-    const { css } = await getBranding(req)
+    const { metadata, css } = await getBranding(req)
+    // Resolve handle-mode the same way real flows do: query >
+    // metadata > env default. The Auto choice on the index emits no
+    // ?epds_handle_mode= so the metadata value (or env fallback)
+    // wins; explicit dropdown values override.
+    const handleMode = resolveHandleMode(
+      queryString(req, 'epds_handle_mode'),
+      metadata.epds_handle_mode,
+    )
+    const showRandomButton = handleMode !== 'picker'
     sendHtml(
       res,
       renderChooseHandlePage(
         FAKE_HANDLE_DOMAIN,
         queryString(req, 'error'),
         fakeCsrfToken(),
-        true,
+        showRandomButton,
         css,
       ),
     )
   })
-
-  router.get(
-    '/preview/choose-handle-picker',
-    async (req: Request, res: Response) => {
-      const { css } = await getBranding(req)
-      // EPDS_HANDLE_MODE=picker: no "generate random" button.
-      sendHtml(
-        res,
-        renderChooseHandlePage(
-          FAKE_HANDLE_DOMAIN,
-          queryString(req, 'error'),
-          fakeCsrfToken(),
-          false,
-          css,
-        ),
-      )
-    },
-  )
 
   router.get('/preview/recovery', async (req: Request, res: Response) => {
     const { css } = await getBranding(req)

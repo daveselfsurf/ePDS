@@ -306,9 +306,13 @@ describe('renderPreviewIndex', () => {
     expect(html).toContain(
       'href="https://auth.pds.example/preview/recovery-otp"',
     )
+    // /preview/choose-handle no longer enumerates ?error= variants;
+    // the dropdown bound to the `error` param replaces them. Assert
+    // both the link and the bound control instead.
     expect(html).toContain(
-      'href="https://auth.pds.example/preview/choose-handle?error=Handle+already+taken"',
+      'href="https://auth.pds.example/preview/choose-handle"',
     )
+    expect(html).toContain('data-preview-param="error"')
   })
 
   it('seeds the client_id input from ?client_id= on the page URL', () => {

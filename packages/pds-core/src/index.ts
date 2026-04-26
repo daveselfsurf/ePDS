@@ -54,6 +54,7 @@ import {
   createPreviewConsentHandler,
   renderPreviewIndex,
 } from './lib/preview-consent.js'
+import { createPreviewChooserHandler } from './lib/preview-chooser.js'
 import {
   createCookieDomainMiddleware,
   deriveCookieDomain,
@@ -76,6 +77,9 @@ function installPreviewRoutes(
     previewConsentHandler: NonNullable<
       ReturnType<typeof createPreviewConsentHandler>
     >
+    previewChooserHandler: NonNullable<
+      ReturnType<typeof createPreviewChooserHandler>
+    >
     authHostname: string
     pdsPublicUrl: string
     trustedClients: string[]
@@ -97,6 +101,7 @@ function installPreviewRoutes(
     )
   })
   app.get('/preview/consent', opts.previewConsentHandler)
+  app.get('/preview/chooser', opts.previewChooserHandler)
   app.get('/preview/cache-status', (_req: Request, res: Response) => {
     res.setHeader('Cache-Control', 'no-store')
     res.json({ now: Date.now(), entries: getClientMetadataCacheStatus() })
@@ -116,7 +121,7 @@ function installPreviewRoutes(
     res.json(result)
   })
   logger.info(
-    'Preview routes installed (PDS_PREVIEW_ROUTES=1): /preview, /preview/consent, /preview/cache-status, /preview/validate',
+    'Preview routes installed (PDS_PREVIEW_ROUTES=1): /preview, /preview/consent, /preview/chooser, /preview/cache-status, /preview/validate',
   )
 }
 
@@ -714,16 +719,28 @@ async function main() {
     logger,
   })
 
+  // auth-service origin baked into the injected enrichment script's
+  // "Another account" rebind, and into the chooser preview's
+  // <meta name="epds-auth-origin"> so the preview exercises the same
+  // rebind path. Hoisted above preview wiring so it's available to
+  // createPreviewChooserHandler. https for real hosts, http for
+  // localhost-flavoured dev.
+  const authOriginScheme =
+    authHostname === 'localhost' || authHostname.endsWith('.localhost')
+      ? 'http'
+      : 'https'
+  const authOrigin = `${authOriginScheme}://${authHostname}`
+
   // =========================================================================
   // Preview routes for iterating on branding.css
   // =========================================================================
   //
-  // Gated by PDS_PREVIEW_ROUTES=1. Renders the OAuth consent page with
-  // fixture hydration data so client-app developers can iterate on their
-  // branding.css without walking through the full OAuth flow. The CSS
-  // injection middleware above intercepts /preview/consent responses
-  // exactly like /oauth/authorize — the trusted-clients gate still
-  // applies. See docs/tutorial.md for the full reference.
+  // Gated by PDS_PREVIEW_ROUTES=1. Renders the OAuth consent + chooser
+  // pages with fixture hydration data so client-app developers can
+  // iterate on their branding.css without walking through the full
+  // OAuth flow. The CSS injection middleware above intercepts /preview/*
+  // responses exactly like /oauth/authorize — the trusted-clients gate
+  // still applies. See docs/tutorial.md for the full reference.
 
   const previewConsentHandler = createPreviewConsentHandler({
     trustedClients,
@@ -731,9 +748,17 @@ async function main() {
     getClientCss,
     logger,
   })
-  if (previewConsentHandler) {
+  const previewChooserHandler = createPreviewChooserHandler({
+    trustedClients,
+    resolveClientMetadata,
+    getClientCss,
+    authOrigin,
+    logger,
+  })
+  if (previewConsentHandler && previewChooserHandler) {
     installPreviewRoutes(pds.app, {
       previewConsentHandler,
+      previewChooserHandler,
       authHostname,
       pdsPublicUrl: pdsUrl,
       trustedClients,
@@ -764,14 +789,7 @@ async function main() {
   // adding a script hash to the CSP script-src directive rather than
   // style-src.
 
-  // auth-service origin baked into the injected enrichment script's
-  // "Another account" rebind. Same scheme rule as installPreviewRoutes:
-  // https for real hosts, http for localhost-flavoured dev.
-  const authOriginScheme =
-    authHostname === 'localhost' || authHostname.endsWith('.localhost')
-      ? 'http'
-      : 'https'
-  const authOrigin = `${authOriginScheme}://${authHostname}`
+  // authOrigin is computed above (preview wiring also needs it).
 
   const chooserEnrichmentMiddleware = createChooserEnrichmentMiddleware({
     resolveClientMetadata,
