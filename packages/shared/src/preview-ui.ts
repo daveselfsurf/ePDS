@@ -223,10 +223,10 @@ function renderRouteList(
         r.controls.map((c, i) => renderControl(c, linkId, i)).join(' ') +
         '</span>'
       : ''
-    // Wrap each item's content so CSS multi-column layout
-    // (.preview-routes-auth) doesn't break a single <li> across columns —
-    // the inline-block on .preview-route-item keeps the row atomic.
-    return `<li><span class="preview-route-item"><a href="${href}" data-preview-link${linkIdAttr}>${r.label}</a>${controlsHtml}</span></li>`
+    // Each row is a flex container so the link sits on the left and the
+    // controls hug it on the same line; controls only wrap to a second
+    // line on narrow viewports.
+    return `<li><a href="${href}" data-preview-link${linkIdAttr}>${r.label}</a>${controlsHtml}</li>`
   })
   return items.join('\n    ')
 }
@@ -288,34 +288,33 @@ const PREVIEW_INDEX_STYLES = `body { font-family: -apple-system, BlinkMacSystemF
     code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 14px; }
     pre { background: #f0f0f0; padding: 10px 12px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
     pre code { background: none; padding: 0; font-size: 13px; }
-    ul { line-height: 2; }
-    /* The auth-service list is long enough to warrant two columns on
-       wider viewports; pds-core's stays single-column. column-count is
-       used (rather than CSS grid) so list items flow naturally and the
-       source order is preserved top-to-bottom-then-left-to-right.
-       .preview-route-item is inline-block so a single row never breaks
-       across the column boundary. */
-    .preview-routes { padding-left: 24px; }
-    .preview-route-item { display: inline-block; }
-    @media (min-width: 600px) {
-      .preview-routes-auth { column-count: 2; column-gap: 32px; }
+    /* Each route is a flex row: link on the left, controls hug it on the
+       same line, wrapping to a second line only on narrow viewports. */
+    .preview-routes { padding-left: 24px; margin: 4px 0; }
+    .preview-routes li {
+      display: flex;
+      align-items: baseline;
+      flex-wrap: wrap;
+      gap: 6px 12px;
+      padding: 3px 0;
     }
     .preview-route-controls {
       display: inline-flex;
       flex-wrap: wrap;
-      gap: 8px;
-      margin-left: 8px;
-      vertical-align: middle;
+      gap: 10px;
     }
     .preview-route-controls .preview-control {
       display: inline-flex;
-      align-items: center;
+      align-items: baseline;
       gap: 4px;
+      margin: 0;
       font-size: 12px;
+      font-weight: normal;
       color: #555;
     }
-    .preview-route-controls input[type="number"] { width: 56px; }
-    .preview-route-controls select { font-size: 12px; }
+    .preview-route-controls input[type="number"] { width: 52px; }
+    .preview-route-controls select,
+    .preview-route-controls input[type="number"] { font-size: 12px; padding: 1px 4px; }
     a { color: #0b5ed7; }
     label { display: block; margin: 16px 0 6px; font-weight: 500; }
     input[type="url"] { width: 100%; padding: 8px 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }

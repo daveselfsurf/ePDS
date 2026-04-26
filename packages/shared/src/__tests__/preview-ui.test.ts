@@ -77,11 +77,7 @@ describe('renderPreviewLinksSections', () => {
     expect(html).toContain('data-preview-param="numAccounts"')
   })
 
-  it('marks the auth-service list as two-column and pds-core as single-column', () => {
-    // Auth list grows long enough to warrant two columns on wider
-    // viewports; pds-core's stays single. The actual layout is driven by
-    // CSS in renderPreviewIndexPage; here we just assert the class hooks
-    // are present on the right <ul>.
+  it('emits the per-service list classes so styling can be scoped to one section', () => {
     const html = renderPreviewLinksSections({
       currentService: 'auth',
       authPublicUrl: AUTH_URL,
@@ -91,15 +87,17 @@ describe('renderPreviewLinksSections', () => {
     expect(html).toContain('class="preview-routes preview-routes-pds"')
   })
 
-  it('embeds the column-count CSS rule in the rendered index page', () => {
-    // The CSS lives on the index page (not in this section helper), so
-    // assert it on renderPreviewIndexPage to lock the styling contract.
+  it('lays each row out as a flex container so link + controls share a line', () => {
+    // Locks the row layout: each <li> is a flex row whose children
+    // (link, controls) sit on the same baseline. Catches regressions
+    // that put controls on a separate visual line under the link.
     const html = renderPreviewIndexPage({
       currentService: 'auth',
       authPublicUrl: AUTH_URL,
       pdsPublicUrl: PDS_URL,
     })
-    expect(html).toContain('.preview-routes-auth { column-count: 2;')
+    expect(html).toMatch(/\.preview-routes li \{[^}]*display:\s*flex/)
+    expect(html).toMatch(/\.preview-routes li \{[^}]*align-items:\s*baseline/)
   })
 
   it('tags every link with data-preview-link so the wire-up script finds it', () => {
