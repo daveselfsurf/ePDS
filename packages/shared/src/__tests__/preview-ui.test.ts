@@ -75,6 +75,12 @@ describe('renderPreviewLinksSections', () => {
     // pds-core's /preview/chooser declares its controls cross-origin:
     expect(html).toContain(`href="${PDS_URL}/preview/chooser"`)
     expect(html).toContain('data-preview-param="numAccounts"')
+    // numAccounts must not allow 0 — the server-side handler clamps it
+    // up, but the UI form should agree (otherwise users see 0 as a
+    // legal value and submit something the server quietly rewrites).
+    expect(html).toMatch(
+      /<input[^>]*min="1"[^>]*data-preview-param="numAccounts"/,
+    )
   })
 
   it('emits the per-service list classes so styling can be scoped to one section', () => {

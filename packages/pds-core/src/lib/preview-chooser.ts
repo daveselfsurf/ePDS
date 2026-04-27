@@ -12,7 +12,13 @@
  * {@link ./preview-shared.ts}.
  *
  * Query parameters drive the fixture without needing N separate routes:
- *   - `?numAccounts=N`        — 0..10 fixture sessions (default 1).
+ *   - `?numAccounts=N`        — 1..10 fixture sessions (default 1). Zero is
+ *                               clamped up to 1 — the chooser is meaningless
+ *                               with no accounts to choose from, and an empty
+ *                               `__sessions` array makes the upstream SPA
+ *                               fall through to its no-session welcome view,
+ *                               which is exactly the surface this preview
+ *                               route exists to demonstrate users won't see.
  *   - `?epds_handle_mode=<x>` — same per-request handle-mode override
  *                               that real OAuth flows accept. When
  *                               absent, the mode is resolved from the
@@ -160,7 +166,10 @@ function parseNumAccounts(raw: unknown): number {
   if (typeof raw !== 'string') return 1
   const n = Number.parseInt(raw, 10)
   if (!Number.isFinite(n)) return 1
-  return Math.min(MAX_FIXTURE_ACCOUNTS, Math.max(0, n))
+  // Clamp to >=1: numAccounts=0 would render an empty __sessions array and
+  // let the upstream SPA fall through to its no-session welcome view — a
+  // surface ePDS exists to suppress, so it must never leak via the preview.
+  return Math.min(MAX_FIXTURE_ACCOUNTS, Math.max(1, n))
 }
 
 function resolveQueryHandleMode(

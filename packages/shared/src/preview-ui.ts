@@ -130,7 +130,10 @@ export const PDS_PREVIEW_ROUTES: readonly PreviewRoute[] = [
         type: 'number',
         param: 'numAccounts',
         label: 'Accounts',
-        min: 0,
+        // Min matches the server-side clamp in preview-chooser.ts: 0
+        // would render an empty __sessions array and let the upstream
+        // SPA fall through to its no-session welcome view.
+        min: 1,
         max: 10,
         default: 1,
       },
