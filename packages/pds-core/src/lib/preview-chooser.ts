@@ -8,7 +8,8 @@
  * name="epds-auth-origin">`, and the enrichment `<script>` — so what
  * branding developers see here matches what real users see.
  *
- * Gated by `PDS_PREVIEW_ROUTES=1`.
+ * Gated by `PDS_PREVIEW_ROUTES=1`. Shared shell mechanics live in
+ * {@link ./preview-shared.ts}.
  *
  * Query parameters drive the fixture without needing N separate routes:
  *   - `?numAccounts=N`        — 0..10 fixture sessions (default 1).
@@ -33,82 +34,25 @@ import {
   type ClientMetadata,
   type HandleMode,
 } from '@certified-app/shared'
-import { readFile } from 'node:fs/promises'
-import { createRequire } from 'node:module'
-import serialize from 'serialize-javascript'
 import {
   buildChooserEnrichmentScript,
   escapeHtmlAttr,
 } from '../chooser-enrichment.js'
+import {
+  applyPreviewHeaders,
+  assetUrl,
+  buildAuthorizeData,
+  loadAssetRefs,
+  readClientIdQuery,
+  renderHydration,
+  resolveClientForPreview,
+  type PreviewAuthorizeFixture,
+  type PreviewMetadataDeps,
+  type RequestLike,
+  type ResponseLike,
+} from './preview-shared.js'
 
-const nodeRequire = createRequire(__filename)
-
-type RequestLike = {
-  query: Record<string, unknown>
-}
-type ResponseLike = {
-  setHeader: (name: string, value: string) => unknown
-  send: (body: string) => unknown
-}
-
-type LoggerLike = {
-  info: (obj: object, msg: string) => void
-  warn: (obj: object, msg: string) => void
-  debug: (obj: object, msg: string) => void
-}
-
-type BundleManifest = Record<
-  string,
-  { type: string; mime?: string; name?: string; isEntry?: boolean }
->
-
-let cachedAssets: { scripts: string[]; styles: string[] } | null = null
-
-async function loadAssetRefs(): Promise<{
-  scripts: string[]
-  styles: string[]
-}> {
-  if (cachedAssets) return cachedAssets
-  const manifestPath = nodeRequire.resolve(
-    '@atproto/oauth-provider-ui/bundle-manifest.json',
-  )
-  const manifest = JSON.parse(
-    await readFile(manifestPath, 'utf8'),
-  ) as BundleManifest
-  const scripts = Object.entries(manifest)
-    .filter(
-      ([, a]) =>
-        a.type === 'chunk' && a.isEntry && a.name === 'authorization-page',
-    )
-    .map(([filename]) => filename)
-  const styles = Object.entries(manifest)
-    .filter(([, a]) => a.mime === 'text/css')
-    .map(([filename]) => filename)
-  cachedAssets = { scripts, styles }
-  return cachedAssets
-}
-
-const ASSETS_URL_PREFIX = '/@atproto/oauth-provider/~assets/'
-
-function assetUrl(filename: string): string {
-  return `${ASSETS_URL_PREFIX}${encodeURIComponent(filename)}`
-}
-
-function renderHydration(values: Record<string, unknown>): string {
-  const lines: string[] = []
-  for (const [key, val] of Object.entries(values)) {
-    const keyLit = serialize(key, { isJSON: true })
-    const valLit = serialize(JSON.stringify(val), { isJSON: true })
-    lines.push(`window[${keyLit}]=JSON.parse(${valLit});`)
-  }
-  lines.push('document.currentScript.remove();')
-  return lines.join('')
-}
-
-interface PreviewFixtureOptions {
-  clientId: string
-  clientMetadata: ClientMetadata
-  isTrusted: boolean
+interface PreviewChooserFixture extends PreviewAuthorizeFixture {
   numAccounts: number
   handleMode: HandleMode
 }
@@ -130,25 +74,7 @@ const FIXTURE_ACCOUNTS: readonly { handle: string; name: string }[] = [
   { handle: 'jack.preview.example', name: 'Jack Preview' },
 ] as const
 
-function buildAuthorizeData(opts: PreviewFixtureOptions): unknown {
-  // Same minimal AuthorizeData fixture as /preview/consent — see
-  // preview-consent.ts for field rationale. No loginHint so the SPA
-  // doesn't enter forceSignIn mode.
-  return {
-    requestUri:
-      'urn:ietf:params:oauth:request_uri:req-preview-0000000000000000',
-    clientId: opts.clientId,
-    clientMetadata: opts.clientMetadata,
-    clientTrusted: opts.isTrusted,
-    clientFirstParty: false,
-    scope: 'atproto transition:generic',
-    uiLocales: undefined,
-    promptMode: undefined,
-    permissionSets: {},
-  }
-}
-
-function buildSessions(opts: PreviewFixtureOptions): unknown {
+function buildSessions(opts: PreviewChooserFixture): unknown {
   // Drive the SPA's chooser view: every session has selected=false so
   // the gate that mounts <ConsentView> never fires. loginRequired=false
   // because the chooser shows fully-bound accounts; consentRequired is
@@ -170,7 +96,7 @@ function buildSessions(opts: PreviewFixtureOptions): unknown {
 }
 
 async function renderChooserHtml(opts: {
-  fixture: PreviewFixtureOptions
+  fixture: PreviewChooserFixture
   authOrigin: string
   injectedCss: string | null
 }): Promise<string> {
@@ -225,29 +151,37 @@ async function renderChooserHtml(opts: {
 </html>`
 }
 
-interface PreviewChooserDeps {
-  trustedClients: string[]
-  resolveClientMetadata: (
-    clientId: string,
-    options?: { noCache?: boolean },
-  ) => Promise<ClientMetadata>
-  getClientCss: (
-    clientId: string,
-    metadata: ClientMetadata,
-    trustedClients: string[],
-  ) => string | null
+interface PreviewChooserDeps extends PreviewMetadataDeps {
   /** Auth-service origin written into the epds-auth-origin meta tag. */
   authOrigin: string
-  logger: LoggerLike
 }
-
-const FIXTURE_DEFAULT_CLIENT_ID = 'https://preview.example/client-metadata.json'
 
 function parseNumAccounts(raw: unknown): number {
   if (typeof raw !== 'string') return 1
   const n = Number.parseInt(raw, 10)
   if (!Number.isFinite(n)) return 1
   return Math.min(MAX_FIXTURE_ACCOUNTS, Math.max(0, n))
+}
+
+function resolveQueryHandleMode(
+  req: RequestLike,
+  metadata: ClientMetadata,
+): HandleMode {
+  // Resolve handle-mode the same way the real chooserEnrichment
+  // middleware does: query > client metadata > env default. Same
+  // override name (epds_handle_mode) so the index dropdown exercises
+  // the production resolver path verbatim.
+  const queryMode =
+    typeof req.query.epds_handle_mode === 'string'
+      ? req.query.epds_handle_mode
+      : undefined
+  const rawMetaMode = metadata.epds_handle_mode
+  const metaMode =
+    typeof rawMetaMode === 'string' &&
+    (VALID_HANDLE_MODES as readonly string[]).includes(rawMetaMode)
+      ? rawMetaMode
+      : undefined
+  return resolveHandleMode(queryMode, metaMode)
 }
 
 /**
@@ -261,45 +195,14 @@ export function createPreviewChooserHandler(
   if (process.env.PDS_PREVIEW_ROUTES !== '1') return null
 
   return async function previewChooser(req: RequestLike, res: ResponseLike) {
-    const rawClientId = req.query.client_id
-    const clientId =
-      typeof rawClientId === 'string' && rawClientId
-        ? rawClientId
-        : FIXTURE_DEFAULT_CLIENT_ID
+    const clientId = readClientIdQuery(req)
+    const { metadata, injectedCss } = await resolveClientForPreview(
+      deps,
+      clientId,
+      'Preview chooser',
+    )
 
-    let metadata: ClientMetadata = {}
-    let injectedCss: string | null = null
-
-    if (clientId !== FIXTURE_DEFAULT_CLIENT_ID) {
-      try {
-        metadata = await deps.resolveClientMetadata(clientId, {
-          noCache: true,
-        })
-        injectedCss = deps.getClientCss(clientId, metadata, deps.trustedClients)
-      } catch (err) {
-        deps.logger.warn(
-          { err, clientId },
-          'Preview chooser: failed to resolve client metadata',
-        )
-      }
-    }
-
-    // Resolve handle-mode the same way the real chooserEnrichment
-    // middleware does: query > client metadata > env default. Same
-    // override name (epds_handle_mode) so the index dropdown exercises
-    // the production resolver path verbatim.
-    const queryMode =
-      typeof req.query.epds_handle_mode === 'string'
-        ? req.query.epds_handle_mode
-        : undefined
-    const rawMetaMode = metadata.epds_handle_mode
-    const metaMode =
-      typeof rawMetaMode === 'string' &&
-      (VALID_HANDLE_MODES as readonly string[]).includes(rawMetaMode)
-        ? rawMetaMode
-        : undefined
-    const handleMode = resolveHandleMode(queryMode, metaMode)
-
+    const handleMode = resolveQueryHandleMode(req, metadata)
     const numAccounts = parseNumAccounts(req.query.numAccounts)
 
     const html = await renderChooserHtml({
@@ -314,21 +217,7 @@ export function createPreviewChooserHandler(
       injectedCss,
     })
 
-    res.setHeader('Content-Type', 'text/html; charset=utf-8')
-    res.setHeader('Cache-Control', 'no-store')
-    res.setHeader(
-      'Content-Security-Policy',
-      [
-        "default-src 'none'",
-        "script-src 'self' 'unsafe-inline'",
-        "style-src 'self' 'unsafe-inline'",
-        "connect-src 'self'",
-        "img-src 'self' data: https:",
-        "font-src 'self' data:",
-        "frame-ancestors 'none'",
-        "base-uri 'self'",
-      ].join('; '),
-    )
+    applyPreviewHeaders(res)
     res.send(html)
   }
 }

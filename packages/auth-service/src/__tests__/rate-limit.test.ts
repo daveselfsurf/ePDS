@@ -2,6 +2,7 @@
  * Tests for the in-memory request rate limiter middleware.
  */
 import { describe, it, expect } from 'vitest'
+import { randomUUID } from 'node:crypto'
 import { requestRateLimit } from '../middleware/rate-limit.js'
 
 function makeReq(ip?: string) {
@@ -138,7 +139,7 @@ describe('requestRateLimit', () => {
     process.env.EPDS_DISABLE_RATE_LIMIT = 'true'
     try {
       const limiter = requestRateLimit({ windowMs: 60000, maxRequests: 1 })
-      const ip = `bypass-${Date.now()}-${Math.random()}`
+      const ip = `bypass-${Date.now()}-${randomUUID()}`
 
       // Many requests from one IP, all should pass.
       for (let i = 0; i < 5; i++) {

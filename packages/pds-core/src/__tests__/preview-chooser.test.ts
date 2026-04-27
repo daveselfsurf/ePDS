@@ -1,31 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createPreviewChooserHandler } from '../lib/preview-chooser.js'
-
-function mockLogger() {
-  return { info: vi.fn(), warn: vi.fn(), debug: vi.fn() }
-}
-
-type CapturedRes = {
-  headers: Record<string, string>
-  body: string | null
-  setHeader: (name: string, value: string) => void
-  send: (body: string) => void
-}
-
-function mockRes(): CapturedRes {
-  const res: CapturedRes = {
-    headers: {},
-    body: null,
-    setHeader(name, value) {
-      this.headers[name] = value
-    },
-    send(body) {
-      this.body = body
-    },
-  }
-  return res
-}
+import { mockLogger, mockRes } from './preview-test-helpers.js'
 
 const AUTH_ORIGIN = 'https://auth.example'
 
