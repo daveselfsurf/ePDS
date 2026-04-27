@@ -23,9 +23,12 @@ import { fillOtp } from '../support/otp.js'
 // it's also what makes the visual difference in the comparison scenario.
 const INJECTED_CSS_SIGNATURE = 'body { background: #1a1208'
 
-// Default background declared in the auth-service login-page template when
-// no branding CSS is injected. Matches demo metadata's `background_color`.
-const DEFAULT_LOGIN_BG_RGB = 'rgb(248, 249, 250)' // #f8f9fa
+// Default page background the auth-service login-page renders when no
+// branding CSS is injected — the `--page-bg` CSS var's default value.
+// Since PR 110 the page no longer reads from client metadata's
+// `background_color`; only injected CSS (gated to trusted clients) can
+// retint it.
+const DEFAULT_LOGIN_BG_RGB = 'rgb(232, 232, 232)' // #E8E8E8
 
 async function waitForLoginPage(world: EpdsWorld): Promise<void> {
   const page = getPage(world)
@@ -200,18 +203,16 @@ When(
 When(
   'a user navigates to the account recovery page via the trusted demo client',
   async function (this: EpdsWorld) {
-    // Navigate to the auth-service login page via the trusted demo,
-    // which creates an auth flow with the trusted client_id.
+    // First reach the auth-service login page via the trusted demo so the
+    // auth_flow cookie carries the trusted client_id — recovery's CSS
+    // injection keys off that cookie. Then navigate to /auth/recover
+    // directly: PR 110 removed the login page's #recovery-link, so the
+    // recovery flow is only reachable via direct URL now.
     await navigateToAuthLoginPage(this, testEnv.demoTrustedUrl)
-
     const page = getPage(this)
-    // The recovery link is visible when the OTP step is showing
-    await expect(page.locator('#recovery-link')).toBeVisible({
-      timeout: 10_000,
-    })
-    await page.click('#recovery-link')
-    // Wait for the recovery page to load
-    await page.waitForURL('**/auth/recover**', { timeout: 30_000 })
+    await page.goto(
+      `${testEnv.authUrl}/auth/recover?request_uri=urn:ietf:params:oauth:request_uri:placeholder`,
+    )
   },
 )
 

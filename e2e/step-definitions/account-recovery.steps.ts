@@ -186,14 +186,15 @@ Given(
 When(
   'the user navigates to the recovery page',
   async function (this: EpdsWorld) {
+    // PR 110 removed the #recovery-link from the login page — recovery is
+    // no longer reachable from the OAuth login flow's UI, only via direct
+    // navigation. The auth_flow cookie set by the prior OAuth step carries
+    // the real request_uri used for the back-link; the URL's request_uri
+    // here is just a placeholder so the route's required-param check passes.
     const page = getPage(this)
-    await expect(page.locator('#recovery-link')).toBeVisible({
-      timeout: 30_000,
-    })
-    await Promise.all([
-      page.waitForURL('**/auth/recover**', { timeout: 30_000 }),
-      page.click('#recovery-link'),
-    ])
+    await page.goto(
+      `${testEnv.authUrl}/auth/recover?request_uri=urn:ietf:params:oauth:request_uri:placeholder`,
+    )
   },
 )
 
