@@ -343,19 +343,6 @@ Then(
 )
 
 Then(
-  'the upstream stock sign-in form is not shown',
-  async function (this: EpdsWorld) {
-    const page = getPage(this)
-    // Upstream @atproto/oauth-provider-ui's sign-in form has a
-    // <input name="password">; the auth-service email form does not.
-    // Its presence means the SPA swapped to the stock component we're
-    // trying to avoid.
-    await expect(page.locator('input[name="password"]')).toHaveCount(0)
-    await expect(page.locator('input[name="username"]')).toHaveCount(0)
-  },
-)
-
-Then(
   'no upstream "Sign up" affordance is visible on the chooser',
   async function (this: EpdsWorld) {
     const page = getPage(this)

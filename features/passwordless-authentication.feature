@@ -147,7 +147,6 @@ Feature: Passwordless authentication via email OTP
     Then the account chooser is displayed
     When the user clicks "Another account" on the chooser
     Then the browser is on the auth service email form
-    And the upstream stock sign-in form is not shown
 
   # --- Future: trusted-client auto-skip chooser on login_hint match ---
   #

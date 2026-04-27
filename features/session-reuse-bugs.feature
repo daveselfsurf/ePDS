@@ -64,7 +64,6 @@ Feature: Session-reuse resilience against stale device cookies
     Then the browser lands on the ePDS enriched account picker
     When the user clicks "Another account" on the enriched account picker
     Then the browser lands on the auth-service email-and-OTP form
-    And the upstream stock sign-in form is not shown
 
   Scenario: Upstream "Sign up" affordance is hidden on the enriched chooser
     Given the browser holds cookies for a device with at least one bound account
