@@ -167,7 +167,13 @@ export function shouldReuseSession(
   // Hint present and caller could not resolve a bindings list (cookie
   // pair was malformed or stale at pds-core): treat as no usable session.
   if (hintCtx.deviceBoundEmails === null) return false
-  return hintCtx.deviceBoundEmails.includes(resolvedEmail.toLowerCase())
+  // Lowercase both sides at comparison time. The current producer
+  // (pds-core's loadDeviceAccountEmails) already normalises, but the
+  // type is `string[]` and a future caller could supply mixed-case
+  // bindings — re-normalising here keeps the gate's correctness
+  // independent of producer discipline.
+  const target = resolvedEmail.toLowerCase()
+  return hintCtx.deviceBoundEmails.some((e) => e.toLowerCase() === target)
 }
 
 /** Derive the shared parent domain that pds-core's cookie-domain
