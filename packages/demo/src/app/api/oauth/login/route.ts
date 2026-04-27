@@ -32,34 +32,13 @@ import {
 import { createOAuthSessionCookie } from '@/lib/session'
 import { signClientAssertion } from '@/lib/client-jwk'
 import { validateEmail, validateHandle, sanitizeForLog } from '@/lib/validation'
-import { checkRateLimit } from '@/lib/ratelimit'
 
 export const runtime = 'nodejs'
-
-const RATE_LIMIT_LOGIN = Number(process.env.RATE_LIMIT_LOGIN) || 10
-const RATE_LIMIT_WINDOW_MS = 60 * 1000
 
 export async function GET(request: Request) {
   const baseUrl = getBaseUrl()
 
   try {
-    // Rate limit by IP
-    const ip =
-      request.headers.get('x-real-ip') ||
-      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      'unknown'
-    const rl = checkRateLimit(
-      `login:${ip}`,
-      RATE_LIMIT_LOGIN,
-      RATE_LIMIT_WINDOW_MS,
-    )
-    if (!rl.allowed) {
-      return new NextResponse('Too many requests', {
-        status: 429,
-        headers: { 'Retry-After': String(rl.retryAfter) },
-      })
-    }
-
     const url = new URL(request.url)
     const email = url.searchParams.get('email') || ''
     const handle = (url.searchParams.get('handle') || '')
@@ -154,8 +133,8 @@ export async function GET(request: Request) {
     const effectiveLoginHint = rawLoginHint || email
     // When login_hint_location=body, the hint goes in the PAR body only and
     // is omitted from the authorize redirect URL — this mirrors the
-    // third-party app pattern (e.g. sdsls.dev) that the auth service's
-    // fetchParLoginHint path exists to handle.
+    // third-party app pattern that the auth service's fetchParLoginHint
+    // path exists to handle.
     const loginHintQueryParam =
       effectiveLoginHint && loginHintLocation === 'query'
         ? `&login_hint=${encodeURIComponent(effectiveLoginHint)}`

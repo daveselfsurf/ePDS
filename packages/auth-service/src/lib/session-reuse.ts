@@ -57,6 +57,34 @@ export function hasDeviceSessionCookie(req: SessionReuseRequest): boolean {
   return hasDevId && hasSesId
 }
 
+/** Extract the raw `dev-id` and `ses-id` cookie values from the
+ *  request. Mirrors {@link hasDeviceSessionCookie}'s parsed-bag-then-raw
+ *  fallback so we never miss a cookie in configurations where
+ *  cookie-parser is not mounted. Returns null when either cookie is
+ *  missing or the raw header is malformed. */
+export function readDeviceSessionCookies(
+  req: SessionReuseRequest,
+): { devId: string; sesId: string } | null {
+  const fromBag = (name: string): string | null =>
+    req.cookies && typeof req.cookies[name] === 'string'
+      ? req.cookies[name]
+      : null
+  const fromRaw = (name: string): string | null => {
+    const raw = req.headers.cookie ?? ''
+    const m = raw.match(new RegExp(String.raw`(?:^|;\s*)${name}=([^;]*)`))
+    if (!m) return null
+    try {
+      return decodeURIComponent(m[1])
+    } catch {
+      return null
+    }
+  }
+  const devId = fromBag('dev-id') ?? fromRaw('dev-id')
+  const sesId = fromBag('ses-id') ?? fromRaw('ses-id')
+  if (!devId || !sesId) return null
+  return { devId, sesId }
+}
+
 /** True if the request carries either `dev-id` or `ses-id` but not
  *  both — a divergent cookie jar that should trigger a cleanup-clear
  *  on the next response rather than being treated as a usable session.
@@ -95,12 +123,57 @@ export function isForceLoginPrompt(req: SessionReuseRequest): boolean {
   return typeof p === 'string' && p === 'login'
 }
 
+/** Optional context for the hint-vs-bindings check that gates Flow 1
+ *  session reuse. When a `login_hint` resolves to an email and the
+ *  device has bound accounts, the auth-service must only reuse the
+ *  session if the hinted email is one of those bindings — otherwise
+ *  the chooser would either auto-select the wrong account (single
+ *  binding) or surface the hinted user's mailbox to a stranger
+ *  (multi-binding). On any miss we fall back to the email/OTP form,
+ *  leaving the device cookies intact so other accounts on the device
+ *  remain reusable on subsequent un-hinted visits.
+ *
+ *  - `resolvedEmail`: the lowercased email a `login_hint` resolved to,
+ *    or null when there was no hint or it could not be resolved.
+ *  - `deviceBoundEmails`: lowercased emails of every account bound to
+ *    the current (dev-id, ses-id) cookie pair, or null when the pair
+ *    was malformed/stale (in which case session reuse must be skipped
+ *    irrespective of any hint).
+ *
+ *  When `resolvedEmail` is null the hint check is bypassed and the
+ *  decision falls back to cookie presence — preserving the current
+ *  no-hint behaviour. */
+export type SessionReuseHintContext = {
+  resolvedEmail?: string | null
+  deviceBoundEmails?: string[] | null
+}
+
 /** True if the current /oauth/authorize request should be redirected to
  *  pds-core's upstream /oauth/authorize for session-reuse handling,
  *  bypassing the ePDS email/OTP form. */
-export function shouldReuseSession(req: SessionReuseRequest): boolean {
+export function shouldReuseSession(
+  req: SessionReuseRequest,
+  hintCtx?: SessionReuseHintContext,
+): boolean {
   if (isForceLoginPrompt(req)) return false
-  return hasDeviceSessionCookie(req)
+  if (!hasDeviceSessionCookie(req)) return false
+  // No hint to compare against: fall back to cookie-presence-only logic.
+  const resolvedEmail = hintCtx?.resolvedEmail
+  if (!resolvedEmail) return true
+  // Hint present but caller didn't supply a bindings list (legacy call
+  // sites): preserve existing behaviour rather than silently disabling
+  // reuse.
+  if (hintCtx.deviceBoundEmails === undefined) return true
+  // Hint present and caller could not resolve a bindings list (cookie
+  // pair was malformed or stale at pds-core): treat as no usable session.
+  if (hintCtx.deviceBoundEmails === null) return false
+  // Lowercase both sides at comparison time. The current producer
+  // (pds-core's loadDeviceAccountEmails) already normalises, but the
+  // type is `string[]` and a future caller could supply mixed-case
+  // bindings — re-normalising here keeps the gate's correctness
+  // independent of producer discipline.
+  const target = resolvedEmail.toLowerCase()
+  return hintCtx.deviceBoundEmails.some((e) => e.toLowerCase() === target)
 }
 
 /** Derive the shared parent domain that pds-core's cookie-domain

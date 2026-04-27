@@ -49,8 +49,10 @@ import {
   buildPdsAuthorizeRedirect,
   deriveSharedCookieDomain,
   hasOrphanDeviceCookie,
+  readDeviceSessionCookies,
   shouldReuseSession,
 } from '../lib/session-reuse.js'
+import { fetchDeviceAccountEmails } from '../lib/fetch-device-accounts.js'
 
 const logger = createLogger('auth:login-page')
 
@@ -107,6 +109,14 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
     // matching session (flow 1, login_hint matches) or render the
     // account chooser (flow 2, no hint).
     //
+    // Flow 1 hint-vs-bindings gate: when login_hint resolves to an
+    // email that is NOT bound to the current device, we skip the chooser
+    // redirect and fall through to the email/OTP form. Otherwise the
+    // chooser would either auto-select the wrong account (single
+    // binding) or surface the hinted user's mailbox to a stranger
+    // (multi-binding). Cookies are left intact so other accounts on the
+    // device remain reusable on subsequent un-hinted visits.
+    //
     // The prompt=login escape hatch (OIDC "force reauthentication") is
     // honoured inside shouldReuseSession — so the "Use a different
     // account" link on the chooser can redirect back here and force
@@ -122,7 +132,53 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
       headers: { cookie: req.headers.cookie },
       query: req.query as Record<string, unknown>,
     }
-    if (shouldReuseSession(sessionReuseReq)) {
+
+    // Resolve the login_hint up-front so we can decide whether the
+    // device session is a match before redirecting to pds-core. The
+    // resolution result is also reused below for the email/OTP form.
+    const pdsInternalUrl = ensurePdsUrl(
+      process.env.PDS_INTERNAL_URL,
+      ctx.config.pdsPublicUrl,
+    )
+    const internalSecret = process.env.EPDS_INTERNAL_SECRET ?? ''
+
+    let effectiveLoginHint = loginHint ?? null
+    if (!effectiveLoginHint && requestUri) {
+      effectiveLoginHint = await fetchParLoginHint(
+        pdsInternalUrl,
+        requestUri,
+        internalSecret,
+      )
+    }
+    const resolvedEmail = effectiveLoginHint
+      ? await resolveLoginHint(
+          effectiveLoginHint,
+          pdsInternalUrl,
+          internalSecret,
+        )
+      : null
+
+    // Only fetch device-bound emails when we actually need them: the
+    // cookie pair is present AND a hint resolved. Otherwise the existing
+    // cookie-only reuse logic stands and the round trip to pds-core is
+    // pure overhead.
+    let deviceBoundEmails: string[] | null | undefined
+    const cookiePair = readDeviceSessionCookies(sessionReuseReq)
+    if (resolvedEmail && cookiePair) {
+      deviceBoundEmails = await fetchDeviceAccountEmails(
+        pdsInternalUrl,
+        cookiePair.devId,
+        cookiePair.sesId,
+        internalSecret,
+      )
+    }
+
+    if (
+      shouldReuseSession(sessionReuseReq, {
+        resolvedEmail,
+        deviceBoundEmails,
+      })
+    ) {
       const target = buildPdsAuthorizeRedirect(
         ctx.config.pdsPublicUrl,
         req.query as Record<string, unknown>,
@@ -251,32 +307,10 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
     // The login_hint may be:
     //   a) On the query string as an email (from our demo app)
     //   b) On the query string as a handle/DID (unlikely but possible)
-    //   c) Only in the stored PAR request (third-party apps like sdsls.dev put
-    //      the handle in the PAR body but don't duplicate it on the redirect URL)
-    const pdsInternalUrl = ensurePdsUrl(
-      process.env.PDS_INTERNAL_URL,
-      ctx.config.pdsPublicUrl,
-    )
-    const internalSecret = process.env.EPDS_INTERNAL_SECRET ?? ''
-
-    // If no login_hint on the query string, try to retrieve it from the PAR request
-    let effectiveLoginHint = loginHint ?? null
-    if (!effectiveLoginHint && requestUri) {
-      effectiveLoginHint = await fetchParLoginHint(
-        pdsInternalUrl,
-        requestUri,
-        internalSecret,
-      )
-    }
-
-    // Resolve the hint (email, handle, or DID) to an email address
-    const resolvedEmail = effectiveLoginHint
-      ? await resolveLoginHint(
-          effectiveLoginHint,
-          pdsInternalUrl,
-          internalSecret,
-        )
-      : null
+    //   c) Only in the stored PAR request (third-party apps that put the
+    //      handle in the PAR body but don't duplicate it on the redirect URL)
+    // The hint was already resolved above for the session-reuse decision; we
+    // reuse `resolvedEmail` here rather than re-fetching.
     const hasLoginHint = !!resolvedEmail
     const initialStep = hasLoginHint ? 'otp' : 'email'
 

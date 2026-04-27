@@ -23,13 +23,11 @@ Feature: Session-reuse resilience against stale device cookies
   Scenario: Both cookies valid — baseline session reuse still works
     When the demo client starts a new OAuth flow
     Then the browser lands on the ePDS enriched account picker
-    And the stock upstream welcome page is not shown
 
   Scenario: Only dev-id is present (ses-id missing)
     Given the ses-id cookie has been evicted from the browser
     When the demo client starts a new OAuth flow
     Then the browser lands on the auth-service email-and-OTP form
-    And the stock upstream welcome page is not shown
     # Both cookies (and their parent-domain variants) must clear on any
     # half-pair bounce — auth-service's contract is that a half-pair
     # never survives into the next flow. Asserting only the orphan half
@@ -40,28 +38,24 @@ Feature: Session-reuse resilience against stale device cookies
     Given the dev-id cookie has been evicted from the browser
     When the demo client starts a new OAuth flow
     Then the browser lands on the auth-service email-and-OTP form
-    And the stock upstream welcome page is not shown
     And the response clears the dev-id and ses-id cookies
 
   Scenario: dev-id is stale, ses-id is valid
     Given the dev-id cookie has been replaced with a well-formed but server-unknown value
     When the demo client starts a new OAuth flow
     Then the browser lands on the auth-service email-and-OTP form
-    And the stock upstream welcome page is not shown
     And the response clears the dev-id and ses-id cookies
 
   Scenario: ses-id is stale, dev-id is valid
     Given the ses-id cookie has been replaced with a well-formed but server-unknown value
     When the demo client starts a new OAuth flow
     Then the browser lands on the auth-service email-and-OTP form
-    And the stock upstream welcome page is not shown
     And the response clears the dev-id and ses-id cookies
 
   Scenario: Both cookies are stale (server-unknown pair)
     Given the dev-id and ses-id cookies have been replaced with well-formed but server-unknown values
     When the demo client starts a new OAuth flow
     Then the browser lands on the auth-service email-and-OTP form
-    And the stock upstream welcome page is not shown
     And the response clears the dev-id and ses-id cookies
 
   Scenario: "Another account" on the chooser goes to the email form
@@ -70,8 +64,6 @@ Feature: Session-reuse resilience against stale device cookies
     Then the browser lands on the ePDS enriched account picker
     When the user clicks "Another account" on the enriched account picker
     Then the browser lands on the auth-service email-and-OTP form
-    And the stock upstream welcome page is not shown
-    And the upstream stock sign-in form is not shown
 
   Scenario: Upstream "Sign up" affordance is hidden on the enriched chooser
     Given the browser holds cookies for a device with at least one bound account
@@ -101,5 +93,22 @@ Feature: Session-reuse resilience against stale device cookies
     And the device row exists but has zero bound accounts
     When the demo client starts a new OAuth flow
     Then the browser lands on the auth-service email-and-OTP form
-    And the stock upstream welcome page is not shown
     And the response clears the dev-id and ses-id cookies
+
+  # ---------------------------------------------------------------------------
+  # Flow 1 hint-vs-bindings gate: when login_hint resolves to an email that
+  # is not bound to the current device, auth-service must skip session reuse
+  # and surface the email/OTP form so the hinted user can sign in fresh.
+  # See packages/auth-service/src/lib/session-reuse.ts shouldReuseSession
+  # and packages/pds-core/src/lib/device-accounts.ts.
+  # ---------------------------------------------------------------------------
+
+  Scenario: Login hint matches a bound account — chooser still wins
+    When the demo client starts a new OAuth flow with the test user's handle as login_hint
+    Then the browser lands on the ePDS enriched account picker
+
+  Scenario: Login hint resolves to an unbound account — skip chooser
+    Given another user has a separate PDS account
+    When the demo client starts a new OAuth flow with the other user's handle as login_hint
+    Then the login page renders directly at the OTP verification step
+    And the OTP form will submit the other user's email

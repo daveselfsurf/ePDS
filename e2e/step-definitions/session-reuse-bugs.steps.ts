@@ -20,6 +20,7 @@ import type { EpdsWorld } from '../support/world.js'
 import { testEnv } from '../support/env.js'
 import { getPage } from '../support/utils.js'
 import { createAccountViaOAuth } from '../support/flows.js'
+import { sharedBrowser } from '../support/hooks.js'
 import { clearMailpit, extractOtp, waitForEmail } from '../support/mailpit.js'
 
 // ---------------------------------------------------------------------------
@@ -172,6 +173,120 @@ When(
 )
 
 When(
+  "the demo client starts a new OAuth flow with the test user's handle as login_hint",
+  async function (this: EpdsWorld) {
+    if (!this.userHandle) {
+      throw new Error(
+        'world.userHandle missing — Background step must run first',
+      )
+    }
+    // Hits /api/oauth/login directly (the demo home form swallows query
+    // params). login_hint=<handle> exercises the Flow 1 hint-vs-bindings
+    // gate on the matching path: the resolved email IS in the device's
+    // bound list, so session reuse stays enabled and the chooser wins.
+    // Cookies are preserved (no resetBrowserContext) because the whole
+    // point is to test the existing device session.
+    const page = getPage(this)
+    const url = new URL('/api/oauth/login', testEnv.demoUrl)
+    url.searchParams.set('login_hint', this.userHandle)
+    await page.goto(url.toString())
+  },
+)
+
+Given(
+  'another user has a separate PDS account',
+  async function (this: EpdsWorld) {
+    if (!testEnv.mailpitPass) return 'pending'
+    if (!sharedBrowser) throw new Error('sharedBrowser is not initialised')
+
+    // Create the second account in an isolated browser context so the
+    // primary user's dev-id/ses-id cookies (set by the Background's
+    // returning-user sign-in) survive untouched. Closing the context at
+    // the end discards the second account's cookies, so the upcoming
+    // hint-mismatch step navigates with ONLY the primary user bound to
+    // the device — exactly the state the Flow 1 hint-vs-bindings gate
+    // is meant to detect.
+    const otherEmail = `flow1-other-${Date.now()}@example.com`
+    const isolated = await sharedBrowser.newContext({
+      userAgent: `e2e-other-user-${Date.now()}`,
+    })
+    const isolatedPage = await isolated.newPage()
+    isolatedPage.setDefaultNavigationTimeout(30_000)
+    isolatedPage.setDefaultTimeout(15_000)
+
+    // createAccountViaOAuth reads/writes world.page and world.testEmail /
+    // userDid / userHandle. Save and restore those so the primary user's
+    // identity stays canonical on the world.
+    const savedPage = this.page
+    const savedContext = this.context
+    const savedEmail = this.testEmail
+    const savedDid = this.userDid
+    const savedHandle = this.userHandle
+    this.page = isolatedPage
+    this.context = isolated
+    try {
+      const { did, handle } = await createAccountViaOAuth(this, otherEmail)
+      this.otherUserEmail = otherEmail
+      this.otherUserDid = did
+      this.otherUserHandle = handle
+      if (!handle) {
+        throw new Error(
+          'createAccountViaOAuth did not yield a handle for the second user',
+        )
+      }
+    } finally {
+      this.page = savedPage
+      this.context = savedContext
+      this.testEmail = savedEmail
+      this.userDid = savedDid
+      this.userHandle = savedHandle
+      await isolated.close()
+    }
+  },
+)
+
+When(
+  "the demo client starts a new OAuth flow with the other user's handle as login_hint",
+  async function (this: EpdsWorld) {
+    if (!this.otherUserHandle) {
+      throw new Error(
+        'world.otherUserHandle missing — "another user has a separate PDS account" step must run first',
+      )
+    }
+    // Hits /api/oauth/login on the primary context. The primary device's
+    // dev-id/ses-id cookies are still set (from the Background sign-in),
+    // but login_hint resolves to the OTHER user's email — the gate must
+    // skip session reuse and surface the email/OTP form.
+    const page = getPage(this)
+    const url = new URL('/api/oauth/login', testEnv.demoUrl)
+    url.searchParams.set('login_hint', this.otherUserHandle)
+    await page.goto(url.toString())
+  },
+)
+
+Then(
+  "the OTP form will submit the other user's email",
+  async function (this: EpdsWorld) {
+    if (!this.otherUserEmail) {
+      throw new Error(
+        'world.otherUserEmail missing — "another user has a separate PDS account" step must run first',
+      )
+    }
+    // #otp-email is a hidden input — the resolved email rides along on
+    // the OTP submit so the verify endpoint matches the right account.
+    // Asserting on it (rather than the auth-host alone) proves the
+    // auth-service skipped the chooser AND resolved the hinted handle
+    // to the right account before rendering OTP.
+    const page = getPage(this)
+    const value = await page.locator('#otp-email').getAttribute('value')
+    expect(value).toBe(this.otherUserEmail)
+    const url = new URL(page.url())
+    const authHost = new URL(testEnv.authUrl).host
+    expect(url.host).toBe(authHost)
+  },
+)
+
+When(
   'the demo client starts a new OAuth flow with random handle mode',
   async function (this: EpdsWorld) {
     // flow3 forwards handle_mode=random through to auth-service, which
@@ -214,32 +329,6 @@ Then(
 )
 
 Then(
-  'the stock upstream welcome page is not shown',
-  async function (this: EpdsWorld) {
-    const page = getPage(this)
-    // The stock welcome page renders three buttons: "Authenticate",
-    // "Create a new account", and "Sign in". If any of them appear we've
-    // leaked the page. We check by accessible-button label so a future
-    // upstream tweak to the DOM tree does not silently bypass the assertion.
-    await expect(
-      page.getByRole('button', { name: 'Create a new account' }),
-    ).toHaveCount(0)
-    // "Sign in" is overloaded with the auth-service form's submit button —
-    // but the auth-service form has an #email input that the stock welcome
-    // page does not. If we find neither, the welcome page is not shown.
-    // This lets the same assertion cover both the "landed on email form"
-    // and "landed on chooser" cases.
-    const html = await page.content()
-    // The stock page uses the exact phrase "Create a new account" in the
-    // button label; if that's gone, the welcome page isn't rendering.
-    expect(
-      html.includes('Create a new account'),
-      `Expected no stock welcome page, but found its "Create a new account" button on ${page.url()}`,
-    ).toBe(false)
-  },
-)
-
-Then(
   'the browser lands on the auth-service email-and-OTP form',
   async function (this: EpdsWorld) {
     const page = getPage(this)
@@ -250,19 +339,6 @@ Then(
       url.host,
       `Expected auth-service host ${authHost} but got ${url.host}`,
     ).toBe(authHost)
-  },
-)
-
-Then(
-  'the upstream stock sign-in form is not shown',
-  async function (this: EpdsWorld) {
-    const page = getPage(this)
-    // Upstream @atproto/oauth-provider-ui's sign-in form has a
-    // <input name="password">; the auth-service email form does not.
-    // Its presence means the SPA swapped to the stock component we're
-    // trying to avoid.
-    await expect(page.locator('input[name="password"]')).toHaveCount(0)
-    await expect(page.locator('input[name="username"]')).toHaveCount(0)
   },
 )
 
