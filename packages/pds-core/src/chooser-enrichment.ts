@@ -321,10 +321,10 @@ export function sha256Base64(input: string): string {
  *  `<`, or `&`. */
 export function escapeHtmlAttr(s: string): string {
   return s
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
 }
 
 /**
@@ -480,10 +480,12 @@ export interface ChooserEnrichmentDeps {
  * Pure factory: side-effect-free at module load, safe to construct in
  * unit tests with a synthetic request/response pair.
  */
+const DEFAULT_CHOOSER_ENRICHMENT_DEPS: ChooserEnrichmentDeps = {
+  resolveClientMetadata: (): Promise<ClientMetadata> => Promise.resolve({}),
+}
+
 export function createChooserEnrichmentMiddleware(
-  deps: ChooserEnrichmentDeps = {
-    resolveClientMetadata: (): Promise<ClientMetadata> => Promise.resolve({}),
-  },
+  deps: ChooserEnrichmentDeps = DEFAULT_CHOOSER_ENRICHMENT_DEPS,
 ) {
   const { resolveClientMetadata: resolveMeta, authOrigin = '' } = deps
 

@@ -320,9 +320,10 @@ Then(
     expect(count).toBeGreaterThan(0)
     for (let i = 0; i < count; i++) {
       const title = await emailLabels.nth(i).getAttribute('title')
+      const titleRepr = title === null ? 'null' : `"${title}"`
       expect(
         title,
-        `Row ${i}: expected .epds-email-label to carry the hidden handle as title=, got ${title === null ? 'null' : `"${title}"`}`,
+        `Row ${i}: expected .epds-email-label to carry the hidden handle as title=, got ${titleRepr}`,
       ).toBeTruthy()
       expect(title!.trim().length).toBeGreaterThan(0)
     }

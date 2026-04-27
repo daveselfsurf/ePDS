@@ -51,7 +51,7 @@ export function hasDeviceSessionCookie(req: SessionReuseRequest): boolean {
     !!req.cookies && typeof req.cookies[name] === 'string'
   const raw = req.headers.cookie ?? ''
   const hasFromRaw = (name: string): boolean =>
-    new RegExp(`(?:^|;\\s*)${name}=`).test(raw)
+    new RegExp(String.raw`(?:^|;\s*)${name}=`).test(raw)
   const hasDevId = hasFromBag('dev-id') || hasFromRaw('dev-id')
   const hasSesId = hasFromBag('ses-id') || hasFromRaw('ses-id')
   return hasDevId && hasSesId

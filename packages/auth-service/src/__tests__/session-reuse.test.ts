@@ -258,20 +258,20 @@ describe('deriveSharedCookieDomain (HYPER-268)', () => {
   })
 })
 
-describe('appendOrphanDeviceCookieClearHeaders (HYPER-268)', () => {
-  function makeRes(): {
-    append: (n: string, v: string) => void
-    calls: Array<[string, string]>
-  } {
-    const calls: Array<[string, string]> = []
-    return {
-      calls,
-      append(name: string, value: string) {
-        calls.push([name, value])
-      },
-    }
+function makeRes(): {
+  append: (n: string, v: string) => void
+  calls: Array<[string, string]>
+} {
+  const calls: Array<[string, string]> = []
+  return {
+    calls,
+    append(name: string, value: string) {
+      calls.push([name, value])
+    },
   }
+}
 
+describe('appendOrphanDeviceCookieClearHeaders', () => {
   it('emits host-only clears only when cookieDomain is null', () => {
     const res = makeRes()
     appendOrphanDeviceCookieClearHeaders(res, null)
@@ -299,7 +299,7 @@ describe('appendOrphanDeviceCookieClearHeaders (HYPER-268)', () => {
   })
 })
 
-describe('buildPdsAuthorizeRedirect (HYPER-268)', () => {
+describe('buildPdsAuthorizeRedirect', () => {
   const pds = 'https://pds.example'
 
   it('preserves a simple query string', () => {
