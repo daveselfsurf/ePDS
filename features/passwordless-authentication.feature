@@ -106,25 +106,27 @@ Feature: Passwordless authentication via email OTP
     When the user clicks "Authorize"
     Then the browser is redirected back to the untrusted demo client with a valid session
 
-  # Scenario C — Flow 2 + pre-approved client (across browser sessions):
-  # chooser is shown for confirmation, then the consent screen is shown
-  # again because upstream keys the persistent grant by `(deviceId,
-  # clientId, sub)` — the prior approval was made on a different device
-  # (the test resets the browser context between the approval and the
-  # second sign-in), so the grant doesn't carry over even though it's
-  # the same user/client. Cross-device grant reuse is a separate
-  # upstream/design question; tracked as a follow-up.
+  # Scenario C — Flow 2 + pre-approved client: chooser is still shown so
+  # the user can confirm, but after confirming the consent screen is
+  # skipped and the flow auto-redirects, because the prior approval is
+  # still on file (persistent grant keyed by (sub, clientId) in the
+  # authorized_client table, and the dev-id cookie is preserved from
+  # the pre-approval setup so upstream's session-reuse path engages).
+  # Requires the untrusted demo to run as a confidential client
+  # (token_endpoint_auth_method=private_key_jwt). Public clients hit
+  # upstream's force-consent rule (request-manager.js) and bypass the
+  # remembered-grant path entirely — see docker-compose.yml for the
+  # DEMO_UNTRUSTED_PRIVATE_JWK wiring.
   @email @session-reuse
-  Scenario: Signed-in user returning to an already-approved second client (flow 2, new device)
+  Scenario: Signed-in user returning to an already-approved second client auto-approves after confirming identity (flow 2)
     Given the user has already approved the untrusted demo client in a prior session
     And the user has a returning session on the trusted demo client in this browser
     When the untrusted demo client initiates an OAuth login via flow 2
     Then no new OTP email is sent to the test email
     And the account chooser is displayed
     When the user confirms their account on the chooser
-    Then a consent screen is displayed
-    When the user clicks "Authorize"
-    Then the browser is redirected back to the untrusted demo client with a valid session
+    Then no consent screen was shown during the second login
+    And the browser is redirected back to the untrusted demo client with a valid session
 
   # Scenario D — Flow 2 "Another account": from the chooser the user must
   # be able to opt out of session reuse and sign in as someone else.

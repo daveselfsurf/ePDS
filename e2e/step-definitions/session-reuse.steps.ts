@@ -18,18 +18,12 @@ import { Given, Then, When } from '@cucumber/cucumber'
 import { expect } from '@playwright/test'
 import type { EpdsWorld } from '../support/world.js'
 import { testEnv } from '../support/env.js'
-import { getPage, resetBrowserContext } from '../support/utils.js'
+import { getPage } from '../support/utils.js'
 import {
   createAccountViaOAuth,
   startSignUpAwaitingConsent,
 } from '../support/flows.js'
-import { sharedBrowser } from '../support/hooks.js'
-import {
-  countMessages,
-  clearMailpit,
-  waitForEmail,
-  extractOtp,
-} from '../support/mailpit.js'
+import { countMessages, clearMailpit } from '../support/mailpit.js'
 
 function requireUntrustedDemoUrl(): string {
   const url = testEnv.demoUntrustedUrl
@@ -110,26 +104,19 @@ Given(
     const email = this.testEmail
     await clearMailpit(email)
 
+    // The pre-approval Given that runs before this one has already
+    // bound the user's account to this device's dev-id and left the
+    // browser context intact. Starting an OAuth flow on the trusted
+    // demo therefore exercises the cross-client session-reuse path:
+    // auth-service detects the dev-id cookie and hands off to
+    // pds-core/upstream, which renders the chooser for confirmation
+    // (no OTP). The trusted client then auto-consents on the existing
+    // grant; we still click Authorize defensively in case a consent
+    // screen is rendered.
     await page.goto(testEnv.demoTrustedUrl)
     await page.fill('#email', email)
     await page.click('button[type=submit]')
-    await expect(page.locator('#step-otp.active')).toBeVisible({
-      timeout: 30_000,
-    })
 
-    const message = await waitForEmail(`to:${email}`)
-    const otp = await extractOtp(message.ID)
-    await page.fill('#code', otp)
-    await page.click('#form-verify-otp .btn-primary')
-
-    // Trusted demo returning user: post-OTP, auth-service hands off to
-    // pds-core/upstream, which loads the freshly-bound device session
-    // and renders the chooser for explicit confirmation (upstream does
-    // not auto-skip the chooser even on single-binding matches — see
-    // docs/design/cross-client-session-reuse.md). Click through the
-    // chooser, then click Authorize on the consent screen (auto-consent
-    // applies to fresh sign-ups, not to returning sign-ins), then land
-    // on /welcome.
     const pdsHost = new URL(testEnv.pdsUrl).host
     await page.waitForURL(
       (u) => u.host === pdsHost || /\/welcome(\?|$|#)/.test(u.pathname),
@@ -139,9 +126,6 @@ Given(
       await page.waitForLoadState('networkidle', { timeout: 30_000 })
       const authorize = page.getByRole('button', { name: 'Authorize' })
       if (await authorize.count()) {
-        // Click + wait for the navigation it triggers; clicking
-        // Authorize starts the redirect chain back to the demo
-        // client, so the click and the navigation race.
         await Promise.all([
           page.waitForURL('**/welcome', { timeout: 30_000 }),
           authorize.click({ noWaitAfter: true }),
@@ -164,7 +148,8 @@ Given(
       await page.waitForURL('**/welcome', { timeout: 30_000 })
     }
 
-    // Clear mail trap so the "no new OTP email" assertion starts clean.
+    // Clear mail trap so the "no new OTP email" assertion starts clean
+    // (no OTP should have been sent above, but we clear defensively).
     await clearMailpit(email)
   },
 )
@@ -189,11 +174,17 @@ Given(
     await page.getByRole('button', { name: 'Authorize' }).click()
     await page.waitForURL('**/welcome', { timeout: 30_000 })
 
-    // Reset context so the *next* sign-in (trusted demo) starts from a
-    // clean browser state. The session reuse we want to test is what
-    // happens between the trusted sign-in and the untrusted re-login —
-    // not carryover from this pre-approval setup.
-    await resetBrowserContext(this, sharedBrowser)
+    // Browser context is intentionally NOT reset here. The persistent
+    // grant created by the Authorize click above is keyed by
+    // (sub, clientId) in the authorized_client table, but upstream
+    // only finds it via the dev-id cookie (the device row carries the
+    // bound DIDs whose authorized_clients are then loaded). Resetting
+    // would mint a new dev-id, the device lookup would miss, the
+    // chooser wouldn't render, and the "no consent screen on return"
+    // assertion this scenario depends on would fail for the wrong
+    // reason (lost cookie instead of missing grant). Cross-scenario
+    // isolation is provided by the global Before hook in hooks.ts;
+    // intra-scenario state must survive.
   },
 )
 

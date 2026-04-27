@@ -245,11 +245,25 @@ single-binding plus a matching `login_hint` does NOT cause it to
 auto-issue the authorization code. The user always sees the chooser
 and must click "Continue" to proceed.
 
-The two scenarios that depended on auto-skip (Scenario A flow 1, and
-Scenario C already-approved flow 2) have been updated to expect the
-chooser hop. The semantically-correct behaviour for ePDS is now
-"chooser shown for confirmation"; auto-skip is treated as a separate
-opt-in feature, gated on per-client trust.
+Scenario A (flow 1, no prior approval) was updated to expect the
+chooser hop — auto-skipping the chooser on a verified `login_hint`
+match is a separate opt-in feature, gated on per-client trust (see
+predicate below).
+
+Scenario C (flow 2, prior approval on a confidential client) keeps
+the original "no consent screen on return" expectation. The chooser
+is still shown for explicit confirmation, but after the user clicks
+through it the persistent grant in `authorized_client` (keyed by
+`(sub, clientId)`) fires upstream's `checkConsentRequired` short-
+circuit and the flow auto-redirects to the RP. This only works when
+the client runs as confidential
+(`token_endpoint_auth_method=private_key_jwt`); upstream's
+`request-manager.js` force-overrides `prompt=consent` for untrusted
+public clients, so the grant lookup never gets a chance to fire.
+Both demo containers are wired as confidential clients to exercise
+this path — see the `EPDS_CLIENT_PRIVATE_JWK` /
+`DEMO_UNTRUSTED_PRIVATE_JWK` env vars in `docker-compose.yml` and
+`packages/demo/src/app/client-metadata.json/route.ts`.
 
 ### Security analysis: would auto-skipping the chooser be safe?
 
