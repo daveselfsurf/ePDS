@@ -435,6 +435,22 @@ setup_package_envs() {
     echo "  Generated EPDS_CLIENT_PRIVATE_JWK"
   fi
 
+  # The docker-compose stack runs a SECOND demo container (demo-untrusted,
+  # gated behind the `dev` profile) that shares packages/demo/.env via
+  # env_file. To keep the two demos as cryptographically distinct OAuth
+  # clients, override demo-untrusted's EPDS_CLIENT_PRIVATE_JWK from the
+  # top-level .env via DEMO_UNTRUSTED_PRIVATE_JWK (see docker-compose.yml).
+  # Generate that second key here so docker compose up works out of the box.
+  local existing_untrusted_jwk
+  existing_untrusted_jwk=$(read_env_var DEMO_UNTRUSTED_PRIVATE_JWK .env)
+  if [ -z "$existing_untrusted_jwk" ]; then
+    echo "Generating DEMO_UNTRUSTED_PRIVATE_JWK (ES256 P-256 private JWK)..."
+    local untrusted_jwk
+    untrusted_jwk=$(generate_es256_private_jwk)
+    set_env_var DEMO_UNTRUSTED_PRIVATE_JWK "$untrusted_jwk" .env
+    echo "  Generated DEMO_UNTRUSTED_PRIVATE_JWK"
+  fi
+
   prompt_demo
 
   echo ""

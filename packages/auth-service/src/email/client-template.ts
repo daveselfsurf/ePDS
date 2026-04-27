@@ -61,10 +61,13 @@ export function _clearTemplateCacheForTest(): void {
 }
 
 // SSRF-hardened fetch for email templates: HTTPS-only, no private IPs,
-// 5s timeout, 100KB body cap.
+// 5s timeout, 100KB body cap. EPDS_ALLOW_PRIVATE_IPS is the same opt-out
+// client-metadata fetch honours — local docker-compose e2e runs need it
+// because trusted clients are served from docker-internal IPs.
 const safeFetch = makeSafeFetch({
   timeoutMs: 5_000,
   maxBodyBytes: MAX_TEMPLATE_SIZE,
+  allowPrivateIps: process.env.EPDS_ALLOW_PRIVATE_IPS === 'true',
 })
 
 export async function fetchTemplate(uri: string): Promise<string | null> {

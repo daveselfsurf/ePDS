@@ -6,8 +6,20 @@ Signing in once in your browser now works across all apps that use this ePDS.
 
 **Affects:** End users, Client app developers, Operators
 
-**End users:** After you sign in once — via email OTP — with any app that uses this ePDS, a second app asking you to sign in can now skip the code email step entirely. Depending on how the app starts the sign-in, either (a) it takes you straight to the "approve this app" screen with no extra clicks, or (b) it shows you an account chooser with your identity on it so you can confirm "yes, use this account" (or switch to a different one). If none of the shown accounts is the one you want, a "Use a different account" link drops you back on the email form for a fresh sign-in. This matches how signing in once per browser works on mainstream identity providers.
+**End users:**
 
-**Client app developers:** The auth service's `/oauth/authorize` route now detects the upstream `@atproto/oauth-provider` device-session cookie (`dev-id`) on incoming requests and, when present, redirects the browser to pds-core's stock `/oauth/authorize` so upstream's session-selection middleware can handle the flow. Clients that supply a `login_hint` matching a bound account get OIDC-style auto-sign-in ("flow 1"); clients that do not get the upstream account chooser ("flow 2"). The OIDC `prompt=login` parameter is honoured on the auth-service side to force the email OTP form and bypass session reuse. pds-core's chooser is enriched via a small HTML response-rewrite script that surfaces each bound account's email address alongside the handle (random handles otherwise make the chooser unusable) and injects a "Use a different account" link pointing at the auth service with `prompt=login`.
+- After you sign in once with any app that uses this ePDS, a second app asking you to sign in skips the email code step.
+- Depending on the app, you either land straight on the "approve this app" screen or on an account chooser where you confirm which identity to reuse.
+- A "Use a different account" link on the chooser takes you back to the email form for a fresh sign-in.
+- The chooser shows your email next to your handle so accounts are easy to tell apart.
+- If your browser's leftover sign-in cookies no longer match the server, you land on the familiar email code form rather than a generic sign-in screen.
 
-**Operators:** No new configuration required. pds-core automatically detects whether the auth-service shares a parent domain with the PDS (by checking whether `AUTH_HOSTNAME` ends with `.<PDS_HOSTNAME>`) and broadens the upstream device-session cookies (`dev-id`, `ses-id`, and their `:hash` sidecars) to that parent domain so the auth service can read them. When the services are on unrelated hostnames — for example Railway preview environments where each service gets a random subdomain under `up.railway.app` (a public suffix) — the auto-detection finds no shared parent and the feature is silently disabled.
+**Client app developers:** no client-side changes required.
+
+- When a previous sign-in's cookies are present, the user lands on the account chooser to confirm which identity to reuse.
+- To force the email code form instead, append `&prompt=login` to the authorization URL the user is redirected to. ePDS reads this from the URL query string, not from the PAR body — see the `epds-login` skill for details.
+
+**Operators:** no new required configuration.
+
+- ePDS auto-detects whether the auth service shares a parent domain with the PDS (`AUTH_HOSTNAME` ends with `.<PDS_HOSTNAME>`) and broadens the device-session cookies to that parent so both services can read them. On unrelated hostnames (e.g. Railway preview envs under `up.railway.app`) the feature self-disables.
+- Untrusted OAuth clients should be wired as confidential (`token_endpoint_auth_method=private_key_jwt`) for the "remember previous approval" path to work. The reference docker stack does this automatically and `scripts/setup.sh` generates the necessary keypairs on first run.

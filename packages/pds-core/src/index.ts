@@ -54,12 +54,14 @@ import {
   createPreviewConsentHandler,
   renderPreviewIndex,
 } from './lib/preview-consent.js'
+import { createPreviewChooserHandler } from './lib/preview-chooser.js'
 import {
   createCookieDomainMiddleware,
   deriveCookieDomain,
 } from './cookie-domain.js'
 import { createChooserEnrichmentMiddleware } from './chooser-enrichment.js'
 import { createUpstreamFaviconMiddleware } from './upstream-favicon.js'
+import { createWelcomePageGuard } from './welcome-page-guard.js'
 
 const logger = createLogger('pds-core')
 
@@ -74,6 +76,9 @@ function installPreviewRoutes(
   opts: {
     previewConsentHandler: NonNullable<
       ReturnType<typeof createPreviewConsentHandler>
+    >
+    previewChooserHandler: NonNullable<
+      ReturnType<typeof createPreviewChooserHandler>
     >
     authHostname: string
     pdsPublicUrl: string
@@ -96,6 +101,7 @@ function installPreviewRoutes(
     )
   })
   app.get('/preview/consent', opts.previewConsentHandler)
+  app.get('/preview/chooser', opts.previewChooserHandler)
   app.get('/preview/cache-status', (_req: Request, res: Response) => {
     res.setHeader('Cache-Control', 'no-store')
     res.json({ now: Date.now(), entries: getClientMetadataCacheStatus() })
@@ -115,7 +121,7 @@ function installPreviewRoutes(
     res.json(result)
   })
   logger.info(
-    'Preview routes installed (PDS_PREVIEW_ROUTES=1): /preview, /preview/consent, /preview/cache-status, /preview/validate',
+    'Preview routes installed (PDS_PREVIEW_ROUTES=1): /preview, /preview/consent, /preview/chooser, /preview/cache-status, /preview/validate',
   )
 }
 
@@ -630,6 +636,61 @@ async function main() {
   }
 
   // =========================================================================
+  // Welcome-page guard: never let upstream render the three-button page
+  // =========================================================================
+  //
+  // The stock @atproto/oauth-provider welcome page (Authenticate / Create
+  // new account / Sign in / Cancel) appears whenever upstream ends up with
+  // a device that has zero bound accounts — due to partial cookie pairs,
+  // stale pairs, fixation-race device deletions, or the migration-005 1h
+  // TTL purge of remember=0 bindings. ePDS must never surface that page;
+  // users should always land on the email/OTP form or the enriched
+  // account picker. See docs/design/session-reuse-bugs.md.
+  //
+  // The guard intercepts /oauth/authorize and /account* before upstream's
+  // own middleware, checks for a valid cookie pair and non-empty bindings,
+  // and bounces to auth-service with stale cookies cleared when either
+  // check fails. All other requests pass through unchanged.
+
+  const welcomeGuardCookieDomain = deriveCookieDomain(
+    authHostname,
+    handleDomain,
+  )
+  const welcomePageGuardMiddleware = createWelcomePageGuard({
+    authHostname,
+    provider: provider ?? null,
+    cookieDomain: welcomeGuardCookieDomain,
+    logger,
+  })
+  pds.app.use(welcomePageGuardMiddleware)
+  // Fail closed: the guard has to run BEFORE upstream's OAuth / account
+  // middleware, otherwise it can never intercept the stock welcome
+  // page. If the Express `_router.stack` we rely on isn't exposed
+  // (Express 5, future pds-core swap), refuse to start rather than
+  // silently run the service with the guard defeated — the whole
+  // security value of this PR depends on the splice succeeding.
+  if (!stack) {
+    throw new Error(
+      'Welcome-page guard install failed: Express _router.stack is unavailable — refusing to start pds-core with an inert guard',
+    )
+  }
+  const guardLayer = stack.pop()
+  if (!guardLayer) {
+    throw new Error(
+      'Welcome-page guard install failed: middleware layer missing from stack after pop',
+    )
+  }
+  let guardIdx = 0
+  for (let i = 0; i < stack.length; i++) {
+    if (stack[i].name === 'expressInit') {
+      guardIdx = i + 1
+      break
+    }
+  }
+  stack.splice(guardIdx, 0, guardLayer)
+  logger.info('Welcome-page guard installed')
+
+  // =========================================================================
   // CSS injection for trusted OAuth clients
   // =========================================================================
   //
@@ -658,16 +719,28 @@ async function main() {
     logger,
   })
 
+  // auth-service origin baked into the injected enrichment script's
+  // "Another account" rebind, and into the chooser preview's
+  // <meta name="epds-auth-origin"> so the preview exercises the same
+  // rebind path. Hoisted above preview wiring so it's available to
+  // createPreviewChooserHandler. https for real hosts, http for
+  // localhost-flavoured dev.
+  const authOriginScheme =
+    authHostname === 'localhost' || authHostname.endsWith('.localhost')
+      ? 'http'
+      : 'https'
+  const authOrigin = `${authOriginScheme}://${authHostname}`
+
   // =========================================================================
   // Preview routes for iterating on branding.css
   // =========================================================================
   //
-  // Gated by PDS_PREVIEW_ROUTES=1. Renders the OAuth consent page with
-  // fixture hydration data so client-app developers can iterate on their
-  // branding.css without walking through the full OAuth flow. The CSS
-  // injection middleware above intercepts /preview/consent responses
-  // exactly like /oauth/authorize — the trusted-clients gate still
-  // applies. See docs/tutorial.md for the full reference.
+  // Gated by PDS_PREVIEW_ROUTES=1. Renders the OAuth consent + chooser
+  // pages with fixture hydration data so client-app developers can
+  // iterate on their branding.css without walking through the full
+  // OAuth flow. The CSS injection middleware above intercepts /preview/*
+  // responses exactly like /oauth/authorize — the trusted-clients gate
+  // still applies. See docs/tutorial.md for the full reference.
 
   const previewConsentHandler = createPreviewConsentHandler({
     trustedClients,
@@ -675,9 +748,17 @@ async function main() {
     getClientCss,
     logger,
   })
-  if (previewConsentHandler) {
+  const previewChooserHandler = createPreviewChooserHandler({
+    trustedClients,
+    resolveClientMetadata,
+    getClientCss,
+    authOrigin,
+    logger,
+  })
+  if (previewConsentHandler && previewChooserHandler) {
     installPreviewRoutes(pds.app, {
       previewConsentHandler,
+      previewChooserHandler,
       authHostname,
       pdsPublicUrl: pdsUrl,
       trustedClients,
@@ -695,28 +776,25 @@ async function main() {
   // hard for users to recognise, this is a real UX problem. We need
   // email alongside handle so users can identify themselves.
   //
-  // We also need a "Use a different account" escape hatch so users can
-  // sign in as someone else when the chooser presents only a session
-  // they don't want to reuse.
-  //
   // Strategy — reusing the PR #9 response-rewrite pattern:
   //   1. Intercept HTML responses from the upstream /account routes.
   //   2. Inject a <script> in the <head> (before the hydration script
   //      fires) that (a) captures the upstream deviceSessions payload
   //      via an accessor on window.__deviceSessions, (b) watches the
-  //      DOM after hydration, (c) appends each account's email as a
-  //      small label next to its handle, and (d) renders a
-  //      "Use a different account" link that redirects to
-  //      auth.<parent>/oauth/authorize?prompt=login&... preserving the
-  //      original OAuth params. See cross-client-session-reuse.md for the
-  //      design doc.
+  //      DOM after hydration, and (c) appends each account's email as
+  //      a small label next to its handle. See cross-client-session-reuse.md
+  //      for the design doc.
   //
   // Unlike PR #9's CSS injection, we're inserting JS — which requires
   // adding a script hash to the CSP script-src directive rather than
   // style-src.
 
-  const chooserEnrichmentMiddleware =
-    createChooserEnrichmentMiddleware(authHostname)
+  // authOrigin is computed above (preview wiring also needs it).
+
+  const chooserEnrichmentMiddleware = createChooserEnrichmentMiddleware({
+    resolveClientMetadata,
+    authOrigin,
+  })
 
   pds.app.use(chooserEnrichmentMiddleware)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing Express internal _router stack
@@ -785,7 +863,7 @@ async function main() {
   // Upstream's DeviceManager has no domain option, so we rewrite headers
   // rather than pass config.
 
-  const cookieDomain = deriveCookieDomain(authHostname, handleDomain)
+  const cookieDomain = welcomeGuardCookieDomain
   if (cookieDomain) {
     const cookieDomainMiddleware = createCookieDomainMiddleware(cookieDomain)
 

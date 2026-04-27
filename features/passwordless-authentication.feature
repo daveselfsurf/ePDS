@@ -58,31 +58,42 @@ Feature: Passwordless authentication via email OTP
   # or without (demo flow 2 — demo redirects straight to the authorization
   # server with no hint):
   #
-  #   Flow 1 + single bound account matching the hint:
-  #     → auto-skip OTP, auto-skip account chooser, auto-redirect to consent
-  #   Flow 2 + single bound account:
+  #   Flow 1 (login_hint supplied) + bound account matching the hint:
+  #     → auto-skip OTP, account chooser is shown for confirmation
+  #       (upstream @atproto/oauth-provider does not auto-skip the
+  #       chooser on a single-binding/login_hint match — it always
+  #       renders for explicit user confirmation), then consent
+  #   Flow 2 (no login_hint) + bound account:
   #     → auto-skip OTP, account chooser is shown so the user can confirm
   #       or switch account, then consent
-  #   Either flow + pre-approved client:
+  #   Either flow + pre-approved client (same device):
   #     → consent screen is skipped on top of everything else above
+  #
+  # See docs/design/cross-client-session-reuse.md "Findings: upstream
+  # chooser does not auto-skip on single binding" for the security
+  # analysis behind treating the chooser as the user's last-line
+  # consent surface, and for the trusted-client opt-in predicate that
+  # would let a future feature skip it on a verified login_hint match.
 
-  # Scenario A — Flow 1: a matching login_hint lets ePDS skip both the
-  # email OTP step and the account chooser (upstream oauth-provider
-  # auto-selects the matching session).
+  # Flow 1: a matching login_hint lets ePDS skip the email OTP step. The
+  # account chooser is still shown for explicit user confirmation
+  # (auto-skipping it on a verified login_hint match is a planned
+  # trusted-client opt-in; see the @pending scenarios below).
   @email @session-reuse
   Scenario: Signed-in user is not re-prompted for OTP by a second client (flow 1)
     Given the user has just signed in via the trusted demo client in this browser
     When the untrusted demo client initiates an OAuth login
     And the user enters the test email on the login page
     Then no new OTP email is sent to the test email
-    And the account chooser is not displayed
-    And a consent screen is displayed
+    And the account chooser is displayed
+    When the user confirms their account on the chooser
+    Then a consent screen is displayed
     When the user clicks "Authorize"
     Then the browser is redirected back to the untrusted demo client with a valid session
 
-  # Scenario B — Flow 2: no login_hint means ePDS must show the account
-  # chooser so the user can confirm which identity to reuse, even when
-  # there is only one bound account. The OTP step must still be skipped.
+  # Flow 2: no login_hint means ePDS must show the account chooser so the
+  # user can confirm which identity to reuse, even when there is only one
+  # bound account. The OTP step must still be skipped.
   @email @session-reuse
   Scenario: Signed-in user confirms their identity via the account chooser (flow 2)
     Given the user has just signed in via the trusted demo client in this browser
@@ -95,9 +106,24 @@ Feature: Passwordless authentication via email OTP
     When the user clicks "Authorize"
     Then the browser is redirected back to the untrusted demo client with a valid session
 
-  # Scenario C — Flow 2 + pre-approved client: chooser is still shown so
-  # the user can confirm, but after confirming the consent screen is
-  # skipped and the flow auto-redirects.
+  # Flow 2 + pre-approved client: chooser is still shown so the user can
+  # confirm, but after confirming the consent screen is skipped and the
+  # flow auto-redirects, because the prior approval is still on file
+  # (persistent grant keyed by (sub, clientId) in the authorized_client
+  # table, and the dev-id cookie is preserved from the pre-approval
+  # setup so upstream's session-reuse path engages).
+  #
+  # The trusted-client sign-in step in the middle is load-bearing: it
+  # exercises the U→T cross-client direction (a dev-id minted during
+  # the untrusted approval is reused by the trusted client to skip OTP).
+  # Without it the test would only prove the (sub, clientId) grant
+  # lookup works on a single-client flow.
+  #
+  # Requires the untrusted demo to run as a confidential client
+  # (token_endpoint_auth_method=private_key_jwt). Public clients hit
+  # upstream's force-consent rule (request-manager.js) and bypass the
+  # remembered-grant path entirely — see docker-compose.yml for the
+  # DEMO_UNTRUSTED_PRIVATE_JWK wiring.
   @email @session-reuse
   Scenario: Signed-in user returning to an already-approved second client auto-approves after confirming identity (flow 2)
     Given the user has already approved the untrusted demo client in a prior session
@@ -109,16 +135,93 @@ Feature: Passwordless authentication via email OTP
     Then no consent screen was shown during the second login
     And the browser is redirected back to the untrusted demo client with a valid session
 
-  # Scenario D — Flow 2 "use a different account": from the chooser the
-  # user must be able to opt out of session reuse and sign in as someone
-  # else. That should drop them back on the auth service email form.
+  # Flow 2 "Another account": from the chooser the user must be able to
+  # opt out of session reuse and sign in as someone else. Upstream's
+  # "Another account" button is a client-side component swap into
+  # upstream's stock sign-in form; ePDS must intercept the click and
+  # hard-navigate to the auth-service email/OTP form instead.
   @email @session-reuse
   Scenario: Signed-in user can sign in as a different account from the chooser
     Given the user has just signed in via the trusted demo client in this browser
     When the untrusted demo client initiates an OAuth login via flow 2
     Then the account chooser is displayed
-    When the user clicks "Use a different account" on the chooser
+    When the user clicks "Another account" on the chooser
     Then the browser is on the auth service email form
+    And the upstream stock sign-in form is not shown
+
+  # --- Future: trusted-client auto-skip chooser on login_hint match ---
+  #
+  # Sketches a planned opt-in feature where a *trusted* client whose
+  # metadata advertises `epds_skip_chooser_on_match: true` can skip the
+  # account chooser when its `login_hint` (resolved server-side from
+  # email to DID) matches a binding on the current device. Untrusted
+  # clients never auto-skip — see the security analysis in
+  # docs/design/cross-client-session-reuse.md "Findings: upstream
+  # chooser does not auto-skip on single binding". These are sketches
+  # of the intended behaviour, kept @pending until the feature lands.
+
+  # P1 — single binding, trusted client, login_hint matches: full
+  # auto-skip path (no OTP, no chooser, straight to consent or onward).
+  @email @session-reuse @pending
+  Scenario: Trusted client with matching login_hint auto-skips the chooser (single binding)
+    Given the user has just signed in via the trusted demo client in this browser
+    And the trusted demo client opts in to chooser auto-skip on login_hint match
+    When the trusted demo client initiates an OAuth login with the user's email as login_hint
+    Then no new OTP email is sent to the test email
+    And the account chooser is not displayed
+    And the browser is redirected back to the trusted demo client with a valid session
+
+  # P2 — multiple bindings, trusted client, login_hint matches one of
+  # them: auto-skip is still safe because the resolved-DID match
+  # uniquely disambiguates the chosen account.
+  @email @session-reuse @pending
+  Scenario: Trusted client with matching login_hint auto-skips the chooser (multiple bindings)
+    Given the user has bound multiple accounts to this device via the trusted demo client
+    And the trusted demo client opts in to chooser auto-skip on login_hint match
+    When the trusted demo client initiates an OAuth login with one bound account's email as login_hint
+    Then no new OTP email is sent to the test email
+    And the account chooser is not displayed
+    And the browser is redirected back to the trusted demo client signed in as the hinted account
+
+  # P3 — opt-in is mandatory: a trusted client that does NOT advertise
+  # the metadata flag must still see the chooser, even with a matching
+  # login_hint.
+  @email @session-reuse @pending
+  Scenario: Trusted client without auto-skip metadata still sees the chooser
+    Given the user has just signed in via the trusted demo client in this browser
+    And the trusted demo client does not opt in to chooser auto-skip on login_hint match
+    When the trusted demo client initiates an OAuth login with the user's email as login_hint
+    Then the account chooser is displayed
+
+  # P4 — trust gate is mandatory: an untrusted client must not be able
+  # to opt in to auto-skip even by setting the metadata flag.
+  @email @session-reuse @pending
+  Scenario: Untrusted client cannot auto-skip the chooser even with the metadata flag
+    Given the user has just signed in via the trusted demo client in this browser
+    And the untrusted demo client advertises chooser auto-skip on login_hint match
+    When the untrusted demo client initiates an OAuth login with the user's email as login_hint
+    Then the account chooser is displayed
+
+  # P5 — login_hint mismatch falls back to the chooser. The trusted
+  # client supplies a hint, but the resolved DID is not bound to this
+  # device; the user must pick a real binding from the chooser instead
+  # of being silently re-bound to a new account.
+  @email @session-reuse @pending
+  Scenario: Trusted client with non-matching login_hint falls back to the chooser
+    Given the user has just signed in via the trusted demo client in this browser
+    And the trusted demo client opts in to chooser auto-skip on login_hint match
+    When the trusted demo client initiates an OAuth login with an unbound email as login_hint
+    Then the account chooser is displayed
+
+  # P6 — flow 2 (no login_hint) never auto-skips, even for a trusted
+  # opted-in client. Without a hint there is nothing to disambiguate
+  # from, so picking silently would be drive-by binding.
+  @email @session-reuse @pending
+  Scenario: Trusted client without login_hint still sees the chooser (flow 2)
+    Given the user has just signed in via the trusted demo client in this browser
+    And the trusted demo client opts in to chooser auto-skip on login_hint match
+    When the trusted demo client initiates an OAuth login via flow 2
+    Then the account chooser is displayed
 
   # --- OTP configuration ---
 

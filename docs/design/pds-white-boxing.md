@@ -240,9 +240,14 @@ a different Node API for writing `Set-Cookie`.
 
 Middleware intercepts HTML responses for `GET /oauth/authorize` and
 `GET /account*` and injects a `<script>` tag at the start of `<head>` that
-(a) appends each bound account's email next to its handle in the chooser UI
-and (b) injects a "Use a different account" link pointing at
-`auth.<host>/oauth/authorize?prompt=login`. The injected script reads two
+(a) appends each bound account's email next to its handle in the chooser UI,
+(b) hides upstream's "Sign up" button on the chooser (ePDS routes signup
+through auth-service, not upstream), and (c) rebinds upstream's "Another
+account" button (`<div role="button" aria-label="Login to account that is
+not listed">`) with a capture-phase click listener that hard-navigates to
+`auth.<host>/oauth/authorize?prompt=login&<orig params>`, beating React's
+delegated root-level click handler and preventing the SPA from swapping
+the chooser for its stock sign-in form. The injected script reads two
 upstream globals set by the server-rendered SPA:
 
 ```ts
@@ -257,6 +262,17 @@ The enrichment script then walks the rendered DOM looking for leaf elements
 whose own text contains a known handle or DID, and appends the email as a
 sibling span. The middleware also appends a `sha256-<hash>` of the injected
 script to the response's CSP `script-src` directive.
+
+Per-request, the middleware additionally resolves the current OAuth flow's
+handle-assignment mode (query `epds_handle_mode` → client metadata
+`epds_handle_mode` → `EPDS_DEFAULT_HANDLE_MODE` env → `picker-with-random`,
+shared with auth-service via `resolveHandleMode` in
+`@certified-app/shared`) and injects a `<meta name="epds-handle-mode">`
+tag alongside the enrichment script. When the mode resolves to `random`,
+the runtime script hides each handle row and exposes the handle via a
+`title=` tooltip on the email label — the email remains the primary
+identifier. `meta` elements do not contribute to `script-src`, so the
+enrichment script stays hash-stable across all requests.
 
 Depends on:
 
@@ -302,6 +318,49 @@ re-authorization prompts for email/OTP again. If upstream starts setting
 `dev-id` under circumstances that don't actually indicate a usable device
 session, we'd redirect unconditionally and the user would bounce through
 pds-core back to the auth-service in a loop.
+
+### 18. Welcome-page guard pre-routes `/oauth/authorize` and `/account*`
+
+**File:** `packages/pds-core/src/welcome-page-guard.ts`, wired in
+`packages/pds-core/src/index.ts`
+
+A pre-route Express middleware intercepts `GET /oauth/authorize` and
+`GET /account*` before upstream's signin handler runs, parses the
+`dev-id`/`ses-id` cookie pair side-effect-free, and calls
+`provider.accountManager.listDeviceAccounts(deviceId)` to count bound
+accounts on the device. If the cookies are missing/malformed or the
+device has zero bindings, it responds `303` to auth-service's email
+form and clears the stale cookies. This makes upstream's three-button
+stock welcome page ("Authenticate / Create new account / Sign in /
+Cancel") structurally unreachable. See
+`docs/design/session-reuse-bugs.md` for the full failure-mode taxonomy.
+
+Depends on:
+
+- The public exports `DEVICE_ID_PREFIX`, `DEVICE_ID_BYTES_LENGTH`,
+  `SESSION_ID_PREFIX`, `SESSION_ID_BYTES_LENGTH`, and the `DeviceId`
+  branded type from `@atproto/oauth-provider`. Regex built from the
+  prefix and hex byte-length must keep parity with upstream's Zod
+  schemas in `device-id.ts` / `session-id.ts`.
+- `provider.accountManager.listDeviceAccounts(deviceId)` — the public
+  method that returns the DeviceAccount rows for a device. This is the
+  same call used by upstream's own chooser to populate `__sessions`.
+- `/oauth/authorize` and `/account*` remaining the only routes through
+  which upstream can render the stock welcome page.
+- Express `_router.stack` manipulation to splice this middleware right
+  after `expressInit` (same technique as items 4, 5, 15, 16).
+
+**Breakage scenario:** Upstream renames a constant, changes the DeviceId
+cookie format (e.g. switches from hex to base64url or from a "dev-"
+prefix), introduces a third route that can render the welcome page, or
+renames/removes `listDeviceAccounts` on the public AccountManager. The
+regex stops matching valid cookies — every request fails the parse step
+and bounces to auth-service, trapping users in a tight redirect loop
+even for completely valid sessions. A renamed `listDeviceAccounts` fails
+at build time (typecheck catches it), a changed signature fails
+similarly. Silent regression risk: a new upstream route that shows the
+welcome page without being `/oauth/authorize` or `/account*` is not
+caught by the guard and the stock page reappears.
 
 ## Moderate Risk (public APIs, less likely to break)
 

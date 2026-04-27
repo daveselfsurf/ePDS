@@ -53,6 +53,6 @@ export default () => ({
       'html:reports/e2e-session-reuse.html',
       'junit:reports/e2e-session-reuse.junit.xml',
     ],
-    tags: '@session-reuse',
+    tags: '@session-reuse and not @pending',
   },
 })

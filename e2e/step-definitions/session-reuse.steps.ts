@@ -18,18 +18,12 @@ import { Given, Then, When } from '@cucumber/cucumber'
 import { expect } from '@playwright/test'
 import type { EpdsWorld } from '../support/world.js'
 import { testEnv } from '../support/env.js'
-import { getPage, resetBrowserContext } from '../support/utils.js'
+import { getPage } from '../support/utils.js'
 import {
   createAccountViaOAuth,
   startSignUpAwaitingConsent,
 } from '../support/flows.js'
-import { sharedBrowser } from '../support/hooks.js'
-import {
-  countMessages,
-  clearMailpit,
-  waitForEmail,
-  extractOtp,
-} from '../support/mailpit.js'
+import { countMessages, clearMailpit } from '../support/mailpit.js'
 
 function requireUntrustedDemoUrl(): string {
   const url = testEnv.demoUntrustedUrl
@@ -110,24 +104,52 @@ Given(
     const email = this.testEmail
     await clearMailpit(email)
 
+    // The pre-approval Given that runs before this one has already
+    // bound the user's account to this device's dev-id and left the
+    // browser context intact. Starting an OAuth flow on the trusted
+    // demo therefore exercises the cross-client session-reuse path:
+    // auth-service detects the dev-id cookie and hands off to
+    // pds-core/upstream, which renders the chooser for confirmation
+    // (no OTP). The trusted client then auto-consents on the existing
+    // grant; we still click Authorize defensively in case a consent
+    // screen is rendered.
     await page.goto(testEnv.demoTrustedUrl)
     await page.fill('#email', email)
     await page.click('button[type=submit]')
-    await expect(page.locator('#step-otp.active')).toBeVisible({
-      timeout: 30_000,
-    })
 
-    const message = await waitForEmail(`to:${email}`)
-    const otp = await extractOtp(message.ID)
-    await page.fill('#code', otp)
-    await page.click('#form-verify-otp .btn-primary')
+    const pdsHost = new URL(testEnv.pdsUrl).host
+    await page.waitForURL(
+      (u) => u.host === pdsHost || /\/welcome(\?|$|#)/.test(u.pathname),
+      { timeout: 30_000 },
+    )
+    while (new URL(page.url()).host === pdsHost) {
+      await page.waitForLoadState('networkidle', { timeout: 30_000 })
+      const authorize = page.getByRole('button', { name: 'Authorize' })
+      if (await authorize.count()) {
+        await Promise.all([
+          page.waitForURL('**/welcome', { timeout: 30_000 }),
+          authorize.click({ noWaitAfter: true }),
+        ])
+        break
+      }
+      const emailLocator = page.locator(`text=${email}`).first()
+      if (await emailLocator.count()) {
+        const button = emailLocator
+          .locator('xpath=ancestor-or-self::button[1]')
+          .first()
+        if (await button.count()) await button.click()
+        else await emailLocator.click()
+      } else {
+        await page.locator('#root button').first().click()
+      }
+      await page.waitForLoadState('networkidle', { timeout: 30_000 })
+    }
+    if (!/\/welcome(\?|$|#)/.test(new URL(page.url()).pathname)) {
+      await page.waitForURL('**/welcome', { timeout: 30_000 })
+    }
 
-    // Trusted demo returning user: lands directly on /welcome, skipping
-    // both the handle picker (returning user already has a handle) and
-    // the consent screen (trusted client).
-    await page.waitForURL('**/welcome', { timeout: 30_000 })
-
-    // Clear mail trap so the "no new OTP email" assertion starts clean.
+    // Clear mail trap so the "no new OTP email" assertion starts clean
+    // (no OTP should have been sent above, but we clear defensively).
     await clearMailpit(email)
   },
 )
@@ -152,11 +174,17 @@ Given(
     await page.getByRole('button', { name: 'Authorize' }).click()
     await page.waitForURL('**/welcome', { timeout: 30_000 })
 
-    // Reset context so the *next* sign-in (trusted demo) starts from a
-    // clean browser state. The session reuse we want to test is what
-    // happens between the trusted sign-in and the untrusted re-login —
-    // not carryover from this pre-approval setup.
-    await resetBrowserContext(this, sharedBrowser)
+    // Browser context is intentionally NOT reset here. The persistent
+    // grant created by the Authorize click above is keyed by
+    // (sub, clientId) in the authorized_client table, but upstream
+    // only finds it via the dev-id cookie (the device row carries the
+    // bound DIDs whose authorized_clients are then loaded). Resetting
+    // would mint a new dev-id, the device lookup would miss, the
+    // chooser wouldn't render, and the "no consent screen on return"
+    // assertion this scenario depends on would fail for the wrong
+    // reason (lost cookie instead of missing grant). Cross-scenario
+    // isolation is provided by the global Before hook in hooks.ts;
+    // intra-scenario state must survive.
   },
 )
 
@@ -351,17 +379,19 @@ When(
 )
 
 /**
- * Click the "Use a different account" escape hatch on the chooser.
- * This link is injected by ePDS's post-hydration script (it is NOT
- * part of upstream's default chooser UI) and must redirect back to
- * auth-service's email/OTP form with a prompt=login (or equivalent)
- * flag so the redirect-on-session-detected path is bypassed.
+ * Click upstream's "Another account" button on the chooser. The button
+ * is rendered by @atproto/oauth-provider-ui with
+ * aria-label="Login to account that is not listed". ePDS must intercept
+ * the click (upstream swaps to its stock sign-in component client-side)
+ * and hard-navigate to the auth-service email/OTP form instead.
  */
 When(
-  'the user clicks {string} on the chooser',
-  async function (this: EpdsWorld, label: string) {
+  'the user clicks "Another account" on the chooser',
+  async function (this: EpdsWorld) {
     const page = getPage(this)
-    await page.getByRole('link', { name: label }).click()
+    await page
+      .getByRole('button', { name: 'Login to account that is not listed' })
+      .click()
   },
 )
 
@@ -371,8 +401,8 @@ When(
 
 /**
  * Assert the browser has landed on auth-service's email input form —
- * used by the "use a different account" scenario to check that the
- * user has been handed off back to the sign-in-as-someone-else path.
+ * used by the "Another account" scenario to check that the user has
+ * been handed off back to the sign-in-as-someone-else path.
  */
 Then(
   'the browser is on the auth service email form',
@@ -400,7 +430,10 @@ Then(
   'no consent screen was shown during the second login',
   async function (this: EpdsWorld) {
     const page = getPage(this)
-    expect(page.url()).toMatch(/\/welcome(\?|$|#)/)
+    // After the chooser confirm, upstream still has to issue the
+    // authorization code and bounce back to the demo's /welcome —
+    // wait for that redirect chain to settle before asserting.
+    await page.waitForURL(/\/welcome(\?|$|#)/, { timeout: 30_000 })
     await expect(page.getByRole('button', { name: 'Authorize' })).toHaveCount(0)
   },
 )

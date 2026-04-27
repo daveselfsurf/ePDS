@@ -5,15 +5,13 @@
  * `/account` as a compiled React SPA that shows each bound account as a
  * clickable row — handle only, no email. For ePDS deployments where
  * handles may be randomly generated, users can't tell which account is
- * theirs, so we augment the chooser in two ways via response rewriting:
- *
- *   1. Inject a post-hydration script that appends each account's email
- *      alongside the handle. The email is already present in the
- *      `__deviceSessions` hydration payload — upstream's SPA just does
- *      not render it.
- *   2. Inject a "Use a different account" link that redirects to
- *      `auth.<host>/oauth/authorize?prompt=login` with the original
- *      OAuth params, letting users opt out of session reuse.
+ * theirs, so we augment the chooser via response rewriting: inject a
+ * post-hydration script that (a) appends each account's email alongside
+ * the handle (email is already in `__deviceSessions` but not rendered),
+ * (b) hides upstream's "Sign up" affordance (ePDS signup goes through
+ * auth-service, not upstream), and (c) rebinds upstream's "Another
+ * account" button to hard-navigate to auth-service's email form instead
+ * of letting the upstream SPA swap to its stock sign-in form.
  *
  * The approach mirrors PR #9's CSS injection pattern for trusted-client
  * branding: intercept `/account*` HTML responses, inject a `<script>`
@@ -21,17 +19,20 @@
  */
 
 import { createHash } from 'node:crypto'
+import type {
+  ClientMetadata,
+  HandleMode,
+  ResolveClientMetadataOptions,
+} from '@certified-app/shared'
+import { resolveHandleMode, VALID_HANDLE_MODES } from '@certified-app/shared'
 
 /**
  * Build the post-hydration enrichment script injected into `/account*`
  * HTML responses. Returns a JS source string that will run in the
  * browser with the SPA's origin.
  *
- * The script is pure — it takes no runtime parameters beyond the
- * passed-in `authHostname`, which is baked into the generated code as
- * the target for the "Use a different account" link. That means the
- * script content (and its SHA256 hash used for CSP) is deterministic
- * per deployment.
+ * The script is pure — it takes no runtime parameters. That means the
+ * script content (and its SHA256 hash used for CSP) is deterministic.
  *
  * Design constraints the script must respect at runtime:
  *   - Idempotent: runs repeatedly via MutationObserver, must not
@@ -41,7 +42,7 @@ import { createHash } from 'node:crypto'
  *   - Self-contained: no external dependencies, no ES module imports —
  *     this runs in a plain `<script>` tag.
  */
-export function buildChooserEnrichmentScript(authHostname: string): string {
+export function buildChooserEnrichmentScript(): string {
   return `(function(){
   // Capture upstream's hydration data before the SPA reads it and unsets
   // the global. Two different globals carry the same account array shape
@@ -71,22 +72,53 @@ export function buildChooserEnrichmentScript(authHostname: string): string {
   interceptGlobal('__deviceSessions');
   interceptGlobal('__sessions');
 
-  // Build a link back to auth.<domain>/oauth/authorize?prompt=login with
-  // the original OAuth params. The authorize params live in the current
-  // URL's query string when the chooser renders inside /oauth/authorize,
-  // or are embedded in the hydration data; we use location.search as a
-  // best-effort source (works for /oauth/authorize; falls back to empty
-  // on /account standalone navigations).
-  function buildDifferentAccountHref() {
+  // Current OAuth flow's handle-assignment mode, written into a
+  // <meta name="epds-handle-mode"> by the pds-core middleware. When
+  // "random", the handle is a server-generated opaque string that the
+  // user never chose, so we hide it from the chooser and expose it only
+  // via a title= tooltip — the email remains the primary identifier.
+  // Any unknown / missing value disables hiding and renders handle +
+  // email side-by-side, same as pre-Layer-4 behaviour.
+  function readHandleMode() {
     try {
-      var u = new URL('https://${authHostname}/oauth/authorize');
-      var src = new URLSearchParams(window.location.search);
-      src.forEach(function(val, key) { u.searchParams.set(key, val); });
-      u.searchParams.set('prompt', 'login');
-      return u.toString();
-    } catch (_) {
-      return 'https://${authHostname}/oauth/authorize?prompt=login';
-    }
+      var meta = document.querySelector('meta[name="epds-handle-mode"]');
+      var v = meta && meta.getAttribute('content');
+      if (v === 'random' || v === 'picker' || v === 'picker-with-random') return v;
+    } catch (_) {}
+    return null;
+  }
+
+  // Auth-service origin for "Another account" click redirect, written
+  // into <meta name="epds-auth-origin"> by the pds-core middleware.
+  // Empty/missing → rebind is skipped and upstream's click handler runs
+  // (which swaps the chooser for upstream's stock sign-in form — not
+  // what we want, but fail-closed is worse than the upstream default).
+  function readAuthOrigin() {
+    try {
+      var meta = document.querySelector('meta[name="epds-auth-origin"]');
+      var v = meta && meta.getAttribute('content');
+      if (typeof v === 'string' && v) return v;
+    } catch (_) {}
+    return '';
+  }
+
+  // Build the auth-service URL the "Another account" rebind navigates
+  // to. prompt=login is OIDC's force-reauth signal; auth-service's
+  // shouldReuseSession honours it and falls through to the email form
+  // instead of redirecting back to pds-core's chooser. Preserves
+  // request_uri / client_id / scope etc. so the OAuth flow resumes
+  // after the new account signs in.
+  //
+  // Returns '' when there is no request_uri in the current URL
+  // (standalone /account navigation, bookmark, direct URL) — auth-service
+  // rejects /oauth/authorize without request_uri with a 400, so letting
+  // upstream handle the click is strictly better UX than a hard error
+  // page. The caller skips the rebind in that case.
+  function buildAnotherAccountUrl(authOrigin) {
+    var params = new URLSearchParams(window.location.search || '');
+    if (!params.has('request_uri')) return '';
+    params.set('prompt', 'login');
+    return authOrigin + '/oauth/authorize?' + params.toString();
   }
 
   // Enrich each visible account row with its email. Runs repeatedly
@@ -94,6 +126,8 @@ export function buildChooserEnrichmentScript(authHostname: string): string {
   // initial HTML delivery.
   function enrich() {
     if (!captured || !Array.isArray(captured)) return;
+    var handleMode = readHandleMode();
+    var hideHandle = handleMode === 'random';
     var byHandle = Object.create(null);
     var bySub = Object.create(null);
     captured.forEach(function(s) {
@@ -168,28 +202,103 @@ export function buildChooserEnrichmentScript(authHostname: string): string {
       } else {
         m.el.appendChild(label);
       }
-    });
 
-    // "Use a different account" link — inject once.
-    if (!document.getElementById('epds-use-different-account')) {
-      var root = document.getElementById('root');
-      if (root) {
-        var wrap = document.createElement('div');
-        wrap.style.cssText = 'text-align:center;margin:16px 0;';
-        var a = document.createElement('a');
-        a.id = 'epds-use-different-account';
-        a.href = buildDifferentAccountHref();
-        a.textContent = 'Use a different account';
-        a.style.cssText = 'color:#2563eb;text-decoration:underline;font-size:0.9em;';
-        wrap.appendChild(a);
-        root.appendChild(wrap);
+      // Random-handle mode: the handle is server-assigned gibberish
+      // the user never chose (e.g. "frail-ivy-cabbage.pds.example").
+      // We use display:none — which removes the element from the
+      // accessibility tree — intentionally. Announcing the opaque
+      // string to screen-reader users carries no semantic value and
+      // actively confuses the row's accessible name ("DID xyz, handle
+      // frail-ivy-cabbage, email alice@example"). The email label
+      // immediately below stays visible and announced; power users
+      // can still inspect the handle via the tooltip we set on it.
+      if (hideHandle) {
+        var ownText = (m.el.textContent || '').trim();
+        if (ownText) {
+          label.title = ownText;
+        }
+        m.el.style.display = 'none';
+      }
+    });
+  }
+
+  // Hide upstream's "Sign up" affordance on the chooser. ePDS does not
+  // route signups through upstream (account creation goes through
+  // auth-service's OTP flow), so upstream's button leads to a crash in
+  // its compiled bundle. Match by exact text content; the button lives
+  // inside #root alongside the chooser list. Idempotent via
+  // dataset.epdsHidden so the MutationObserver doesn't thrash.
+  function hideSignup() {
+    var root = document.getElementById('root');
+    if (!root) return;
+    var candidates = root.querySelectorAll('button, a');
+    for (var i = 0; i < candidates.length; i++) {
+      var el = candidates[i];
+      if (el.dataset && el.dataset.epdsHidden) continue;
+      var text = (el.textContent || '').trim();
+      if (text === 'Sign up') {
+        el.style.display = 'none';
+        el.setAttribute('aria-hidden', 'true');
+        if (el.dataset) el.dataset.epdsHidden = '1';
       }
     }
   }
 
+  // Rebind upstream's "Another account" button so clicking it hard-
+  // navigates to auth-service's email form instead of letting upstream's
+  // React SPA swap the chooser for its stock sign-in component. Handler
+  // is attached in capture phase so it runs before React's delegated
+  // root-level listener. Idempotent via dataset.epdsRebound.
+  function rebindAnotherAccount(authOrigin) {
+    if (!authOrigin) return;
+    // No request_uri on the current URL means we have no OAuth flow to
+    // resume — buildAnotherAccountUrl would produce a URL auth-service
+    // 400s on. Leave upstream's default handler alone in that case.
+    if (!buildAnotherAccountUrl(authOrigin)) return;
+    var root = document.getElementById('root');
+    if (!root) return;
+    // Upstream @atproto/oauth-provider-ui renders this as a
+    // div-with-role, NOT a native button:
+    //   <div role="button" aria-label="Login to account that is not listed">
+    //     Another account
+    //   </div>
+    // The aria-label is more stable across upstream copy changes than
+    // the visible text, so match on that with a text-content fallback
+    // scoped to anything with role=button (div OR button).
+    var btn = root.querySelector(
+      '[role="button"][aria-label="Login to account that is not listed"]',
+    );
+    if (!btn) {
+      var candidates = root.querySelectorAll('[role="button"]');
+      for (var i = 0; i < candidates.length; i++) {
+        if ((candidates[i].textContent || '').trim() === 'Another account') {
+          btn = candidates[i];
+          break;
+        }
+      }
+    }
+    if (!btn || (btn.dataset && btn.dataset.epdsRebound)) return;
+    btn.addEventListener(
+      'click',
+      function (e) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        window.location.href = buildAnotherAccountUrl(authOrigin);
+      },
+      true,
+    );
+    if (btn.dataset) btn.dataset.epdsRebound = '1';
+  }
+
   function start() {
-    enrich();
-    var obs = new MutationObserver(function(){ enrich(); });
+    var authOrigin = readAuthOrigin();
+    function tick() {
+      enrich();
+      hideSignup();
+      rebindAnotherAccount(authOrigin);
+    }
+    tick();
+    var obs = new MutationObserver(tick);
     obs.observe(document.documentElement, { childList: true, subtree: true });
   }
   if (document.readyState === 'loading') {
@@ -203,6 +312,19 @@ export function buildChooserEnrichmentScript(authHostname: string): string {
 /** SHA256-in-base64 hash of an arbitrary string, CSP-style. */
 export function sha256Base64(input: string): string {
   return createHash('sha256').update(input).digest('base64')
+}
+
+/** Escape a string for safe interpolation into a double-quoted HTML
+ *  attribute value. Used for operator-configured inputs like authOrigin
+ *  — not strictly user-controlled, but cheap defense-in-depth against
+ *  attribute-escape injection if a misconfigured value contains `"`,
+ *  `<`, or `&`. */
+export function escapeHtmlAttr(s: string): string {
+  return s
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
 }
 
 /**
@@ -278,6 +400,24 @@ export function injectScriptIntoHead(
 }
 
 /**
+ * Inject a `<meta name="epds-handle-mode" content="...">` tag into the
+ * `<head>` so the client-side enrichment script can read the current
+ * OAuth flow's handle-assignment mode. Per-request value, stable tag
+ * structure — no CSP impact because meta elements are not executable.
+ *
+ * Returns { body, injected } where `injected` is false if no `<head>`
+ * was found (same contract as `injectScriptIntoHead`), so callers can
+ * skip stale Content-Length stripping in that case.
+ */
+export function injectHandleModeMeta(
+  body: string,
+  handleMode: HandleMode,
+): { body: string; injected: boolean } {
+  const metaTag = `<meta name="epds-handle-mode" content="${handleMode}">`
+  return injectScriptIntoHead(body, metaTag)
+}
+
+/**
  * Minimal shape of `http.ServerResponse` we need to wrap in the
  * chooser-enrichment middleware. We only call setHeader, end,
  * removeHeader, and read headersSent; keeping the type narrow lets
@@ -291,14 +431,36 @@ export interface ChooserEnrichmentResponse {
   readonly headersSent: boolean
 }
 
-/** Minimal Express request shape consumed by the middleware. */
+/** Minimal Express request shape consumed by the middleware. Includes
+ *  an optional `query` because the handle-mode resolver reads
+ *  `epds_handle_mode` / `client_id` off the authorize URL when
+ *  present; requests without parsed query treat those as absent and
+ *  fall back through the resolver's precedence chain. */
 export interface ChooserEnrichmentRequest {
   method: string
   path: string
+  query?: Record<string, unknown>
 }
 
 /** Minimal Express middleware `next()` callback. */
 export type ChooserEnrichmentNext = () => void
+
+/** Factory deps for the chooser-enrichment middleware. */
+export interface ChooserEnrichmentDeps {
+  /** Client-metadata resolver — same function the CSS-injection
+   *  middleware uses. Passed in so tests can stub without network. */
+  resolveClientMetadata: (
+    clientId: string,
+    options?: ResolveClientMetadataOptions,
+  ) => Promise<ClientMetadata>
+  /** Auth-service origin (e.g. "https://auth.example") used by the
+   *  injected script's "Another account" rebind to hard-navigate to
+   *  the email form instead of letting upstream's SPA swap to its
+   *  stock sign-in component. Written into a
+   *  <meta name="epds-auth-origin"> tag per request. Empty string
+   *  disables the rebind. */
+  authOrigin?: string
+}
 
 /**
  * Build the Express middleware that intercepts HTML responses for the
@@ -308,23 +470,83 @@ export type ChooserEnrichmentNext = () => void
  * header/body rewriting — same hot-path pattern as the cookie-domain
  * middleware.
  *
+ * Per-request work: the middleware resolves the current OAuth flow's
+ * handle-assignment mode from `req.query.epds_handle_mode` and the
+ * client-metadata cache, and injects a `<meta name="epds-handle-mode">`
+ * tag so the static enrichment script can hide the handle (with a
+ * title= tooltip) when the mode is `random`. Meta tags don't contribute
+ * to CSP script-src, so the script hash remains stable.
+ *
  * Pure factory: side-effect-free at module load, safe to construct in
  * unit tests with a synthetic request/response pair.
  */
-export function createChooserEnrichmentMiddleware(authHostname: string) {
-  const enrichmentJs = buildChooserEnrichmentScript(authHostname)
+const DEFAULT_CHOOSER_ENRICHMENT_DEPS: ChooserEnrichmentDeps = {
+  resolveClientMetadata: (): Promise<ClientMetadata> => Promise.resolve({}),
+}
+
+export function createChooserEnrichmentMiddleware(
+  deps: ChooserEnrichmentDeps = DEFAULT_CHOOSER_ENRICHMENT_DEPS,
+) {
+  const { resolveClientMetadata: resolveMeta, authOrigin = '' } = deps
+
+  const enrichmentJs = buildChooserEnrichmentScript()
   const enrichmentScriptHash = sha256Base64(enrichmentJs)
   const enrichmentScriptTag = `<script>${enrichmentJs}</script>`
+  // authOrigin is operator-configured (derived from AUTH_HOSTNAME) and
+  // always a valid origin URL in practice, but we HTML-escape it
+  // anyway so a misconfiguration can't break the rewritten page or
+  // enable attribute-escape injection.
+  const authOriginMetaTag = `<meta name="epds-auth-origin" content="${escapeHtmlAttr(authOrigin)}">`
 
-  return function chooserEnrichmentMiddleware(
+  return async function chooserEnrichmentMiddleware(
     req: ChooserEnrichmentRequest,
     res: ChooserEnrichmentResponse,
     next: ChooserEnrichmentNext,
-  ): void {
+  ): Promise<void> {
     if (!isChooserRequest(req)) {
       next()
       return
     }
+
+    // Resolve the handle-assignment mode for this flow so the script
+    // can decide whether to hide the handle. Uses the same three-level
+    // precedence as auth-service (query > client metadata > env default)
+    // via the shared resolver — otherwise the signup page and the
+    // chooser can disagree about whether handles are user-chosen.
+    //
+    // We await the client-metadata lookup before wiring up res.end so
+    // the injected <meta name="epds-handle-mode"> deterministically
+    // reflects whatever the resolver returns. A fire-and-forget
+    // .then() would race against upstream's synchronous res.end, which
+    // can run in the same call stack as next() and beat the microtask.
+    // On a warm cache the resolver is effectively synchronous; on
+    // cache miss we pay the network fetch here, matching auth-
+    // service's safeResolveClientMetadata contract. Failure degrades
+    // silently to the query/env-derived fallback.
+    const query = req.query ?? {}
+    const clientId =
+      typeof query.client_id === 'string' ? query.client_id : undefined
+    const queryMode =
+      typeof query.epds_handle_mode === 'string'
+        ? query.epds_handle_mode
+        : undefined
+    let metaMode: string | undefined
+    if (clientId) {
+      try {
+        const meta = await resolveMeta(clientId)
+        const raw = meta.epds_handle_mode
+        if (
+          typeof raw === 'string' &&
+          (VALID_HANDLE_MODES as readonly string[]).includes(raw)
+        ) {
+          metaMode = raw
+        }
+      } catch {
+        // Degrade silently: metaMode stays undefined so resolveHandleMode
+        // falls through to the query value or the env default.
+      }
+    }
+    const handleMode = resolveHandleMode(queryMode, metaMode)
 
     // Wrap res.setHeader to append our script hash to CSP script-src.
     const origSetHeader = res.setHeader.bind(res)
@@ -356,10 +578,21 @@ export function createChooserEnrichmentMiddleware(authHostname: string) {
         res.removeHeader('Content-Length')
         res.removeHeader('ETag')
       }
+      // Meta + script: inject both in a single <head> rewrite.
+      // Order matters — the meta tag must appear before the script
+      // tag in the DOM so the script can read document.querySelector
+      // on DOMContentLoaded without needing a second MutationObserver
+      // pass just for the meta. `handleMode` was finalised above
+      // before next() ran, so no race with upstream's synchronous
+      // res.end.
+      const combinedHeadInjection =
+        `<meta name="epds-handle-mode" content="${handleMode}">` +
+        authOriginMetaTag +
+        enrichmentScriptTag
       if (typeof chunk === 'string') {
         const { body, injected } = injectScriptIntoHead(
           chunk,
-          enrichmentScriptTag,
+          combinedHeadInjection,
         )
         if (injected) {
           chunk = body
@@ -368,7 +601,7 @@ export function createChooserEnrichmentMiddleware(authHostname: string) {
       } else if (Buffer.isBuffer(chunk)) {
         const { body, injected } = injectScriptIntoHead(
           chunk.toString('utf-8'),
-          enrichmentScriptTag,
+          combinedHeadInjection,
         )
         if (injected) {
           chunk = body

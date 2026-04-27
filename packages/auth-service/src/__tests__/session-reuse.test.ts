@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  appendOrphanDeviceCookieClearHeaders,
   buildPdsAuthorizeRedirect,
+  deriveSharedCookieDomain,
   hasDeviceSessionCookie,
+  hasOrphanDeviceCookie,
   isForceLoginPrompt,
   shouldReuseSession,
   type SessionReuseRequest,
@@ -22,24 +25,51 @@ function makeReq(
 }
 
 describe('hasDeviceSessionCookie (HYPER-268)', () => {
-  it('returns true when req.cookies has a dev-id entry', () => {
-    expect(
-      hasDeviceSessionCookie(makeReq({ cookies: { 'dev-id': 'abc' } })),
-    ).toBe(true)
-  })
-
-  it('returns true when the raw Cookie header contains dev-id', () => {
-    expect(
-      hasDeviceSessionCookie(makeReq({ cookieHeader: 'dev-id=xyz' })),
-    ).toBe(true)
-  })
-
-  it('returns true when dev-id is not the first cookie in the header', () => {
+  it('returns true only when BOTH dev-id and ses-id are present in the cookie bag', () => {
     expect(
       hasDeviceSessionCookie(
-        makeReq({ cookieHeader: 'foo=1; dev-id=xyz; bar=2' }),
+        makeReq({ cookies: { 'dev-id': 'abc', 'ses-id': 'xyz' } }),
       ),
     ).toBe(true)
+  })
+
+  it('returns true when both cookies are present in the raw Cookie header', () => {
+    expect(
+      hasDeviceSessionCookie(
+        makeReq({ cookieHeader: 'dev-id=xyz; ses-id=abc' }),
+      ),
+    ).toBe(true)
+  })
+
+  it('returns true when the pair is not the first set of cookies', () => {
+    expect(
+      hasDeviceSessionCookie(
+        makeReq({
+          cookieHeader: 'foo=1; dev-id=xyz; bar=2; ses-id=abc; baz=3',
+        }),
+      ),
+    ).toBe(true)
+  })
+
+  it('returns false when only dev-id is present (half-pair)', () => {
+    // Half-pair is the Layer 1 regression scenario: upstream's
+    // DeviceManager can't hydrate a session from it and would render
+    // the stock welcome page if we redirected upstream.
+    expect(
+      hasDeviceSessionCookie(makeReq({ cookies: { 'dev-id': 'abc' } })),
+    ).toBe(false)
+    expect(
+      hasDeviceSessionCookie(makeReq({ cookieHeader: 'dev-id=xyz' })),
+    ).toBe(false)
+  })
+
+  it('returns false when only ses-id is present (half-pair)', () => {
+    expect(
+      hasDeviceSessionCookie(makeReq({ cookies: { 'ses-id': 'xyz' } })),
+    ).toBe(false)
+    expect(
+      hasDeviceSessionCookie(makeReq({ cookieHeader: 'ses-id=abc' })),
+    ).toBe(false)
   })
 
   it('returns false when no cookies are present', () => {
@@ -54,10 +84,11 @@ describe('hasDeviceSessionCookie (HYPER-268)', () => {
     ).toBe(false)
   })
 
-  it('is not fooled by a cookie whose name contains dev-id as a substring', () => {
-    // "not-dev-id=" should NOT match — only a real dev-id cookie should.
+  it('is not fooled by substring matches in other cookie names', () => {
     expect(
-      hasDeviceSessionCookie(makeReq({ cookieHeader: 'not-dev-id=abc' })),
+      hasDeviceSessionCookie(
+        makeReq({ cookieHeader: 'not-dev-id=abc; not-ses-id=xyz' }),
+      ),
     ).toBe(false)
   })
 
@@ -65,11 +96,66 @@ describe('hasDeviceSessionCookie (HYPER-268)', () => {
     expect(
       hasDeviceSessionCookie(
         makeReq({
-          cookies: { 'dev-id': 'abc' },
+          cookies: { 'dev-id': 'abc', 'ses-id': 'xyz' },
           cookieHeader: 'nothing-here=1',
         }),
       ),
     ).toBe(true)
+  })
+
+  it('accepts pair across bag + raw header (one source each)', () => {
+    // Guarding against a regression where either source alone had to
+    // carry both cookies. As long as dev-id and ses-id are BOTH visible
+    // via any source, we treat the device session as usable.
+    expect(
+      hasDeviceSessionCookie(
+        makeReq({
+          cookies: { 'dev-id': 'abc' },
+          cookieHeader: 'ses-id=xyz',
+        }),
+      ),
+    ).toBe(true)
+  })
+})
+
+describe('hasOrphanDeviceCookie (HYPER-268)', () => {
+  it('reports neither cookie present for a fresh visitor', () => {
+    const r = hasOrphanDeviceCookie(makeReq())
+    expect(r).toEqual({ devId: false, sesId: false, isOrphan: false })
+  })
+
+  it('reports both cookies present and no orphan when the pair is complete', () => {
+    const r = hasOrphanDeviceCookie(
+      makeReq({ cookies: { 'dev-id': 'a', 'ses-id': 'b' } }),
+    )
+    expect(r).toEqual({ devId: true, sesId: true, isOrphan: false })
+  })
+
+  it('reports orphan when only dev-id is present', () => {
+    const r = hasOrphanDeviceCookie(makeReq({ cookies: { 'dev-id': 'a' } }))
+    expect(r).toEqual({ devId: true, sesId: false, isOrphan: true })
+  })
+
+  it('reports orphan when only ses-id is present', () => {
+    const r = hasOrphanDeviceCookie(makeReq({ cookies: { 'ses-id': 'b' } }))
+    expect(r).toEqual({ devId: false, sesId: true, isOrphan: true })
+  })
+
+  it('falls back to the raw header when the cookie bag is absent', () => {
+    expect(
+      hasOrphanDeviceCookie(makeReq({ cookieHeader: 'dev-id=a' })),
+    ).toEqual({
+      devId: true,
+      sesId: false,
+      isOrphan: true,
+    })
+    expect(
+      hasOrphanDeviceCookie(makeReq({ cookieHeader: 'ses-id=b' })),
+    ).toEqual({
+      devId: false,
+      sesId: true,
+      isOrphan: true,
+    })
   })
 })
 
@@ -94,8 +180,6 @@ describe('isForceLoginPrompt (HYPER-268)', () => {
   })
 
   it('returns false when prompt is an array', () => {
-    // Express parses repeated query params as arrays; we only honour
-    // plain string prompt=login, not the edge case.
     expect(isForceLoginPrompt(makeReq({ query: { prompt: ['login'] } }))).toBe(
       false,
     )
@@ -103,26 +187,119 @@ describe('isForceLoginPrompt (HYPER-268)', () => {
 })
 
 describe('shouldReuseSession (HYPER-268)', () => {
-  it('returns true when dev-id is set and prompt is absent', () => {
-    expect(shouldReuseSession(makeReq({ cookies: { 'dev-id': 'abc' } }))).toBe(
-      true,
+  it('returns true when the full dev-id/ses-id pair is present and prompt is absent', () => {
+    expect(
+      shouldReuseSession(
+        makeReq({ cookies: { 'dev-id': 'a', 'ses-id': 'b' } }),
+      ),
+    ).toBe(true)
+  })
+
+  it('returns false when only dev-id is present (half-pair)', () => {
+    expect(shouldReuseSession(makeReq({ cookies: { 'dev-id': 'a' } }))).toBe(
+      false,
     )
   })
 
-  it('returns false when dev-id is set but prompt=login', () => {
+  it('returns false when only ses-id is present (half-pair)', () => {
+    expect(shouldReuseSession(makeReq({ cookies: { 'ses-id': 'b' } }))).toBe(
+      false,
+    )
+  })
+
+  it('returns false when the full pair is present but prompt=login', () => {
     expect(
       shouldReuseSession(
-        makeReq({ cookies: { 'dev-id': 'abc' }, query: { prompt: 'login' } }),
+        makeReq({
+          cookies: { 'dev-id': 'a', 'ses-id': 'b' },
+          query: { prompt: 'login' },
+        }),
       ),
     ).toBe(false)
   })
 
-  it('returns false when dev-id is absent', () => {
+  it('returns false when no cookies are present', () => {
     expect(shouldReuseSession(makeReq())).toBe(false)
   })
 })
 
-describe('buildPdsAuthorizeRedirect (HYPER-268)', () => {
+describe('deriveSharedCookieDomain (HYPER-268)', () => {
+  it('returns the parent for a direct subdomain', () => {
+    expect(deriveSharedCookieDomain('auth.pds.example', 'pds.example')).toBe(
+      'pds.example',
+    )
+  })
+
+  it('returns the parent for a nested subdomain', () => {
+    expect(
+      deriveSharedCookieDomain('api.auth.pds.example', 'pds.example'),
+    ).toBe('pds.example')
+  })
+
+  it('returns null when the hosts are unrelated', () => {
+    expect(
+      deriveSharedCookieDomain('auth.other.example', 'pds.example'),
+    ).toBeNull()
+  })
+
+  it('returns null when the hosts are identical', () => {
+    expect(deriveSharedCookieDomain('pds.example', 'pds.example')).toBeNull()
+  })
+
+  it('returns null for empty inputs', () => {
+    expect(deriveSharedCookieDomain('', 'pds.example')).toBeNull()
+    expect(deriveSharedCookieDomain('auth.pds.example', '')).toBeNull()
+  })
+
+  it('rejects suffix-only matches (not a real subdomain)', () => {
+    // "notpds.example" ends with "pds.example" but is not a
+    // subdomain of "pds.example" — only the ".<parent>" boundary counts.
+    expect(deriveSharedCookieDomain('notpds.example', 'pds.example')).toBeNull()
+  })
+})
+
+function makeRes(): {
+  append: (n: string, v: string) => void
+  calls: Array<[string, string]>
+} {
+  const calls: Array<[string, string]> = []
+  return {
+    calls,
+    append(name: string, value: string) {
+      calls.push([name, value])
+    },
+  }
+}
+
+describe('appendOrphanDeviceCookieClearHeaders', () => {
+  it('emits host-only clears only when cookieDomain is null', () => {
+    const res = makeRes()
+    appendOrphanDeviceCookieClearHeaders(res, null)
+    expect(res.calls).toEqual([
+      ['Set-Cookie', 'dev-id=; Max-Age=0; Path=/'],
+      ['Set-Cookie', 'dev-id:hash=; Max-Age=0; Path=/'],
+      ['Set-Cookie', 'ses-id=; Max-Age=0; Path=/'],
+      ['Set-Cookie', 'ses-id:hash=; Max-Age=0; Path=/'],
+    ])
+  })
+
+  it('emits both host-only and domain-scoped clears when a cookieDomain is given', () => {
+    const res = makeRes()
+    appendOrphanDeviceCookieClearHeaders(res, 'pds.example')
+    expect(res.calls).toEqual([
+      ['Set-Cookie', 'dev-id=; Max-Age=0; Path=/'],
+      ['Set-Cookie', 'dev-id=; Max-Age=0; Path=/; Domain=pds.example'],
+      ['Set-Cookie', 'dev-id:hash=; Max-Age=0; Path=/'],
+      ['Set-Cookie', 'dev-id:hash=; Max-Age=0; Path=/; Domain=pds.example'],
+      ['Set-Cookie', 'ses-id=; Max-Age=0; Path=/'],
+      ['Set-Cookie', 'ses-id=; Max-Age=0; Path=/; Domain=pds.example'],
+      ['Set-Cookie', 'ses-id:hash=; Max-Age=0; Path=/'],
+      ['Set-Cookie', 'ses-id:hash=; Max-Age=0; Path=/; Domain=pds.example'],
+    ])
+  })
+})
+
+describe('buildPdsAuthorizeRedirect', () => {
   const pds = 'https://pds.example'
 
   it('preserves a simple query string', () => {

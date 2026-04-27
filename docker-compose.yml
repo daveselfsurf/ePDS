@@ -106,6 +106,14 @@ services:
       # Blank theme so the untrusted client is visually distinct from the
       # trusted one when the latter opts into a demo theme (ocean, amber).
       - EPDS_CLIENT_THEME=
+      # Distinct ES256 keypair so this confidential client cannot forge
+      # client_assertion JWTs claiming to be the trusted demo. Sourced
+      # from root .env (auto-loaded by compose for variable substitution)
+      # so the trusted demo's keypair in packages/demo/.env stays scoped
+      # to that container only. Without this override both demos would
+      # share packages/demo/.env's EPDS_CLIENT_PRIVATE_JWK and either
+      # could impersonate the other at the token endpoint.
+      - EPDS_CLIENT_PRIVATE_JWK=${DEMO_UNTRUSTED_PRIVATE_JWK}
     restart: unless-stopped
     profiles:
       - dev
