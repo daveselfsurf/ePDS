@@ -307,8 +307,8 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
     // The login_hint may be:
     //   a) On the query string as an email (from our demo app)
     //   b) On the query string as a handle/DID (unlikely but possible)
-    //   c) Only in the stored PAR request (third-party apps like sdsls.dev put
-    //      the handle in the PAR body but don't duplicate it on the redirect URL)
+    //   c) Only in the stored PAR request (third-party apps that put the
+    //      handle in the PAR body but don't duplicate it on the redirect URL)
     // The hint was already resolved above for the session-reuse decision; we
     // reuse `resolvedEmail` here rather than re-fetching.
     const hasLoginHint = !!resolvedEmail

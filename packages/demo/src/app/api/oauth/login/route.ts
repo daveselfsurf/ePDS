@@ -154,8 +154,8 @@ export async function GET(request: Request) {
     const effectiveLoginHint = rawLoginHint || email
     // When login_hint_location=body, the hint goes in the PAR body only and
     // is omitted from the authorize redirect URL — this mirrors the
-    // third-party app pattern (e.g. sdsls.dev) that the auth service's
-    // fetchParLoginHint path exists to handle.
+    // third-party app pattern that the auth service's fetchParLoginHint
+    // path exists to handle.
     const loginHintQueryParam =
       effectiveLoginHint && loginHintLocation === 'query'
         ? `&login_hint=${encodeURIComponent(effectiveLoginHint)}`
