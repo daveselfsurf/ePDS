@@ -362,7 +362,7 @@ A second app sign-in in your browser now skips the email code step.
 **Client app developers:** no client-side changes required.
 
 - When a previous sign-in's cookies are present, the user lands on the account chooser to confirm which identity to reuse.
-- Pass `prompt=login` on `/oauth/authorize` to force the email code form regardless of session state.
+- To force the email code form instead, set the standard OIDC `prompt` parameter to `login` on the authorization request your OAuth library sends.
 
 **Operators:** no new required configuration.
 

@@ -17,7 +17,7 @@ Signing in once in your browser now works across all apps that use this ePDS.
 **Client app developers:** no client-side changes required.
 
 - When a previous sign-in's cookies are present, the user lands on the account chooser to confirm which identity to reuse.
-- Pass `prompt=login` on `/oauth/authorize` to force the email code form regardless of session state.
+- To force the email code form instead, set the standard OIDC `prompt` parameter to `login` on the authorization request your OAuth library sends (typically a `prompt: 'login'` option, or include `prompt=login` in the PAR body).
 
 **Operators:** no new required configuration.
 
