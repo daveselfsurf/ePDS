@@ -79,6 +79,11 @@ export async function GET(request: Request) {
       url.searchParams.get('login_hint_location') || 'query'
     const loginHintLocation: 'query' | 'body' =
       loginHintLocationRaw === 'body' ? 'body' : 'query'
+    // OIDC prompt=login: when set, asks the authorization server to force a
+    // fresh credential prompt regardless of existing session cookies. Sent
+    // in the PAR body so the demo exercises the same path most production
+    // atproto OAuth clients use (per the cross-client-session-reuse changeset).
+    const forceLogin = url.searchParams.get('prompt') === 'login'
 
     // Input validation
     // Note: email and handle are both optional — omitting both triggers Flow 2
@@ -155,6 +160,11 @@ export async function GET(request: Request) {
       effectiveLoginHint && loginHintLocation === 'query'
         ? `&login_hint=${encodeURIComponent(effectiveLoginHint)}`
         : ''
+    // prompt=login also goes on the authorize redirect URL so auth-service's
+    // shouldReuseSession (which reads only the query string at the AS metadata
+    // redirect, never the PAR body) sees it and short-circuits cookie-driven
+    // session reuse. PAR body alone isn't enough for the ePDS short-circuit.
+    const promptQueryParam = forceLogin ? '&prompt=login' : ''
 
     // Push Authorization Request (PAR)
     const parBody = new URLSearchParams({
@@ -168,6 +178,9 @@ export async function GET(request: Request) {
     })
     if (effectiveLoginHint && loginHintLocation === 'body') {
       parBody.set('login_hint', effectiveLoginHint)
+    }
+    if (forceLogin) {
+      parBody.set('prompt', 'login')
     }
 
     // If this demo is configured as a confidential OAuth client
@@ -264,7 +277,7 @@ export async function GET(request: Request) {
         }
 
         const parData2 = (await parRes2.json()) as { request_uri: string }
-        const authUrl = `${authEndpoint}?client_id=${encodeURIComponent(clientId)}&request_uri=${encodeURIComponent(parData2.request_uri)}${loginHintQueryParam}${handleModeParam}`
+        const authUrl = `${authEndpoint}?client_id=${encodeURIComponent(clientId)}&request_uri=${encodeURIComponent(parData2.request_uri)}${loginHintQueryParam}${handleModeParam}${promptQueryParam}`
         console.log('[oauth/login] Redirecting to auth (after nonce retry)')
         const resp2 = NextResponse.redirect(authUrl)
         resp2.cookies.set(oauthCookie.name, oauthCookie.value, {
@@ -281,7 +294,7 @@ export async function GET(request: Request) {
     }
 
     const parData = (await parRes.json()) as { request_uri: string }
-    const authUrl = `${authEndpoint}?client_id=${encodeURIComponent(clientId)}&request_uri=${encodeURIComponent(parData.request_uri)}${loginHintQueryParam}${handleModeParam}`
+    const authUrl = `${authEndpoint}?client_id=${encodeURIComponent(clientId)}&request_uri=${encodeURIComponent(parData.request_uri)}${loginHintQueryParam}${handleModeParam}${promptQueryParam}`
 
     console.log('[oauth/login] Redirecting to auth')
     const response = NextResponse.redirect(authUrl)

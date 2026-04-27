@@ -2,6 +2,7 @@
 
 import { useSearchParams } from 'next/navigation'
 import { useState } from 'react'
+import { ForceLoginCheckbox } from './ForceLoginCheckbox'
 
 const ERROR_MESSAGES: Record<string, string> = {
   auth_failed: 'Authentication failed. Please try again.',
@@ -119,6 +120,7 @@ export function LoginForm() {
             />
           )}
         </div>
+        <ForceLoginCheckbox disabled={submitting} />
         <button
           type="submit"
           disabled={submitting}
