@@ -16,6 +16,7 @@ import { getPage, resetBrowserContext } from '../support/utils.js'
 import { sharedBrowser } from '../support/hooks.js'
 import { startSignUpAwaitingConsent } from '../support/flows.js'
 import { waitForEmail, extractOtp, clearMailpit } from '../support/mailpit.js'
+import { fillOtp } from '../support/otp.js'
 
 // A short, stable fragment from the demo's branding.css. Any substring that
 // only the injected CSS would produce works — we pick the dark body bg since
@@ -185,8 +186,7 @@ When(
 
     const message = await waitForEmail(`to:${email}`)
     const otp = await extractOtp(message.ID)
-    await page.fill('#code', otp)
-    await page.click('#form-verify-otp .btn-primary')
+    await fillOtp(page, otp)
 
     // Wait for the choose-handle page — don't submit the handle form
     await page.waitForURL('**/auth/choose-handle', { timeout: 30_000 })
@@ -352,8 +352,7 @@ When(
 
     const message = await waitForEmail(`to:${this.testEmail}`)
     const otp = await extractOtp(message.ID)
-    await page.fill('#code', otp)
-    await page.click('#form-verify-otp .btn-primary')
+    await fillOtp(page, otp)
 
     // Wait for the consent screen's Authorize button — this is the
     // stock @atproto/oauth-provider consent UI served by pds-core at
