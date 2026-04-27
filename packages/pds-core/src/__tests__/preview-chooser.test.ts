@@ -85,7 +85,7 @@ describe('createPreviewChooserHandler', () => {
       )
     })
 
-    it('clamps ?numAccounts to [0, 10]', async () => {
+    it('clamps ?numAccounts to [1, 10]', async () => {
       const handler = createPreviewChooserHandler(makeDeps())!
       const overflow = mockRes()
       await handler({ query: { numAccounts: '99' } }, overflow)
@@ -93,10 +93,18 @@ describe('createPreviewChooserHandler', () => {
         String.raw`\"preferred_username\":\"jack.preview.example\"`,
       )
 
-      const negative = mockRes()
-      await handler({ query: { numAccounts: '-5' } }, negative)
-      // No fixture sessions when clamped to 0:
-      expect(negative.body).not.toContain(String.raw`\"preferred_username\"`)
+      // Zero/negative clamp up to 1 — never to an empty session list, which
+      // would let upstream's no-session welcome view leak through this route.
+      for (const value of ['0', '-5']) {
+        const res = mockRes()
+        await handler({ query: { numAccounts: value } }, res)
+        expect(res.body).toContain(
+          String.raw`\"preferred_username\":\"alice.preview.example\"`,
+        )
+        expect(res.body).not.toContain(
+          String.raw`\"preferred_username\":\"bob.preview.example\"`,
+        )
+      }
     })
 
     it('emits the same <head> injection real chooser middleware does', async () => {
