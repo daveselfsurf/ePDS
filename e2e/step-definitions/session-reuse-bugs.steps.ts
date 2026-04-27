@@ -172,6 +172,27 @@ When(
 )
 
 When(
+  "the demo client starts a new OAuth flow with the test user's handle as login_hint",
+  async function (this: EpdsWorld) {
+    if (!this.userHandle) {
+      throw new Error(
+        'world.userHandle missing — Background step must run first',
+      )
+    }
+    // Hits /api/oauth/login directly (the demo home form swallows query
+    // params). login_hint=<handle> exercises the Flow 1 hint-vs-bindings
+    // gate on the matching path: the resolved email IS in the device's
+    // bound list, so session reuse stays enabled and the chooser wins.
+    // Cookies are preserved (no resetBrowserContext) because the whole
+    // point is to test the existing device session.
+    const page = getPage(this)
+    const url = new URL('/api/oauth/login', testEnv.demoUrl)
+    url.searchParams.set('login_hint', this.userHandle)
+    await page.goto(url.toString())
+  },
+)
+
+When(
   'the demo client starts a new OAuth flow with random handle mode',
   async function (this: EpdsWorld) {
     // flow3 forwards handle_mode=random through to auth-service, which

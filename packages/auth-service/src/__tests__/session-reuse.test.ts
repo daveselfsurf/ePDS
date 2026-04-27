@@ -6,6 +6,7 @@ import {
   hasDeviceSessionCookie,
   hasOrphanDeviceCookie,
   isForceLoginPrompt,
+  readDeviceSessionCookies,
   shouldReuseSession,
   type SessionReuseRequest,
 } from '../lib/session-reuse.js'
@@ -220,6 +221,138 @@ describe('shouldReuseSession (HYPER-268)', () => {
 
   it('returns false when no cookies are present', () => {
     expect(shouldReuseSession(makeReq())).toBe(false)
+  })
+})
+
+describe('shouldReuseSession with login_hint context (Flow 1)', () => {
+  const cookies = { 'dev-id': 'a', 'ses-id': 'b' }
+
+  it('returns true when the hinted email matches a device-bound email', () => {
+    expect(
+      shouldReuseSession(makeReq({ cookies }), {
+        resolvedEmail: 'alice@example.com',
+        deviceBoundEmails: ['alice@example.com', 'bob@example.com'],
+      }),
+    ).toBe(true)
+  })
+
+  it('returns true when the hinted email matches case-insensitively', () => {
+    // resolveLoginHint may return mixed-case emails; the bindings list is
+    // lowercased upstream, so the comparison must lowercase the hint too.
+    expect(
+      shouldReuseSession(makeReq({ cookies }), {
+        resolvedEmail: 'Alice@Example.COM',
+        deviceBoundEmails: ['alice@example.com'],
+      }),
+    ).toBe(true)
+  })
+
+  it('returns false when the hinted email is not in the bindings', () => {
+    expect(
+      shouldReuseSession(makeReq({ cookies }), {
+        resolvedEmail: 'carol@example.com',
+        deviceBoundEmails: ['alice@example.com', 'bob@example.com'],
+      }),
+    ).toBe(false)
+  })
+
+  it('returns false when bindings list is empty (device has no bound accounts)', () => {
+    expect(
+      shouldReuseSession(makeReq({ cookies }), {
+        resolvedEmail: 'alice@example.com',
+        deviceBoundEmails: [],
+      }),
+    ).toBe(false)
+  })
+
+  it('returns false when bindings is null (cookie pair stale or unknown)', () => {
+    expect(
+      shouldReuseSession(makeReq({ cookies }), {
+        resolvedEmail: 'alice@example.com',
+        deviceBoundEmails: null,
+      }),
+    ).toBe(false)
+  })
+
+  it('falls back to cookie-only logic when no hint is supplied', () => {
+    expect(
+      shouldReuseSession(makeReq({ cookies }), {
+        resolvedEmail: null,
+        deviceBoundEmails: ['alice@example.com'],
+      }),
+    ).toBe(true)
+  })
+
+  it('preserves legacy cookie-only behaviour when caller omits bindings', () => {
+    // A hint without a bindings field means the caller hasn't opted into
+    // the Flow 1 gate; we must not silently disable session reuse.
+    expect(
+      shouldReuseSession(makeReq({ cookies }), {
+        resolvedEmail: 'alice@example.com',
+      }),
+    ).toBe(true)
+  })
+
+  it('honours prompt=login over any hint match', () => {
+    expect(
+      shouldReuseSession(makeReq({ cookies, query: { prompt: 'login' } }), {
+        resolvedEmail: 'alice@example.com',
+        deviceBoundEmails: ['alice@example.com'],
+      }),
+    ).toBe(false)
+  })
+
+  it('returns false when cookies are missing irrespective of hint', () => {
+    expect(
+      shouldReuseSession(makeReq(), {
+        resolvedEmail: 'alice@example.com',
+        deviceBoundEmails: ['alice@example.com'],
+      }),
+    ).toBe(false)
+  })
+})
+
+describe('readDeviceSessionCookies', () => {
+  it('returns parsed values from the cookie bag', () => {
+    const got = readDeviceSessionCookies(
+      makeReq({ cookies: { 'dev-id': 'dev-x', 'ses-id': 'ses-y' } }),
+    )
+    expect(got).toEqual({ devId: 'dev-x', sesId: 'ses-y' })
+  })
+
+  it('falls back to the raw Cookie header', () => {
+    const got = readDeviceSessionCookies(
+      makeReq({ cookieHeader: 'foo=1; dev-id=dev-x; ses-id=ses-y; bar=2' }),
+    )
+    expect(got).toEqual({ devId: 'dev-x', sesId: 'ses-y' })
+  })
+
+  it('decodes percent-encoded values', () => {
+    const got = readDeviceSessionCookies(
+      makeReq({ cookieHeader: 'dev-id=dev%2Dx; ses-id=ses%2Dy' }),
+    )
+    expect(got).toEqual({ devId: 'dev-x', sesId: 'ses-y' })
+  })
+
+  it('returns null on a malformed percent-escape', () => {
+    expect(
+      readDeviceSessionCookies(
+        makeReq({ cookieHeader: 'dev-id=%GG; ses-id=ok' }),
+      ),
+    ).toBeNull()
+  })
+
+  it('returns null when only one cookie is present', () => {
+    expect(
+      readDeviceSessionCookies(makeReq({ cookies: { 'dev-id': 'x' } })),
+    ).toBeNull()
+    expect(
+      readDeviceSessionCookies(makeReq({ cookies: { 'ses-id': 'y' } })),
+    ).toBeNull()
+  })
+
+  it('returns null when neither cookie is present', () => {
+    expect(readDeviceSessionCookies(makeReq())).toBeNull()
   })
 })
 

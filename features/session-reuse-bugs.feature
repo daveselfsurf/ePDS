@@ -103,3 +103,28 @@ Feature: Session-reuse resilience against stale device cookies
     Then the browser lands on the auth-service email-and-OTP form
     And the stock upstream welcome page is not shown
     And the response clears the dev-id and ses-id cookies
+
+  # ---------------------------------------------------------------------------
+  # Flow 1 hint-vs-bindings gate: when login_hint resolves to an email that
+  # is not bound to the current device, auth-service must skip session reuse
+  # and surface the email/OTP form so the hinted user can sign in fresh.
+  # See packages/auth-service/src/lib/session-reuse.ts shouldReuseSession
+  # and packages/pds-core/src/lib/device-accounts.ts.
+  # ---------------------------------------------------------------------------
+
+  Scenario: Login hint matches a bound account — chooser still wins
+    When the demo client starts a new OAuth flow with the test user's handle as login_hint
+    Then the browser lands on the ePDS enriched account picker
+    And the stock upstream welcome page is not shown
+
+  @pending
+  # Needs a second isolated account whose handle is registered on the PDS
+  # but not bound to the current device. The fixture lift (separate browser
+  # context, account creation, then teardown) is non-trivial and out of
+  # scope for the patch that introduces the gate; unit tests in
+  # session-reuse.test.ts cover the decision logic exhaustively.
+  Scenario: Login hint resolves to an unbound account — skip chooser
+    Given another user has a separate PDS account
+    When the demo client starts a new OAuth flow with the other user's handle as login_hint
+    Then the browser lands on the auth-service email-and-OTP form
+    And the stock upstream welcome page is not shown

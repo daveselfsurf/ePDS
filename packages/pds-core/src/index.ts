@@ -62,6 +62,7 @@ import {
 import { createChooserEnrichmentMiddleware } from './chooser-enrichment.js'
 import { createUpstreamFaviconMiddleware } from './upstream-favicon.js'
 import { createWelcomePageGuard } from './welcome-page-guard.js'
+import { loadDeviceAccountEmails } from './lib/device-accounts.js'
 
 const logger = createLogger('pds-core')
 
@@ -1036,6 +1037,38 @@ async function main() {
       // Not found or expired — not an error, just no hint available
       res.json({ login_hint: null })
     }
+  })
+
+  // Protected internal endpoint for auth-service to enumerate the emails
+  // of every account bound to the supplied (dev-id, ses-id) cookie pair.
+  // Used by Flow 1 session-reuse: when a login_hint resolves to an email
+  // that is NOT in this list, auth-service skips the chooser redirect and
+  // renders its own OTP form for a fresh sign-in. A null `emails` field
+  // means the cookie pair was malformed, unknown, or stale (ses-id no
+  // longer matches the device row) — caller should treat this the same
+  // as "no usable session" and bypass session reuse for this request.
+  pds.app.get('/_internal/device-accounts', async (req, res) => {
+    if (!verifyInternalSecret(req.headers['x-internal-secret'])) {
+      res.status(401).json({ error: 'Unauthorized' })
+      return
+    }
+    const devId = ((req.query.dev_id as string) || '').trim()
+    const sesId = ((req.query.ses_id as string) || '').trim()
+    if (!devId || !sesId) {
+      res.status(400).json({ error: 'Missing dev_id or ses_id' })
+      return
+    }
+    if (!provider) {
+      res.status(503).json({ error: 'OAuth provider not available' })
+      return
+    }
+    const emails = await loadDeviceAccountEmails({
+      provider,
+      deviceId: devId,
+      sessionId: sesId,
+      logger,
+    })
+    res.json({ emails })
   })
 
   // =========================================================================
