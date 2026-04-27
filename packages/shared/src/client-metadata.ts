@@ -48,6 +48,18 @@ export interface ClientMetadata {
    *   2. The client is in PDS_OAUTH_TRUSTED_CLIENTS (isTrusted)
    */
   epds_skip_consent_on_signup?: boolean
+  /**
+   * ePDS extension — when set, the auth-service login page renders an
+   * "Or sign in with ATProto/Bluesky" button. Submitting a handle
+   * navigates the browser to this URL with `?handle=<value>` appended,
+   * letting the client resolve the handle to a PDS and start a fresh
+   * OAuth flow against that PDS. Off-PDS handles cannot be authenticated
+   * by this PDS, so this is the only path that works for them.
+   *
+   * Must be an absolute https:// URL on the client's own origin.
+   * If absent, the button is not rendered.
+   */
+  epds_handle_login_url?: string
 }
 
 interface CacheEntry {

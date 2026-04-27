@@ -59,6 +59,20 @@ const logger = createLogger('auth:login-page')
 const AUTH_FLOW_COOKIE = 'epds_auth_flow'
 const AUTH_FLOW_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
+/**
+ * Reject URLs that aren't http(s) — keeps `javascript:` and other
+ * exotic schemes out of the page when client metadata is read raw.
+ */
+function isSafeHttpUrl(value: string | undefined): boolean {
+  if (!value) return false
+  try {
+    const u = new URL(value)
+    return u.protocol === 'https:' || u.protocol === 'http:'
+  } catch {
+    return false
+  }
+}
+
 export async function safeResolveClientMetadata(
   clientId: string | undefined,
 ): Promise<ClientMetadata> {
@@ -382,6 +396,25 @@ export function renderLoginPage(opts: {
 
   const inputProps = buildOtpInputProps(opts.otpLength, opts.otpCharset)
 
+  // ATProto/Bluesky handle login button.
+  //
+  // Only rendered when the OAuth client declares `epds_handle_login_url` in
+  // its client metadata. The button toggles the email form into handle-entry
+  // mode; submitting a handle navigates the browser to that URL with
+  // `?handle=<value>` appended. The client owns handle-to-PDS resolution
+  // and starts a fresh OAuth flow against whichever PDS the handle resolves
+  // to — auth-service is bound to one PDS and cannot PAR on the client's
+  // behalf, so off-PDS handles only work via this hand-off.
+  //
+  // The URL is validated to be http(s) to prevent a malformed metadata
+  // value from injecting a `javascript:` redirect target into the page.
+  const handleLoginUrl = isSafeHttpUrl(b.epds_handle_login_url)
+    ? (b.epds_handle_login_url as string)
+    : ''
+  const handleLoginButtonHtml = handleLoginUrl
+    ? `<a href="#" class="btn-social btn-atproto">Or sign in with ATProto/Bluesky</a>`
+    : ''
+
   const hasGoogle = 'google' in socialProviders
   const hasGithub = 'github' in socialProviders
   const hasSocialProviders = hasGoogle || hasGithub
@@ -479,6 +512,7 @@ export function renderLoginPage(opts: {
         </div>
         <button type="submit" class="btn-primary">Continue with email</button>
       </form>
+      ${handleLoginButtonHtml}
     </div>
 
     <!-- Step 2: OTP entry (calls better-auth verifyOtp) -->
@@ -514,14 +548,20 @@ export function renderLoginPage(opts: {
   <script>
     (function() {
       var authBasePath = ${JSON.stringify(opts.authBasePath)};
+      var handleLoginUrl = ${JSON.stringify(handleLoginUrl)};
       var requestUri = ${JSON.stringify('')};  // not needed client-side; flow_id is in cookie
       var currentEmail = '';
+      var loginMode = 'email'; // 'email' | 'handle'
       var errorEl = document.getElementById('error-msg');
       var stepEmail = document.getElementById('step-email');
       var stepOtp = document.getElementById('step-otp');
       var otpSubtitle = document.getElementById('otp-subtitle');
       var otpEmailInput = document.getElementById('otp-email');
       var recoveryLink = document.getElementById('recovery-link');
+      var atprotoBtn = document.querySelector('.btn-atproto');
+      var emailInput = document.getElementById('email');
+      var emailLabel = document.querySelector('label[for="email"]');
+      var sendOtpBtn = document.querySelector('#form-send-otp button[type=submit]');
 
       function showError(msg) {
         errorEl.textContent = msg;
@@ -531,6 +571,40 @@ export function renderLoginPage(opts: {
       function clearError() {
         errorEl.style.display = 'none';
         errorEl.textContent = '';
+      }
+
+      function setLoginMode(mode) {
+        loginMode = mode;
+        if (mode === 'handle') {
+          emailLabel.textContent = 'Handle';
+          emailInput.type = 'text';
+          emailInput.placeholder = 'you.bsky.social';
+          emailInput.name = 'handle';
+          emailInput.value = '';
+          // Browser's built-in type="email" validation would block valid
+          // handles; remove it for handle mode.
+          emailInput.removeAttribute('required');
+          sendOtpBtn.textContent = 'Sign in';
+          atprotoBtn.textContent = 'Or sign in with email';
+        } else {
+          emailLabel.textContent = 'Email address';
+          emailInput.type = 'email';
+          emailInput.placeholder = 'you@example.com';
+          emailInput.name = 'email';
+          emailInput.value = '';
+          emailInput.setAttribute('required', '');
+          sendOtpBtn.textContent = 'Continue with email';
+          atprotoBtn.textContent = 'Or sign in with ATProto/Bluesky';
+        }
+        emailInput.focus();
+        clearError();
+      }
+
+      if (atprotoBtn) {
+        atprotoBtn.addEventListener('click', function(e) {
+          e.preventDefault();
+          setLoginMode(loginMode === 'email' ? 'handle' : 'email');
+        });
       }
 
       var otpLength = ${opts.otpLength};
@@ -592,19 +666,33 @@ export function renderLoginPage(opts: {
         }
       }
 
-      // Form: send OTP
+      // Form: send OTP (email mode) or hand off to client (handle mode)
       document.getElementById('form-send-otp').addEventListener('submit', async function(e) {
         e.preventDefault();
         clearError();
-        var email = document.getElementById('email').value.trim().toLowerCase();
-        if (!email) return;
+        var raw = emailInput.value.trim();
+        if (!raw) return;
         var btn = this.querySelector('button[type=submit]');
+        var defaultLabel = loginMode === 'handle' ? 'Sign in' : 'Continue with email';
         btn.disabled = true;
-        btn.textContent = 'Sending...';
+        btn.textContent = loginMode === 'handle' ? 'Signing in...' : 'Sending...';
 
+        if (loginMode === 'handle') {
+          // Hand off to the client's handle-login URL with ?handle=<value>
+          // appended (preserving any existing query string the client put on
+          // the URL). The client resolves the handle to its PDS and starts a
+          // fresh PAR against that PDS. handleLoginUrl is server-validated
+          // as http(s) before being inlined here.
+          var target = new URL(handleLoginUrl);
+          target.searchParams.set('handle', raw);
+          window.location.href = target.toString();
+          return;
+        }
+
+        var email = raw.toLowerCase();
         var result = await sendOtp(email);
         btn.disabled = false;
-        btn.textContent = 'Continue with email';
+        btn.textContent = defaultLabel;
 
         if (result.error) {
           showError(result.error);
