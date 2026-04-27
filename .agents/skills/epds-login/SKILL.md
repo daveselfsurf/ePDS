@@ -193,14 +193,7 @@ standard OIDC `prompt=login` parameter.
 
 **Important — where to put it:** ePDS's auth service decides whether to
 engage session reuse by inspecting the **query string** of the
-`/oauth/authorize` redirect, not the PAR body. PAR-body `prompt=login`
-alone is **not** enough.
-
-| Sent in            | Engages ePDS short-circuit? |
-| ------------------ | --------------------------- |
-| Authorize URL only | Yes                         |
-| PAR body only      | No                          |
-| Both               | Yes                         |
+`/oauth/authorize` redirect. PAR-body `prompt=login` is ignored.
 
 If your OAuth library (e.g. `NodeOAuthClient`) only supports passing
 `prompt` via the PAR body, you must also append `&prompt=login` to the
