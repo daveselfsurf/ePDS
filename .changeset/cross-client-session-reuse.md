@@ -13,7 +13,7 @@ Signing in once in your browser now works across all apps that use this ePDS.
 - A "Use a different account" link on the chooser takes you back to the email form for a fresh sign-in.
 - The chooser shows your email next to your handle so accounts are easy to tell apart.
 - If your browser's leftover sign-in cookies no longer match the server, you land on the familiar email code form rather than a generic sign-in screen.
-- If an app sends you to ePDS pre-filled with an email that is not one of the accounts you have already signed in to in this browser, you go straight to the email code form for that account rather than landing on a chooser of your existing accounts.
+- If an app asks you for your email and you give it one that is not one of the accounts you have already signed in to in this browser, you go straight to the email code form for that account rather than landing on a chooser of your existing accounts.
 
 **Client app developers:** no client-side changes required.
 

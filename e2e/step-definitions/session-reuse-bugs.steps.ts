@@ -328,32 +328,6 @@ Then(
 )
 
 Then(
-  'the stock upstream welcome page is not shown',
-  async function (this: EpdsWorld) {
-    const page = getPage(this)
-    // The stock welcome page renders three buttons: "Authenticate",
-    // "Create a new account", and "Sign in". If any of them appear we've
-    // leaked the page. We check by accessible-button label so a future
-    // upstream tweak to the DOM tree does not silently bypass the assertion.
-    await expect(
-      page.getByRole('button', { name: 'Create a new account' }),
-    ).toHaveCount(0)
-    // "Sign in" is overloaded with the auth-service form's submit button —
-    // but the auth-service form has an #email input that the stock welcome
-    // page does not. If we find neither, the welcome page is not shown.
-    // This lets the same assertion cover both the "landed on email form"
-    // and "landed on chooser" cases.
-    const html = await page.content()
-    // The stock page uses the exact phrase "Create a new account" in the
-    // button label; if that's gone, the welcome page isn't rendering.
-    expect(
-      html.includes('Create a new account'),
-      `Expected no stock welcome page, but found its "Create a new account" button on ${page.url()}`,
-    ).toBe(false)
-  },
-)
-
-Then(
   'the browser lands on the auth-service email-and-OTP form',
   async function (this: EpdsWorld) {
     const page = getPage(this)

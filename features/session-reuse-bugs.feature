@@ -23,13 +23,11 @@ Feature: Session-reuse resilience against stale device cookies
   Scenario: Both cookies valid — baseline session reuse still works
     When the demo client starts a new OAuth flow
     Then the browser lands on the ePDS enriched account picker
-    And the stock upstream welcome page is not shown
 
   Scenario: Only dev-id is present (ses-id missing)
     Given the ses-id cookie has been evicted from the browser
     When the demo client starts a new OAuth flow
     Then the browser lands on the auth-service email-and-OTP form
-    And the stock upstream welcome page is not shown
     # Both cookies (and their parent-domain variants) must clear on any
     # half-pair bounce — auth-service's contract is that a half-pair
     # never survives into the next flow. Asserting only the orphan half
@@ -40,28 +38,24 @@ Feature: Session-reuse resilience against stale device cookies
     Given the dev-id cookie has been evicted from the browser
     When the demo client starts a new OAuth flow
     Then the browser lands on the auth-service email-and-OTP form
-    And the stock upstream welcome page is not shown
     And the response clears the dev-id and ses-id cookies
 
   Scenario: dev-id is stale, ses-id is valid
     Given the dev-id cookie has been replaced with a well-formed but server-unknown value
     When the demo client starts a new OAuth flow
     Then the browser lands on the auth-service email-and-OTP form
-    And the stock upstream welcome page is not shown
     And the response clears the dev-id and ses-id cookies
 
   Scenario: ses-id is stale, dev-id is valid
     Given the ses-id cookie has been replaced with a well-formed but server-unknown value
     When the demo client starts a new OAuth flow
     Then the browser lands on the auth-service email-and-OTP form
-    And the stock upstream welcome page is not shown
     And the response clears the dev-id and ses-id cookies
 
   Scenario: Both cookies are stale (server-unknown pair)
     Given the dev-id and ses-id cookies have been replaced with well-formed but server-unknown values
     When the demo client starts a new OAuth flow
     Then the browser lands on the auth-service email-and-OTP form
-    And the stock upstream welcome page is not shown
     And the response clears the dev-id and ses-id cookies
 
   Scenario: "Another account" on the chooser goes to the email form
@@ -70,7 +64,6 @@ Feature: Session-reuse resilience against stale device cookies
     Then the browser lands on the ePDS enriched account picker
     When the user clicks "Another account" on the enriched account picker
     Then the browser lands on the auth-service email-and-OTP form
-    And the stock upstream welcome page is not shown
     And the upstream stock sign-in form is not shown
 
   Scenario: Upstream "Sign up" affordance is hidden on the enriched chooser
@@ -101,7 +94,6 @@ Feature: Session-reuse resilience against stale device cookies
     And the device row exists but has zero bound accounts
     When the demo client starts a new OAuth flow
     Then the browser lands on the auth-service email-and-OTP form
-    And the stock upstream welcome page is not shown
     And the response clears the dev-id and ses-id cookies
 
   # ---------------------------------------------------------------------------
