@@ -20,6 +20,7 @@ import type { EpdsWorld } from '../support/world.js'
 import { testEnv } from '../support/env.js'
 import { getPage } from '../support/utils.js'
 import { createAccountViaOAuth } from '../support/flows.js'
+import { sharedBrowser } from '../support/hooks.js'
 import { clearMailpit, extractOtp, waitForEmail } from '../support/mailpit.js'
 
 // ---------------------------------------------------------------------------
@@ -189,6 +190,98 @@ When(
     const url = new URL('/api/oauth/login', testEnv.demoUrl)
     url.searchParams.set('login_hint', this.userHandle)
     await page.goto(url.toString())
+  },
+)
+
+Given(
+  'another user has a separate PDS account',
+  async function (this: EpdsWorld) {
+    if (!testEnv.mailpitPass) return 'pending'
+    if (!sharedBrowser) throw new Error('sharedBrowser is not initialised')
+
+    // Create the second account in an isolated browser context so the
+    // primary user's dev-id/ses-id cookies (set by the Background's
+    // returning-user sign-in) survive untouched. Closing the context at
+    // the end discards the second account's cookies, so the upcoming
+    // hint-mismatch step navigates with ONLY the primary user bound to
+    // the device — exactly the state the Flow 1 hint-vs-bindings gate
+    // is meant to detect.
+    const otherEmail = `flow1-other-${Date.now()}@example.com`
+    const isolated = await sharedBrowser.newContext({
+      userAgent: `e2e-other-user-${Date.now()}`,
+    })
+    const isolatedPage = await isolated.newPage()
+    isolatedPage.setDefaultNavigationTimeout(30_000)
+    isolatedPage.setDefaultTimeout(15_000)
+
+    // createAccountViaOAuth reads/writes world.page and world.testEmail /
+    // userDid / userHandle. Save and restore those so the primary user's
+    // identity stays canonical on the world.
+    const savedPage = this.page
+    const savedContext = this.context
+    const savedEmail = this.testEmail
+    const savedDid = this.userDid
+    const savedHandle = this.userHandle
+    this.page = isolatedPage
+    this.context = isolated
+    try {
+      const { did, handle } = await createAccountViaOAuth(this, otherEmail)
+      this.otherUserEmail = otherEmail
+      this.otherUserDid = did
+      this.otherUserHandle = handle
+      if (!handle) {
+        throw new Error(
+          'createAccountViaOAuth did not yield a handle for the second user',
+        )
+      }
+    } finally {
+      this.page = savedPage
+      this.context = savedContext
+      this.testEmail = savedEmail
+      this.userDid = savedDid
+      this.userHandle = savedHandle
+      await isolated.close()
+    }
+  },
+)
+
+When(
+  "the demo client starts a new OAuth flow with the other user's handle as login_hint",
+  async function (this: EpdsWorld) {
+    if (!this.otherUserHandle) {
+      throw new Error(
+        'world.otherUserHandle missing — "another user has a separate PDS account" step must run first',
+      )
+    }
+    // Hits /api/oauth/login on the primary context. The primary device's
+    // dev-id/ses-id cookies are still set (from the Background sign-in),
+    // but login_hint resolves to the OTHER user's email — the gate must
+    // skip session reuse and surface the email/OTP form.
+    const page = getPage(this)
+    const url = new URL('/api/oauth/login', testEnv.demoUrl)
+    url.searchParams.set('login_hint', this.otherUserHandle)
+    await page.goto(url.toString())
+  },
+)
+
+Then(
+  "the OTP form is pre-filled with the other user's email",
+  async function (this: EpdsWorld) {
+    if (!this.otherUserEmail) {
+      throw new Error(
+        'world.otherUserEmail missing — "another user has a separate PDS account" step must run first',
+      )
+    }
+    // The hidden #otp-email input carries the resolved email through to
+    // the OTP submit. Asserting on it (rather than the auth-host alone)
+    // proves the auth-service skipped the chooser AND resolved the
+    // hinted handle to the right account before rendering OTP.
+    const page = getPage(this)
+    const value = await page.locator('#otp-email').getAttribute('value')
+    expect(value).toBe(this.otherUserEmail)
+    const url = new URL(page.url())
+    const authHost = new URL(testEnv.authUrl).host
+    expect(url.host).toBe(authHost)
   },
 )
 

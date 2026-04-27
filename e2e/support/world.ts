@@ -34,6 +34,19 @@ export class EpdsWorld extends World {
   /** Secondary page for multi-session account settings scenarios. */
   secondaryPage?: Page
 
+  /** Email of an unrelated PDS account created in a fresh browser context;
+   *  used by Flow 1 hint-vs-bindings scenarios that need a handle that
+   *  resolves on the PDS but is NOT bound to the primary user's device. */
+  otherUserEmail?: string
+
+  /** Handle of the unrelated account — fed into login_hint to drive the
+   *  hint-mismatch path. */
+  otherUserHandle?: string
+
+  /** DID of the unrelated account, kept alongside email/handle for
+   *  parity with the primary user fields. */
+  otherUserDid?: string
+
   /** New handle local part submitted via account settings. */
   updatedHandleLocalPart?: string
 
