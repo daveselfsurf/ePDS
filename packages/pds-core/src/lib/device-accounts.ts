@@ -38,7 +38,7 @@ export type LoadDeviceAccountEmailsOpts = {
   provider: OAuthProvider
   deviceId: string
   sessionId: string
-  logger?: Pick<Logger, 'error' | 'debug'>
+  logger?: Partial<Pick<Logger, 'error' | 'debug'>>
 }
 
 /** Validate the cookie pair and return the lowercased emails of every
@@ -61,7 +61,7 @@ export async function loadDeviceAccountEmails(
     const data = await deviceStore.readDevice(deviceId as DeviceId)
     if (!data || data.sessionId !== sessionId) return null
   } catch (err) {
-    logger?.error({ err, deviceId }, 'device-accounts: readDevice failed')
+    logger?.error?.({ err, deviceId }, 'device-accounts: readDevice failed')
     return null
   }
 
@@ -74,7 +74,7 @@ export async function loadDeviceAccountEmails(
       .filter((e): e is string => typeof e === 'string' && e.length > 0)
       .map((e) => e.toLowerCase())
   } catch (err) {
-    logger?.error(
+    logger?.error?.(
       { err, deviceId },
       'device-accounts: listDeviceAccounts failed',
     )

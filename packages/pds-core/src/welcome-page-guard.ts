@@ -21,7 +21,7 @@
  * See docs/design/session-reuse-bugs.md for the full failure-mode taxonomy.
  */
 import type { NextFunction, Request, Response } from 'express'
-import type { DeviceId, OAuthProvider } from '@atproto/oauth-provider'
+import type { OAuthProvider } from '@atproto/oauth-provider'
 import {
   DEVICE_ID_BYTES_LENGTH,
   DEVICE_ID_PREFIX,
@@ -29,6 +29,7 @@ import {
   SESSION_ID_PREFIX,
 } from '@atproto/oauth-provider'
 import type { Logger } from 'pino'
+import { loadDeviceAccountEmails } from './lib/device-accounts.js'
 
 const DEVICE_ID_RE = new RegExp(
   `^${DEVICE_ID_PREFIX}[0-9a-f]{${DEVICE_ID_BYTES_LENGTH * 2}}$`,
@@ -171,16 +172,6 @@ export function appendCookieClearHeaders(
   }
 }
 
-/** Minimal contract the guard needs from upstream's DeviceStore: read
- *  the persisted device row by id, returning the active sessionId (and
- *  whatever else upstream stores) or null when the row is absent. We
- *  avoid importing `DeviceStore` directly so the guard doesn't take a
- *  hard dependency on the full upstream interface — the only field we
- *  actually consult is `sessionId`. */
-type DeviceStoreLike = {
-  readDevice: (deviceId: DeviceId) => Promise<{ sessionId: string } | null>
-}
-
 /** Create the Express middleware. `cookieDomain` may be null when the
  *  auth-service and pds-core don't share a common parent domain — in
  *  that case there's no domain-scoped cookie to clear. */
@@ -188,19 +179,9 @@ export function createWelcomePageGuard(opts: {
   authHostname: string
   provider: OAuthProvider | null
   cookieDomain: string | null
-  logger?: Pick<Logger, 'error'>
+  logger?: Partial<Pick<Logger, 'error' | 'debug'>>
 }) {
   const { authHostname, provider, cookieDomain, logger } = opts
-  // Upstream's `OAuthProvider` exposes only `deviceManager` publicly;
-  // the underlying `DeviceStore` is held in the manager's TS-private
-  // `store` field, but is needed by the guard to validate that the
-  // ses-id cookie still matches the device row's active session id.
-  // Accessing the runtime field via a narrow structural cast keeps
-  // the dependency surface small (we only look at `sessionId`) while
-  // sidestepping the private declaration.
-  const deviceStore: DeviceStoreLike | null = provider
-    ? (provider.deviceManager as unknown as { store: DeviceStoreLike }).store
-    : null
   return async function welcomePageGuard(
     req: Request,
     res: Response,
@@ -241,55 +222,22 @@ export function createWelcomePageGuard(opts: {
       bounceOrPass()
       return
     }
-    // Validate the cookie's ses-id against the device row's active
-    // sessionId. A syntactically-valid cookie pair whose ses-id no
+    // Validate the cookie pair against the device row + list bound
+    // accounts. A syntactically-valid cookie pair whose ses-id no
     // longer matches the stored value (logout/rotation race, restored
     // backup, manual deletion of the server-side row, fixation reset,
-    // etc.) would otherwise sail past the bindings check and let
-    // upstream render its stock welcome page. Treat any miss the same
-    // as a missing cookie: bounce to auth-service with the stale pair
-    // cleared.
-    if (deviceStore) {
-      let activeSessionId: string | null
-      try {
-        const data = await deviceStore.readDevice(parsed.deviceId as DeviceId)
-        activeSessionId = data?.sessionId ?? null
-      } catch (err) {
-        // Mirror the listDeviceAccounts fail-closed branch below so a
-        // provider fault still degrades to the email form rather than
-        // leaking a stock welcome render — and log it for the same
-        // reason: an unobservable surge of 303s with no correlated
-        // error is a worse failure than a noisy one.
-        logger?.error(
-          { err, deviceId: parsed.deviceId },
-          'welcome-page-guard: readDevice failed; bouncing to auth-service',
-        )
-        bounceOrPass()
-        return
-      }
-      if (activeSessionId !== parsed.sessionId) {
-        bounceOrPass()
-        return
-      }
-    }
-    let bindingCount: number
-    try {
-      const bindings = await provider.accountManager.listDeviceAccounts(
-        parsed.deviceId as DeviceId,
-      )
-      bindingCount = bindings.length
-    } catch (err) {
-      // Fail closed to the email form rather than leaking a stock-welcome
-      // render, but log so a genuine provider fault (DB outage, schema
-      // drift, upstream assertion) doesn't disappear into an indistinguishable
-      // surge of 303s to auth-service with no correlated error line.
-      logger?.error(
-        { err, deviceId: parsed.deviceId },
-        'welcome-page-guard: listDeviceAccounts failed; bouncing to auth-service',
-      )
-      bindingCount = 0
-    }
-    if (bindingCount === 0) {
+    // etc.), or a device with zero bound accounts (migration-005 1h
+    // TTL purge for remember=0 rows), would otherwise sail past and
+    // let upstream render its stock welcome page. Both cases come
+    // back as `null` or `[]` from the shared helper — bounce on
+    // either.
+    const emails = await loadDeviceAccountEmails({
+      provider,
+      deviceId: parsed.deviceId,
+      sessionId: parsed.sessionId,
+      logger,
+    })
+    if (!emails || emails.length === 0) {
       bounceOrPass()
       return
     }
