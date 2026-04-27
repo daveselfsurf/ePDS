@@ -233,3 +233,68 @@ currently on this branch.
   to be fragile against upstream SPA updates, consider an
   optional fallback path that skips the rewrite and accepts
   handle-only display.
+
+## Findings: upstream chooser does not auto-skip on single binding
+
+PR #103's e2e run exposed that the original target-behaviour table
+(rows 1 and 3, "auto-skip chooser") encodes a behaviour that
+`@atproto/oauth-provider` does not actually deliver. In the version
+of the library ePDS ships against, upstream's chooser is rendered
+unconditionally whenever the device has at least one binding —
+single-binding plus a matching `login_hint` does NOT cause it to
+auto-issue the authorization code. The user always sees the chooser
+and must click "Continue" to proceed.
+
+The two scenarios that depended on auto-skip (Scenario A flow 1, and
+Scenario C already-approved flow 2) have been updated to expect the
+chooser hop. The semantically-correct behaviour for ePDS is now
+"chooser shown for confirmation"; auto-skip is treated as a separate
+opt-in feature, gated on per-client trust.
+
+### Security analysis: would auto-skipping the chooser be safe?
+
+The chooser is the user's last-line consent surface for "this device's
+identity → this RP". It runs on a PDS-controlled origin
+(`auth.<pds>` or `<pds>`) so the user can verify the URL bar before
+granting. Skipping it means the browser silently mints an OAuth grant
+without any human-mediated affirmation, and the user never sees
+PDS-controlled DOM during the reuse path.
+
+|                                                       | Trusted client                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Untrusted client                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Auto-skip chooser when `login_hint` matches a binding | Defensible: operator has already vouched for this `client_id` via `PDS_OAUTH_TRUSTED_CLIENTS`, and trusted clients can already auto-consent on signup (`epds_skip_consent_on_signup`). Auto-skipping the chooser is a small additional delegation. Should be opt-in per-client via metadata flag (e.g. `epds_skip_chooser_on_match`), default off, and documented as a residual-risk surface (CSRF-style cross-tab; `login_hint` spoofing; session-fixation post-recovery). | Should NOT skip. The whole point of "untrusted" is "no out-of-band signal that this client is benign". Anyone who can register a `client_id` and get the user to visit their page once would be able to mint OAuth grants against existing PDS sessions with no clicks. Drive-by binding via flow 2 (no `login_hint`) is even worse — upstream auto-pick would silently choose _some_ session for the third-party RP. |
+
+The cross-domain split (auth subdomain rendering chooser, RP on a
+separate origin) _increases_ the chooser's value as a security UX:
+the alternative is the user never seeing PDS-controlled DOM at all
+during reuse, eliminating their ability to spot a malicious client.
+
+### Auto-skip predicate (when implemented)
+
+The auto-skip predicate is, with all conditions required:
+
+1. `client_id` is on `PDS_OAUTH_TRUSTED_CLIENTS`.
+2. Client metadata advertises `epds_skip_chooser_on_match: true`
+   (per-client opt-in; default off).
+3. The welcome-page-guard's existing checks pass:
+   - `dev-id`/`ses-id` cookies parse and ses-id matches the device
+     row's active sessionId.
+   - `accountManager.listDeviceAccounts(deviceId)` returns at least
+     one binding.
+4. The PAR's resolved `login_hint` (DID, after pds-core rewrites the
+   client-supplied email→DID at `index.ts:486-499`) matches exactly
+   one of the device's bindings.
+
+Match by DID, not email: ePDS resolves `login_hint=email` server-side
+into the DID and rewrites the stored PAR before redirecting to
+upstream. The auto-skip predicate must use the resolved DID so it
+isn't fooled by email-collision tricks or by clients that supply an
+unresolved string.
+
+Multi-binding is fine: the predicate is "the resolved `login_hint`
+DID is bound to this device", not "this device has only one binding".
+If the user has three accounts on this device and the trusted client
+hints one of them, the hint already disambiguates; the chooser would
+add no signal beyond confirming what the client just told ePDS. The
+single-binding case is just the degenerate sub-case where the only
+candidate trivially matches.

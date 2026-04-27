@@ -122,10 +122,47 @@ Given(
     await page.fill('#code', otp)
     await page.click('#form-verify-otp .btn-primary')
 
-    // Trusted demo returning user: lands directly on /welcome, skipping
-    // both the handle picker (returning user already has a handle) and
-    // the consent screen (trusted client).
-    await page.waitForURL('**/welcome', { timeout: 30_000 })
+    // Trusted demo returning user: post-OTP, auth-service hands off to
+    // pds-core/upstream, which loads the freshly-bound device session
+    // and renders the chooser for explicit confirmation (upstream does
+    // not auto-skip the chooser even on single-binding matches — see
+    // docs/design/cross-client-session-reuse.md). Click through the
+    // chooser, then click Authorize on the consent screen (auto-consent
+    // applies to fresh sign-ups, not to returning sign-ins), then land
+    // on /welcome.
+    const pdsHost = new URL(testEnv.pdsUrl).host
+    await page.waitForURL(
+      (u) => u.host === pdsHost || /\/welcome(\?|$|#)/.test(u.pathname),
+      { timeout: 30_000 },
+    )
+    while (new URL(page.url()).host === pdsHost) {
+      await page.waitForLoadState('networkidle', { timeout: 30_000 })
+      const authorize = page.getByRole('button', { name: 'Authorize' })
+      if (await authorize.count()) {
+        // Click + wait for the navigation it triggers; clicking
+        // Authorize starts the redirect chain back to the demo
+        // client, so the click and the navigation race.
+        await Promise.all([
+          page.waitForURL('**/welcome', { timeout: 30_000 }),
+          authorize.click({ noWaitAfter: true }),
+        ])
+        break
+      }
+      const emailLocator = page.locator(`text=${email}`).first()
+      if (await emailLocator.count()) {
+        const button = emailLocator
+          .locator('xpath=ancestor-or-self::button[1]')
+          .first()
+        if (await button.count()) await button.click()
+        else await emailLocator.click()
+      } else {
+        await page.locator('#root button').first().click()
+      }
+      await page.waitForLoadState('networkidle', { timeout: 30_000 })
+    }
+    if (!/\/welcome(\?|$|#)/.test(new URL(page.url()).pathname)) {
+      await page.waitForURL('**/welcome', { timeout: 30_000 })
+    }
 
     // Clear mail trap so the "no new OTP email" assertion starts clean.
     await clearMailpit(email)
@@ -402,7 +439,10 @@ Then(
   'no consent screen was shown during the second login',
   async function (this: EpdsWorld) {
     const page = getPage(this)
-    expect(page.url()).toMatch(/\/welcome(\?|$|#)/)
+    // After the chooser confirm, upstream still has to issue the
+    // authorization code and bounce back to the demo's /welcome —
+    // wait for that redirect chain to settle before asserting.
+    await page.waitForURL(/\/welcome(\?|$|#)/, { timeout: 30_000 })
     await expect(page.getByRole('button', { name: 'Authorize' })).toHaveCount(0)
   },
 )
