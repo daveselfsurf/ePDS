@@ -265,17 +265,18 @@ When(
 )
 
 Then(
-  "the OTP form is pre-filled with the other user's email",
+  "the OTP form will submit the other user's email",
   async function (this: EpdsWorld) {
     if (!this.otherUserEmail) {
       throw new Error(
         'world.otherUserEmail missing — "another user has a separate PDS account" step must run first',
       )
     }
-    // The hidden #otp-email input carries the resolved email through to
-    // the OTP submit. Asserting on it (rather than the auth-host alone)
-    // proves the auth-service skipped the chooser AND resolved the
-    // hinted handle to the right account before rendering OTP.
+    // #otp-email is a hidden input — the resolved email rides along on
+    // the OTP submit so the verify endpoint matches the right account.
+    // Asserting on it (rather than the auth-host alone) proves the
+    // auth-service skipped the chooser AND resolved the hinted handle
+    // to the right account before rendering OTP.
     const page = getPage(this)
     const value = await page.locator('#otp-email').getAttribute('value')
     expect(value).toBe(this.otherUserEmail)

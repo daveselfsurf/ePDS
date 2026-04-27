@@ -112,4 +112,4 @@ Feature: Session-reuse resilience against stale device cookies
     Given another user has a separate PDS account
     When the demo client starts a new OAuth flow with the other user's handle as login_hint
     Then the login page renders directly at the OTP verification step
-    And the OTP form is pre-filled with the other user's email
+    And the OTP form will submit the other user's email
