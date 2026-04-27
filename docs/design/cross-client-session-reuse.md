@@ -163,27 +163,36 @@ New Gherkin scenarios in `features/passwordless-authentication.feature`
 under the HYPER-268 heading. Replaces the two speculative scenarios
 currently on this branch.
 
-1. **A — Flow 1, signed in, auto-skip**
+1. **Flow 1, signed in, auto-skip**
    Trusted demo sign-in, then untrusted demo flow 1 (re-enters email).
    Assert: no new OTP email, no OTP form shown, no chooser shown,
    lands on consent → authorize → /welcome.
 
-2. **B — Flow 2, signed in, chooser with one account**
+2. **Flow 2, signed in, chooser with one account**
    Trusted demo sign-in, then untrusted demo flow 2 (no email).
    Assert: no new OTP email, chooser shown, chooser contains test
    email text, user confirms account, lands on consent → authorize
    → /welcome.
 
-3. **C — Flow 2, signed in + pre-approved untrusted, auto-authorize**
+3. **Flow 2, signed in + pre-approved untrusted, auto-authorize**
    Pre-approve untrusted, then trusted demo sign-in as returning user
    (not new sign-up — requires a new setup step), then untrusted flow 2.
    Assert: no new OTP email, chooser shown, user confirms, no consent
    screen, lands on /welcome.
 
-4. **D — Flow 2, signed in, user picks "different account"**
+4. **Flow 2, signed in, user picks "different account"**
    Trusted sign-in, then untrusted flow 2, chooser shown, user clicks
    "Another account" (upstream's rebound button), lands on auth-service
    email form for a fresh account.
+
+All scenarios run with both demo clients wired as confidential
+(`token_endpoint_auth_method=private_key_jwt`). The public-client
+force-consent path in upstream's `request-manager.js` is not
+exercised by this suite — public-client behaviour is covered by
+upstream `@atproto/oauth-provider`'s own tests, and ePDS's
+documented stance is that untrusted clients should run as
+confidential. See the [coverage matrix](#coverage-matrix) gaps
+section.
 
 ### New step definitions
 
@@ -234,7 +243,154 @@ currently on this branch.
   optional fallback path that skips the rewrite and accepts
   handle-only display.
 
-## Findings: upstream chooser does not auto-skip on single binding
+## Coverage matrix
+
+A grid of every active and pending session-reuse scenario across both
+feature files (`features/passwordless-authentication.feature` and
+`features/session-reuse-bugs.feature`), mapped onto the axes that
+actually drive ePDS's branching. Used to spot duplicate coverage,
+under-tested combinations, and scenarios whose name does not match
+what they exercise.
+
+### Axes
+
+- **Prior-state**: what the device already has when the scenario
+  starts. `none` (no cookies), `bound` (dev-id+ses-id valid + ≥1
+  account binding via the trusted demo), `bound+approved-other`
+  (also has a persistent grant for the second client),
+  `bound-purged` (cookies + device row, zero bindings),
+  `cookies-broken-X` (specific cookie failure mode).
+- **Cross-client?**: does the scenario exercise client A→client B
+  reuse, or stay on a single client. `single` / `cross`.
+- **Flow**: `1` = client supplied `login_hint`; `2` = no hint.
+  `n/a` = scenario is pre-OAuth (cookie-state coverage in the bugs
+  feature) or cookie/recovery-only.
+- **Trust**: trust class of the client driving the _current_ OAuth
+  request (not the prior one). `T` trusted, `U` untrusted.
+- **Confidentiality**: `pub` (public, no client auth) vs `conf`
+  (private_key_jwt). Only matters where upstream's
+  `request-manager.js` force-overrides `prompt=consent`.
+- **Expected**: shorthand for what the user should see.
+  `OTP` = email/OTP form, `chooser` = enriched chooser,
+  `consent` = consent screen, `→RP` = silent redirect to RP,
+  `→email` = bounce to auth-service email form,
+  `clear` = stale cookies cleared on response.
+
+### Active scenarios
+
+| #   | Scenario (file:line)                                               | Prior-state              | Cross? | Flow | Trust | Conf | Expected                             |
+| --- | ------------------------------------------------------------------ | ------------------------ | ------ | ---- | ----- | ---- | ------------------------------------ |
+| 1   | New user OTP (passwordless:14)                                     | none                     | single | 2    | T     | conf | OTP → handle → consent → →RP         |
+| 2   | Returning user OTP (passwordless:30)                               | none (cookies cleared)   | single | 1    | T     | conf | OTP → →RP                            |
+| 3   | Returning user, already approved (passwordless:40)                 | bound+approved-other (T) | single | 1    | T     | conf | OTP → →RP (no consent)               |
+| A   | OTP-skip via prior trusted sign-in, flow 1 (passwordless:83)       | bound (via T)            | cross  | 1    | U     | conf | chooser → consent → →RP              |
+| B   | Chooser confirmation, flow 2 (passwordless:98)                     | bound (via T)            | cross  | 2    | U     | conf | chooser (with email) → consent → →RP |
+| C   | Returning to pre-approved second client, flow 2 (passwordless:121) | bound+approved-other (U) | cross? | 2    | U     | conf | chooser → →RP (no consent)           |
+| D   | "Another account" from chooser (passwordless:137)                  | bound (via T)            | cross  | 2    | U     | conf | chooser → click → →email             |
+| E1  | Both cookies valid baseline (bugs:23)                              | bound                    | single | 2    | T     | conf | enriched chooser shown               |
+| E2  | dev-id only / ses-id missing (bugs:28)                             | cookies-broken-half      | single | 2    | T     | conf | →email + clear                       |
+| E3  | ses-id only / dev-id missing (bugs:39)                             | cookies-broken-half      | single | 2    | T     | conf | →email + clear                       |
+| E4  | dev-id stale, ses-id valid (bugs:46)                               | cookies-broken-stale     | single | 2    | T     | conf | →email + clear                       |
+| E5  | ses-id stale, dev-id valid (bugs:53)                               | cookies-broken-stale     | single | 2    | T     | conf | →email + clear                       |
+| E6  | Both stale (bugs:60)                                               | cookies-broken-stale     | single | 2    | T     | conf | →email + clear                       |
+| F1  | "Another account" → email form (bugs:67)                           | bound                    | single | 2    | T     | conf | chooser → click → →email             |
+| F2  | Upstream Sign up affordance hidden (bugs:76)                       | bound                    | single | 2    | T     | conf | chooser without "Sign up"            |
+| F3  | Chooser hides handle in random-handle mode (bugs:82)               | bound                    | single | 2    | T     | conf | chooser, handle hidden, email shown  |
+
+### Pending scenarios (planned trusted-client auto-skip)
+
+| #   | Scenario                                                            | Prior-state    | Cross? | Flow | Trust | Conf | Expected         |
+| --- | ------------------------------------------------------------------- | -------------- | ------ | ---- | ----- | ---- | ---------------- |
+| P1  | Trusted + opt-in + matching hint, single binding (passwordless:159) | bound (1 acct) | single | 1    | T+opt | conf | →RP (no chooser) |
+| P2  | Trusted + opt-in + matching hint, multi-binding (passwordless:171)  | bound (N acct) | single | 1    | T+opt | conf | →RP (no chooser) |
+| P3  | Trusted, no opt-in, matching hint (passwordless:183)                | bound          | single | 1    | T     | conf | chooser shown    |
+| P4  | Untrusted + opt-in flag (must NOT take effect) (passwordless:192)   | bound          | cross  | 1    | U+opt | conf | chooser shown    |
+| P5  | Trusted + opt-in + non-matching hint (passwordless:203)             | bound          | single | 1    | T+opt | conf | chooser shown    |
+| P6  | Trusted + opt-in + flow 2 (no hint) (passwordless:213)              | bound          | single | 2    | T+opt | conf | chooser shown    |
+| P7  | Pre-existing device with purged bindings (bugs:95)                  | bound-purged   | single | 2    | T     | conf | →email + clear   |
+
+### What this exposes
+
+**Genuine coverage:**
+
+- Cookie-state coverage (E1–E6 + P7) is exhaustive across the
+  `{dev-id, ses-id} × {present, missing, stale}` grid.
+- Flow-1 vs flow-2 split is covered for the cross-client + bound
+  case (A vs B) and for the trusted-auto-skip planned feature
+  (P1, P3, P5, P6).
+- Both chooser-affordance fixes (Sign up hide, Another account
+  rebind) are tested in both their usage contexts: cross-client
+  (D) and single-client returning (F1).
+
+**Overlaps and what each contributes:**
+
+- **C vs 3**: Scenario 3 (passwordless:40) covers "returning user
+  with prior approval, single client, flow 1." Scenario C covers
+  "device with prior U-approval, T sign-in establishes the live
+  device session, return to U skips consent." The U→T leg in step 2
+  of C is the genuine cross-client claim (a dev-id minted during
+  U-approval is reused by T to skip OTP); the U-return in step 3 is
+  the persistent-grant claim. Both legs are needed — neither
+  scenario 3 nor any other active scenario exercises the U→T
+  cross-client direction.
+- **D vs F1**: same DOM affordance ("Another account"), tested both
+  in cross-client (D) and single-client (F1) contexts. Worth keeping
+  both: D guards the cross-client wiring, F1 guards the docker-stack
+  chooser-rendering pipeline.
+
+**Gaps that matter:**
+
+- **T as the _current_ OAuth client receiving a U-minted session.**
+  A and B are T-mints / U-current. The reverse direction
+  (U-mints / T-current) has no active coverage. Today the auth
+  branches are symmetric so the gap is mostly cosmetic, but if
+  trusted-client auto-skip ever ships (P-series) the trust-class of
+  the _current_ client will start mattering and this gap will
+  become a real hole.
+- **Public client coverage is zero.** Every scenario runs against
+  confidential clients because that is what both demos are wired
+  as. A regression that re-exposed upstream's force-consent path
+  for an untrusted public client would not be caught here — only
+  by upstream's own tests. ePDS's documented stance is "untrusted
+  ⇒ confidential recommended" so this gap is intentional, but
+  it should be named rather than implicit.
+- **Multi-binding device** (more than one account bound to one
+  dev-id) appears only in @pending P2. No active scenario exercises
+  the chooser with two real rows; the SPA's row-rendering and
+  enrichment loop are only exercised on the single-row case.
+- **Zero-binding chooser render** (device row exists, bindings
+  purged) is covered only by @pending P7, with the comment on
+  bugs:90–94 explaining the white-box-access blocker. Unit tests
+  fill the gap.
+
+**Non-gaps (called out so they aren't re-investigated):**
+
+- **Flow 1 + cross-client + pre-approved**: not separately tested
+  (A is flow 1 + bound, no approval; C is flow 2 + bound + approval).
+  The persistent-grant short-circuit is independent of `login_hint`,
+  so a dedicated scenario would duplicate C's grant-claim with
+  A's flow-1-claim — no new combinatorial coverage.
+
+### Recommended actions
+
+1. **Drop the cryptic `Scenario A —` / `B` / `C` / `D` lettering.**
+   The scenario names already describe the behaviour; the letters
+   duplicate the comment headings above each scenario and were
+   flagged earlier as cryptic. Keep the comments — they document
+   the _why_, which the names alone do not — but remove the letter
+   prefixes.
+2. **Document the public-client gap explicitly** in the
+   `## Test scenarios` section: one sentence noting that all
+   scenarios run with both demos wired as confidential clients,
+   so the public-client force-consent path is covered by upstream
+   tests rather than this suite. Cheaper than adding a second
+   untrusted demo container.
+3. **Open a follow-up for the U→T direction gap** if/when the
+   trusted-client auto-skip feature (P-series) lands — the
+   asymmetry only starts mattering then.
+4. **Leave overlaps C vs 3 and D vs F1 alone.** Each pair tests
+   distinct claims; the apparent overlap is actually two
+   complementary coverage layers.
 
 PR #103's e2e run exposed that the original target-behaviour table
 (rows 1 and 3, "auto-skip chooser") encodes a behaviour that

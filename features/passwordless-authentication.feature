@@ -75,10 +75,10 @@ Feature: Passwordless authentication via email OTP
   # consent surface, and for the trusted-client opt-in predicate that
   # would let a future feature skip it on a verified login_hint match.
 
-  # Scenario A — Flow 1: a matching login_hint lets ePDS skip the email
-  # OTP step. The account chooser is still shown for explicit user
-  # confirmation (auto-skipping it on a verified login_hint match is a
-  # planned trusted-client opt-in; see the @pending scenarios below).
+  # Flow 1: a matching login_hint lets ePDS skip the email OTP step. The
+  # account chooser is still shown for explicit user confirmation
+  # (auto-skipping it on a verified login_hint match is a planned
+  # trusted-client opt-in; see the @pending scenarios below).
   @email @session-reuse
   Scenario: Signed-in user is not re-prompted for OTP by a second client (flow 1)
     Given the user has just signed in via the trusted demo client in this browser
@@ -91,9 +91,9 @@ Feature: Passwordless authentication via email OTP
     When the user clicks "Authorize"
     Then the browser is redirected back to the untrusted demo client with a valid session
 
-  # Scenario B — Flow 2: no login_hint means ePDS must show the account
-  # chooser so the user can confirm which identity to reuse, even when
-  # there is only one bound account. The OTP step must still be skipped.
+  # Flow 2: no login_hint means ePDS must show the account chooser so the
+  # user can confirm which identity to reuse, even when there is only one
+  # bound account. The OTP step must still be skipped.
   @email @session-reuse
   Scenario: Signed-in user confirms their identity via the account chooser (flow 2)
     Given the user has just signed in via the trusted demo client in this browser
@@ -106,12 +106,19 @@ Feature: Passwordless authentication via email OTP
     When the user clicks "Authorize"
     Then the browser is redirected back to the untrusted demo client with a valid session
 
-  # Scenario C — Flow 2 + pre-approved client: chooser is still shown so
-  # the user can confirm, but after confirming the consent screen is
-  # skipped and the flow auto-redirects, because the prior approval is
-  # still on file (persistent grant keyed by (sub, clientId) in the
-  # authorized_client table, and the dev-id cookie is preserved from
-  # the pre-approval setup so upstream's session-reuse path engages).
+  # Flow 2 + pre-approved client: chooser is still shown so the user can
+  # confirm, but after confirming the consent screen is skipped and the
+  # flow auto-redirects, because the prior approval is still on file
+  # (persistent grant keyed by (sub, clientId) in the authorized_client
+  # table, and the dev-id cookie is preserved from the pre-approval
+  # setup so upstream's session-reuse path engages).
+  #
+  # The trusted-client sign-in step in the middle is load-bearing: it
+  # exercises the U→T cross-client direction (a dev-id minted during
+  # the untrusted approval is reused by the trusted client to skip OTP).
+  # Without it the test would only prove the (sub, clientId) grant
+  # lookup works on a single-client flow.
+  #
   # Requires the untrusted demo to run as a confidential client
   # (token_endpoint_auth_method=private_key_jwt). Public clients hit
   # upstream's force-consent rule (request-manager.js) and bypass the
@@ -128,10 +135,10 @@ Feature: Passwordless authentication via email OTP
     Then no consent screen was shown during the second login
     And the browser is redirected back to the untrusted demo client with a valid session
 
-  # Scenario D — Flow 2 "Another account": from the chooser the user must
-  # be able to opt out of session reuse and sign in as someone else.
-  # Upstream's "Another account" button is a client-side component swap
-  # into upstream's stock sign-in form; ePDS must intercept the click and
+  # Flow 2 "Another account": from the chooser the user must be able to
+  # opt out of session reuse and sign in as someone else. Upstream's
+  # "Another account" button is a client-side component swap into
+  # upstream's stock sign-in form; ePDS must intercept the click and
   # hard-navigate to the auth-service email/OTP form instead.
   @email @session-reuse
   Scenario: Signed-in user can sign in as a different account from the chooser
