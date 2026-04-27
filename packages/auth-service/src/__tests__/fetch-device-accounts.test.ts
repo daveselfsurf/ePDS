@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fetchDeviceAccountEmails } from '../lib/fetch-device-accounts.js'
 
-const PDS_URL = 'http://core:3000'
+const PDS_URL = 'http://core:3000' // NOSONAR — intentional: docker-compose internal hostname for the unit test
 const SECRET = 'test-internal-secret'
 const DEV = 'dev-0123456789abcdef0123456789abcdef'
 const SES = 'ses-fedcba9876543210fedcba9876543210'
