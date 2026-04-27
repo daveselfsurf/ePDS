@@ -16,12 +16,10 @@ Signing in once in your browser now works across all apps that use this ePDS.
 
 **Client app developers:** no client-side changes required.
 
-- Clients that pass `login_hint` matching a previously-signed-in account get the chooser auto-pre-populated.
-- Clients that don't pass `login_hint` get the chooser with a confirmation step.
+- When a previous sign-in's cookies are present, the user lands on the account chooser to confirm which identity to reuse.
 - Pass `prompt=login` on `/oauth/authorize` to force the email code form regardless of session state.
 
 **Operators:** no new required configuration.
 
 - ePDS auto-detects whether the auth service shares a parent domain with the PDS (`AUTH_HOSTNAME` ends with `.<PDS_HOSTNAME>`) and broadens the device-session cookies to that parent so both services can read them. On unrelated hostnames (e.g. Railway preview envs under `up.railway.app`) the feature self-disables.
-- Optional: set `EPDS_DISABLE_RATE_LIMIT=true` to bypass the auth-service per-IP rate limiter (60 req/min). Only safe for single-source-IP environments like docker-compose / e2e — never production.
 - Untrusted OAuth clients should be wired as confidential (`token_endpoint_auth_method=private_key_jwt`) for the "remember previous approval" path to work. The reference docker stack does this automatically and `scripts/setup.sh` generates the necessary keypairs on first run.

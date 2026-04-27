@@ -361,14 +361,12 @@ A second app sign-in in your browser now skips the email code step.
 
 **Client app developers:** no client-side changes required.
 
-- Clients passing `login_hint` matching a signed-in account get the chooser auto-pre-populated.
-- Clients without `login_hint` get the chooser with a confirmation step.
+- When a previous sign-in's cookies are present, the user lands on the account chooser to confirm which identity to reuse.
 - Pass `prompt=login` on `/oauth/authorize` to force the email code form regardless of session state.
 
 **Operators:** no new required configuration.
 
 - ePDS auto-detects whether the auth service shares a parent domain with the PDS (`AUTH_HOSTNAME` ends with `.<PDS_HOSTNAME>`) and broadens the device-session cookies to that parent. On unrelated hostnames the feature self-disables.
-- Optional: `EPDS_DISABLE_RATE_LIMIT=true` bypasses the auth-service per-IP rate limiter (60 req/min). Only safe for single-source-IP environments — never production.
 ```
 
 ## What the `**Affects:**` line feeds
