@@ -44,6 +44,7 @@ import {
   buildChooserEnrichmentScript,
   escapeHtmlAttr,
 } from '../chooser-enrichment.js'
+import { DEFAULT_BRANDING_CSS } from './default-branding.js'
 import {
   applyPreviewHeaders,
   assetUrl,
@@ -121,9 +122,13 @@ async function renderChooserHtml(opts: {
     .map((f) => `<script type="module" src="${assetUrl(f)}"></script>`)
     .join('')
 
-  const injectedStyle = opts.injectedCss
+  // Default CSS goes first so trusted-client `branding.css` overrides it
+  // through normal cascade ordering.
+  const defaultStyle = `<style>${DEFAULT_BRANDING_CSS}</style>`
+  const clientStyle = opts.injectedCss
     ? `<style>${opts.injectedCss}</style>`
     : ''
+  const injectedStyle = `${defaultStyle}${clientStyle}`
 
   // Mirror the real chooserEnrichmentMiddleware's <head> injection
   // exactly: meta epds-handle-mode + meta epds-auth-origin + the
