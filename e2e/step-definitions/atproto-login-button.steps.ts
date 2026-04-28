@@ -26,16 +26,6 @@ Then(
   },
 )
 
-When(
-  'the user clicks {string}',
-  async function (this: EpdsWorld, label: string) {
-    const page = getPage(this)
-    // Match by visible text — covers the toggle label changing between
-    // "Or sign in with ATProto/Bluesky" and "Or sign in with email".
-    await page.getByText(label, { exact: true }).click()
-  },
-)
-
 Then(
   'the login form input is in handle-entry mode',
   async function (this: EpdsWorld) {

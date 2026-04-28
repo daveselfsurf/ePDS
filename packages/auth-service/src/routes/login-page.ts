@@ -412,7 +412,7 @@ export function renderLoginPage(opts: {
     ? (b.epds_handle_login_url as string)
     : ''
   const handleLoginButtonHtml = handleLoginUrl
-    ? `<a href="#" class="btn-social btn-atproto">Or sign in with ATProto/Bluesky</a>`
+    ? `<button type="button" class="btn-social btn-atproto">Or sign in with ATProto/Bluesky</button>`
     : ''
 
   const hasGoogle = 'google' in socialProviders
