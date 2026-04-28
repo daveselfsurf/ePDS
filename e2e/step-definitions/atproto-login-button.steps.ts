@@ -16,6 +16,11 @@ import { getPage } from '../support/utils.js'
 
 const ATPROTO_BUTTON_SELECTOR = '.btn-atproto'
 
+// E2E_DEMO_URL may or may not have a trailing slash depending on how it
+// was set; strip once here so URL composition and match patterns are
+// stable across step definitions.
+const demoBaseUrl = testEnv.demoUrl.replace(/\/$/, '')
+
 // Drive the trusted demo client through its flow2 entry point: a plain
 // "Sign in" form (no email/handle prefill) that posts to /api/oauth/login
 // and lands the browser directly on the auth-service login page. We use
@@ -26,7 +31,7 @@ When(
   'the demo client initiates an OAuth login via flow 2',
   async function (this: EpdsWorld) {
     const page = getPage(this)
-    const flow2Url = `${testEnv.demoUrl.replace(/\/$/, '')}/flow2`
+    const flow2Url = `${demoBaseUrl}/flow2`
     await page.goto(flow2Url)
     await page.click('button[type=submit]')
     // Wait for the auth-service login page to fully load before letting
@@ -104,7 +109,7 @@ When(
     // and abort it. The demo route does external handle resolution
     // (handle → DID → PDS) which would either be flaky or require live
     // Bluesky access; we only need to assert the redirect URL shape.
-    const expectedUrlPrefix = `${testEnv.demoUrl}/api/oauth/login`
+    const expectedUrlPrefix = `${demoBaseUrl}/api/oauth/login`
     this.handleLoginRedirectUrl = undefined
     await page.route(`${expectedUrlPrefix}**`, (route) => {
       this.handleLoginRedirectUrl = route.request().url()
@@ -124,10 +129,10 @@ Then(
       .toBeDefined()
     const current = new URL(this.handleLoginRedirectUrl as string)
     expect(current.origin + current.pathname).toBe(
-      `${testEnv.demoUrl}/api/oauth/login`,
+      `${demoBaseUrl}/api/oauth/login`,
     )
     expect(current.searchParams.get('handle')).toBe(handle)
     // Stop intercepting so subsequent steps in this scenario aren't affected.
-    await page.unroute(`${testEnv.demoUrl}/api/oauth/login**`)
+    await page.unroute(`${demoBaseUrl}/api/oauth/login**`)
   },
 )
