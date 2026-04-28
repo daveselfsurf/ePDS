@@ -148,6 +148,11 @@ async function main() {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
+    // Reuse the same env vars that pds-core (upstream) consumes so the
+    // legal links are configured in one place per deployment.
+    termsOfServiceUrl: process.env.PDS_TERMS_OF_SERVICE_URL || undefined,
+    privacyPolicyUrl: process.env.PDS_PRIVACY_POLICY_URL || undefined,
+    legalEntityName: process.env.PDS_LEGAL_ENTITY_NAME || undefined,
   }
 
   logger.info(

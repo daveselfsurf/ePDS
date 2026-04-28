@@ -25,16 +25,18 @@ auto-generate secrets. Safe to re-run — existing secrets are preserved.
 These must have **identical values** in pds-core and auth-service. They are
 marked `[shared]` in the per-package `.env.example` files.
 
-| Variable               | Description                                                                                                                                                                                                                                                  |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `EPDS_VERSION`         | Override the version string returned by `/health`. In Docker/Railway builds this is set automatically to `<package.json version>+<8-char commit SHA>`. In dev it falls back to the root `package.json` version. Only set this if you need a custom override. |
-| `PDS_HOSTNAME`         | Your PDS domain — handles will be `<random>.PDS_HOSTNAME`                                                                                                                                                                                                    |
-| `PDS_PUBLIC_URL`       | Full public URL of the PDS, used as OAuth issuer (e.g. `https://pds.example.com`)                                                                                                                                                                            |
-| `EPDS_CALLBACK_SECRET` | HMAC-SHA256 secret signing the `/oauth/epds-callback` redirect — generate with `openssl rand -hex 32`                                                                                                                                                        |
-| `EPDS_INTERNAL_SECRET` | Shared secret for internal service-to-service calls (auth → PDS) — generate with `openssl rand -hex 32`                                                                                                                                                      |
-| `PDS_ADMIN_PASSWORD`   | PDS admin API password (auth-service uses it for account provisioning)                                                                                                                                                                                       |
-| `NODE_ENV`             | Set to `development` for dev mode (disables secure cookies)                                                                                                                                                                                                  |
-| `LOG_LEVEL`            | Log verbosity: `fatal`, `error`, `warn`, `info` (default), `debug`, or `trace`. Applied to both pds-core and auth-service.                                                                                                                                   |
+| Variable                   | Description                                                                                                                                                                                                                                                                 |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EPDS_VERSION`             | Override the version string returned by `/health`. In Docker/Railway builds this is set automatically to `<package.json version>+<8-char commit SHA>`. In dev it falls back to the root `package.json` version. Only set this if you need a custom override.                |
+| `PDS_HOSTNAME`             | Your PDS domain — handles will be `<random>.PDS_HOSTNAME`                                                                                                                                                                                                                   |
+| `PDS_PUBLIC_URL`           | Full public URL of the PDS, used as OAuth issuer (e.g. `https://pds.example.com`)                                                                                                                                                                                           |
+| `EPDS_CALLBACK_SECRET`     | HMAC-SHA256 secret signing the `/oauth/epds-callback` redirect — generate with `openssl rand -hex 32`                                                                                                                                                                       |
+| `EPDS_INTERNAL_SECRET`     | Shared secret for internal service-to-service calls (auth → PDS) — generate with `openssl rand -hex 32`                                                                                                                                                                     |
+| `PDS_ADMIN_PASSWORD`       | PDS admin API password (auth-service uses it for account provisioning)                                                                                                                                                                                                      |
+| `NODE_ENV`                 | Set to `development` for dev mode (disables secure cookies)                                                                                                                                                                                                                 |
+| `LOG_LEVEL`                | Log verbosity: `fatal`, `error`, `warn`, `info` (default), `debug`, or `trace`. Applied to both pds-core and auth-service.                                                                                                                                                  |
+| `PDS_TERMS_OF_SERVICE_URL` | Public URL of your terms of service. Read by upstream PDS for its own surfaces and by auth-service for the login-page footer line. Both this and `PDS_PRIVACY_POLICY_URL` must be set for the login-page line to render; if either is missing the line is omitted entirely. |
+| `PDS_PRIVACY_POLICY_URL`   | Public URL of your privacy policy. See `PDS_TERMS_OF_SERVICE_URL` above for the join condition.                                                                                                                                                                             |
 
 ## PDS Core
 
@@ -134,6 +136,17 @@ Optional PDS email variables:
 | -------------------------- | ---------------------------------------------------------- |
 | `EPDS_LINK_EXPIRY_MINUTES` | Link expiry in minutes (default `10`)                      |
 | `EPDS_LINK_BASE_URL`       | Base URL for verification links — must match AUTH_HOSTNAME |
+
+### Legal links
+
+The login page renders a "By signing in, you agree to …" line below the
+card when both `PDS_TERMS_OF_SERVICE_URL` and `PDS_PRIVACY_POLICY_URL`
+(see [Shared variables](#shared-variables)) are set. The optional
+`PDS_LEGAL_ENTITY_NAME` controls the possessive in that line:
+
+| Variable                | Description                                                                                                                                                                                                                                                                         |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PDS_LEGAL_ENTITY_NAME` | Optional. When set, the login-page terms line reads "By signing in, you agree to **\<name\>'s** Terms of Use and Privacy Policy." When unset, falls back to "By signing in, you agree to **the** Terms of Use and Privacy Policy." Auth-service only — pds-core does not read this. |
 
 ### OTP code
 

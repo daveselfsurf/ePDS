@@ -410,6 +410,9 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
         csrfToken: res.locals.csrfToken,
         authBasePath: '/api/auth',
         pdsPublicUrl: ctx.config.pdsPublicUrl,
+        termsOfServiceUrl: ctx.config.termsOfServiceUrl,
+        privacyPolicyUrl: ctx.config.privacyPolicyUrl,
+        legalEntityName: ctx.config.legalEntityName,
         otpLength: ctx.config.otpLength,
         otpCharset: ctx.config.otpCharset,
       }),
@@ -433,6 +436,9 @@ export function renderLoginPage(opts: {
   csrfToken: string
   authBasePath: string
   pdsPublicUrl: string
+  termsOfServiceUrl?: string
+  privacyPolicyUrl?: string
+  legalEntityName?: string
   otpLength: number
   otpCharset: 'numeric' | 'alphanumeric'
 }): string {
@@ -470,6 +476,27 @@ export function renderLoginPage(opts: {
     : ''
   const handleLoginButtonHtml = handleLoginUrl
     ? `<button type="button" class="btn-social btn-atproto">Or sign in with ATProto/Bluesky</button>`
+    : ''
+
+  // Terms-of-use / privacy-policy line. Only rendered when both URLs are
+  // configured (`PDS_TERMS_OF_SERVICE_URL` + `PDS_PRIVACY_POLICY_URL`);
+  // a partial config would surface a broken link, so skip the line
+  // entirely instead. The possessive ("Acme's Terms of Use…") falls back
+  // to a generic "the Terms of Use…" when `PDS_LEGAL_ENTITY_NAME` is unset.
+  const showTerms =
+    isSafeHttpUrl(opts.termsOfServiceUrl) &&
+    isSafeHttpUrl(opts.privacyPolicyUrl)
+  const termsLead = opts.legalEntityName
+    ? `${escapeHtml(opts.legalEntityName)}'s`
+    : 'the'
+  const termsHtml = showTerms
+    ? `<div class="terms" id="terms" style="display:${
+        opts.initialStep === 'otp' ? 'none' : 'block'
+      };">By signing in, you agree to ${termsLead} <a href="${escapeHtml(
+        opts.termsOfServiceUrl as string,
+      )}" class="terms-link">Terms of Use</a> and <a href="${escapeHtml(
+        opts.privacyPolicyUrl as string,
+      )}" class="terms-link">Privacy Policy</a>.</div>`
     : ''
 
   const hasGoogle = 'google' in socialProviders
@@ -619,7 +646,7 @@ export function renderLoginPage(opts: {
     </div>
     </div>
 
-    <div class="terms" id="terms" style="display:${opts.initialStep === 'otp' ? 'none' : 'block'};">By signing in, you agree to Certified's <a href="https://certified.app/terms" class="terms-link">Terms of Use</a> and <a href="https://certified.app/privacy" class="terms-link">Privacy Policy</a>.</div>
+    ${termsHtml}
 
     <a class="powered-by" href="https://certified.app/" target="_blank" rel="noopener noreferrer">
       <span>Powered by</span>
