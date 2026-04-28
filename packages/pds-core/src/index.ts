@@ -136,6 +136,16 @@ async function main() {
   const handleDomain = process.env.PDS_HOSTNAME || 'localhost'
   const pdsUrl = cfg.service.publicUrl || `https://${handleDomain}`
 
+  // The shared parent domain for cross-subdomain device-session cookies, or
+  // null when auth-service and pds-core are on unrelated hostnames (e.g.
+  // Railway preview envs, where both services live under up.railway.app
+  // and cookies stay host-only). Computed once and reused for both the
+  // cookie-domain broadening middleware and the host-only-twin clear in
+  // /oauth/epds-callback. When null, the broadening is a no-op so device
+  // cookies are themselves host-only — emitting host-only clears in that
+  // case would evict the freshly-minted session cookies.
+  const cookieDomain = deriveCookieDomain(authHostname, handleDomain)
+
   const pds = await PDS.create(cfg, secrets)
   const ctx = pds.ctx
   const provider = ctx.oauthProvider
@@ -250,22 +260,29 @@ async function main() {
       )
       const { deviceId, deviceMetadata } = deviceInfo
 
-      // Step 1b (issue #116): evict any host-only twin of the device-session
-      // cookies that pre-PR-#103 sessions left in the browser jar. Browsers
+      // Step 1b (issue #116): when this deployment broadens device-session
+      // cookies to a shared parent domain, evict any host-only twin that
+      // a pre-PR-#103 session may have left in the browser jar. Browsers
       // store host-only and Domain-scoped cookies of the same name as
-      // distinct entries; when both are present the parser picks the
-      // host-only one first per RFC 6265 ordering, shadowing the fresh
-      // Domain-scoped pair we just emitted in Step 1. Emitting an explicit
+      // distinct entries; when both are present, the cookie parser picks
+      // the host-only one first per RFC 6265 §5.4 ordering, shadowing the
+      // fresh Domain-scoped pair we just emitted in Step 1. The explicit
       // host-only Max-Age=0 clear here forces the browser to evict the
       // stale twin before the very next request, so the welcome-page
       // guard at /oauth/authorize sees only the fresh pair. Idempotent —
       // emitting clears for cookies that don't exist is a no-op.
       // The cookie-domain middleware passes Max-Age=0 lines through
-      // unchanged (also added in #116), so these clears reach the
-      // browser without a Domain= attribute and match the host-only
-      // scope.
-      for (const name of ['dev-id', 'dev-id:hash', 'ses-id', 'ses-id:hash']) {
-        res.append('Set-Cookie', `${name}=; Max-Age=0; Path=/`)
+      // unchanged (also added in #116) so these clears reach the browser
+      // without a Domain= attribute and match the host-only scope.
+      // Skipped on deployments where the cookie-domain broadening is a
+      // no-op (auth-service and pds-core on unrelated hostnames, e.g.
+      // Railway preview envs under up.railway.app) — there the device
+      // cookies set in Step 1 are themselves host-only, so emitting a
+      // host-only clear would evict them.
+      if (cookieDomain) {
+        for (const name of ['dev-id', 'dev-id:hash', 'ses-id', 'ses-id:hash']) {
+          res.append('Set-Cookie', `${name}=; Max-Age=0; Path=/`)
+        }
       }
 
       // Step 2: Refresh the PAR request expiry timer.
@@ -671,14 +688,10 @@ async function main() {
   // and bounces to auth-service with stale cookies cleared when either
   // check fails. All other requests pass through unchanged.
 
-  const welcomeGuardCookieDomain = deriveCookieDomain(
-    authHostname,
-    handleDomain,
-  )
   const welcomePageGuardMiddleware = createWelcomePageGuard({
     authHostname,
     provider: provider ?? null,
-    cookieDomain: welcomeGuardCookieDomain,
+    cookieDomain,
     logger,
   })
   pds.app.use(welcomePageGuardMiddleware)
@@ -882,7 +895,6 @@ async function main() {
   // Upstream's DeviceManager has no domain option, so we rewrite headers
   // rather than pass config.
 
-  const cookieDomain = welcomeGuardCookieDomain
   if (cookieDomain) {
     const cookieDomainMiddleware = createCookieDomainMiddleware(cookieDomain)
 
