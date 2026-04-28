@@ -37,10 +37,14 @@ Feature: Stale host-only device cookies must not trap users in an OTP loop
 
   Scenario: User can complete OTP sign-in despite stale host-only cookies
     # End-to-end loop reproduction. The affected user starts an OAuth
-    # flow and submits a valid OTP. They must reach the consent screen
-    # (or, when no consent is required, the client app) rather than
-    # being bounced back to the OTP form.
+    # flow and submits a valid OTP. The Background's account-creation
+    # step recorded the trusted demo as an authorised client (via
+    # PDS_SIGNUP_ALLOW_CONSENT_SKIP), so the returning login skips the
+    # consent screen entirely and lands on the demo's /welcome page
+    # with a valid token. Pre-fix the user instead loops on the OTP
+    # form because stale host-only cookies shadow the freshly-set
+    # Domain-scoped pair every time the post-callback /oauth/authorize
+    # hop runs welcome-page-guard.
     When the demo client starts a new OAuth flow
     And the user submits a valid OTP for the existing account
-    Then the browser does not land back on the OTP form
-    And the stock upstream welcome page is not shown
+    Then the browser is redirected back to the demo client

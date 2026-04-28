@@ -250,6 +250,24 @@ async function main() {
       )
       const { deviceId, deviceMetadata } = deviceInfo
 
+      // Step 1b (issue #116): evict any host-only twin of the device-session
+      // cookies that pre-PR-#103 sessions left in the browser jar. Browsers
+      // store host-only and Domain-scoped cookies of the same name as
+      // distinct entries; when both are present the parser picks the
+      // host-only one first per RFC 6265 ordering, shadowing the fresh
+      // Domain-scoped pair we just emitted in Step 1. Emitting an explicit
+      // host-only Max-Age=0 clear here forces the browser to evict the
+      // stale twin before the very next request, so the welcome-page
+      // guard at /oauth/authorize sees only the fresh pair. Idempotent —
+      // emitting clears for cookies that don't exist is a no-op.
+      // The cookie-domain middleware passes Max-Age=0 lines through
+      // unchanged (also added in #116), so these clears reach the
+      // browser without a Domain= attribute and match the host-only
+      // scope.
+      for (const name of ['dev-id', 'dev-id:hash', 'ses-id', 'ses-id:hash']) {
+        res.append('Set-Cookie', `${name}=; Max-Age=0; Path=/`)
+      }
+
       // Step 2: Refresh the PAR request expiry timer.
       // Call get() WITHOUT deviceId so it doesn't bind one — the stock
       // oauthMiddleware will bind the browser's deviceId when we redirect

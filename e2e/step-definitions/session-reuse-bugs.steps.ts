@@ -583,18 +583,3 @@ When(
     await page.click('#form-verify-otp .btn-primary')
   },
 )
-
-Then(
-  'the browser does not land back on the OTP form',
-  async function (this: EpdsWorld) {
-    const page = getPage(this)
-    // Wait for any redirects to settle, then assert we're not on the
-    // OTP step. If we ARE, the loop has reproduced.
-    await page.waitForLoadState('networkidle', { timeout: 30_000 })
-    const otpStepVisible = await page.locator('#step-otp.active').isVisible()
-    expect(
-      otpStepVisible,
-      `Loop reproduced: after submitting a valid OTP the browser is back on the OTP form at ${page.url()}`,
-    ).toBe(false)
-  },
-)
