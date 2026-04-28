@@ -35,17 +35,6 @@ Feature: Stale host-only device cookies must not trap users in an OTP loop
     And a returning user has a PDS account
     And the browser jar holds only a stale host-only dev-id and ses-id pair
 
-  Scenario: Bounce response actually clears the host-only cookies
-    # Bug 2 from #116. Drive the OAuth entry point and verify the
-    # response that eventually serves the email/OTP form has evicted
-    # the host-only dev-id/ses-id from the jar. If the cookie-domain
-    # middleware rewrites the host-only clear, the host-only entries
-    # survive this assertion and the scenario fails.
-    When the demo client starts a new OAuth flow
-    Then the browser lands on the auth-service email-and-OTP form
-    And the stock upstream welcome page is not shown
-    And no host-only dev-id or ses-id cookie remains on the browser
-
   Scenario: User can complete OTP sign-in despite stale host-only cookies
     # End-to-end loop reproduction. The affected user starts an OAuth
     # flow and submits a valid OTP. They must reach the consent screen

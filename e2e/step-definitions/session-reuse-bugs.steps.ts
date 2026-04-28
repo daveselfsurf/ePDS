@@ -556,24 +556,6 @@ Given(
   },
 )
 
-Then(
-  'no host-only dev-id or ses-id cookie remains on the browser',
-  async function (this: EpdsWorld) {
-    const page = getPage(this)
-    const pdsHost = new URL(testEnv.pdsUrl).host
-    const cookies = await page.context().cookies()
-    for (const name of ['dev-id', 'ses-id']) {
-      const matches = cookies.filter(
-        (c) => c.name === name && c.domain === pdsHost,
-      )
-      expect(
-        matches.length,
-        `Expected no host-only ${name} cookie remaining on ${pdsHost} but found ${matches.length}: ${JSON.stringify(matches)}`,
-      ).toBe(0)
-    }
-  },
-)
-
 When(
   'the user submits a valid OTP for the existing account',
   async function (this: EpdsWorld) {

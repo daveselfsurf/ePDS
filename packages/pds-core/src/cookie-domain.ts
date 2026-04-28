@@ -61,6 +61,14 @@ export const DEVICE_COOKIE_NAMES = new Set<string>([
  * - Returns the input unchanged if it doesn't target a device cookie.
  * - Returns the input unchanged if it already has a `Domain=` attribute
  *   (case-insensitive) — never double-scopes.
+ * - Returns the input unchanged if it is a clearing cookie (`Max-Age=0`
+ *   or a past `Expires`). Browsers only clear a host-only cookie if the
+ *   clearing Set-Cookie itself carries no `Domain=`; auto-scoping a
+ *   clear would silently neuter callers (e.g. welcome-page-guard) that
+ *   intentionally emit BOTH a host-only clear and a Domain-scoped clear
+ *   to evict cookies in both scopes. Without this guard the host-only
+ *   variant of a stale device cookie can never be removed once the
+ *   middleware is installed — see GitHub issue #116.
  * - Otherwise appends `; Domain=<domain>` to the end of the value.
  *
  * Set-Cookie values look like "name=value; Path=/; HttpOnly; Secure".
@@ -75,7 +83,26 @@ export function rewriteSetCookie(value: string, domain: string): string {
   if (!DEVICE_COOKIE_NAMES.has(name)) return value
   // Already has Domain attribute? Don't double-inject.
   if (/;\s*Domain=/i.test(value)) return value
+  if (isClearingCookie(value)) return value
   return `${value}; Domain=${domain}`
+}
+
+/**
+ * True when a Set-Cookie value expresses an explicit cookie eviction
+ * — either `Max-Age=0` (RFC 6265 §5.2.2: "If delta-seconds is less
+ *  than or equal to zero (0), let expiry-time be the earliest
+ *  representable date") or a past `Expires=` date. Numeric `Max-Age`
+ *  is the canonical form upstream uses for host-only/Domain-scoped
+ *  clears in welcome-page-guard.
+ */
+function isClearingCookie(value: string): boolean {
+  if (/;\s*Max-Age\s*=\s*-?0+\b/i.test(value)) return true
+  const expiresMatch = /;\s*Expires\s*=\s*([^;]+)/i.exec(value)
+  if (expiresMatch) {
+    const ts = Date.parse(expiresMatch[1].trim())
+    if (!Number.isNaN(ts) && ts <= Date.now()) return true
+  }
+  return false
 }
 
 /**

@@ -103,6 +103,58 @@ describe('rewriteSetCookie (HYPER-268)', () => {
     expect(rewriteSetCookie('just-a-name', domain)).toBe('just-a-name')
   })
 
+  describe('clearing cookies (issue #116)', () => {
+    // Clears must pass through unchanged so callers can emit a host-only
+    // clear (no Domain=) alongside a Domain-scoped clear and have the
+    // browser actually evict the host-only entry. Auto-injecting Domain=
+    // here makes the host-only clear identical to the Domain-scoped one
+    // and the host-only stale cookie survives forever.
+
+    it('passes through a Max-Age=0 host-only clear unchanged', () => {
+      const input = 'dev-id=; Max-Age=0; Path=/'
+      expect(rewriteSetCookie(input, domain)).toBe(input)
+    })
+
+    it('passes through a Max-Age=0 clear for each device cookie name', () => {
+      for (const name of ['dev-id', 'ses-id', 'dev-id:hash', 'ses-id:hash']) {
+        const input = `${name}=; Max-Age=0; Path=/`
+        expect(rewriteSetCookie(input, domain)).toBe(input)
+      }
+    })
+
+    it('passes through Max-Age=0 with surrounding whitespace', () => {
+      const input = 'dev-id=;  Max-Age = 0 ; Path=/'
+      expect(rewriteSetCookie(input, domain)).toBe(input)
+    })
+
+    it('passes through a clear with a past Expires date', () => {
+      const input = 'dev-id=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT'
+      expect(rewriteSetCookie(input, domain)).toBe(input)
+    })
+
+    it('still injects Domain on a normal Set-Cookie with a future Expires', () => {
+      const future = new Date(
+        Date.now() + 365 * 24 * 60 * 60 * 1000,
+      ).toUTCString()
+      const input = `dev-id=abc; Path=/; Expires=${future}`
+      expect(rewriteSetCookie(input, domain)).toBe(
+        `${input}; Domain=pds.example`,
+      )
+    })
+
+    it('still injects Domain on a normal Set-Cookie with positive Max-Age', () => {
+      const input = 'dev-id=abc; Max-Age=3600; Path=/'
+      expect(rewriteSetCookie(input, domain)).toBe(
+        `${input}; Domain=pds.example`,
+      )
+    })
+
+    it('does not double-inject on a Domain-scoped clear', () => {
+      const input = 'dev-id=; Max-Age=0; Path=/; Domain=pds.example'
+      expect(rewriteSetCookie(input, domain)).toBe(input)
+    })
+  })
+
   it('exports the set of device cookie names', () => {
     expect(DEVICE_COOKIE_NAMES.size).toBe(4)
     expect(DEVICE_COOKIE_NAMES.has('dev-id')).toBe(true)
