@@ -419,6 +419,8 @@ describe('renderLoginPage handle login button', () => {
       clientName: 'Example',
       branding,
       customCss: null,
+      customFaviconUrl: null,
+      customFaviconUrlDark: null,
       loginHint: '',
       initialStep: 'email',
       otpAlreadySent: false,

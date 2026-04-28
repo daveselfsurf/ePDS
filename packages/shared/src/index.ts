@@ -43,6 +43,8 @@ export {
   escapeCss,
   MAX_CSS_BYTES,
   getClientCss,
+  getClientFaviconUrl,
+  getClientFaviconUrlDark,
   clearClientMetadataCache,
   getClientMetadataCacheStatus,
   _seedClientMetadataCacheForTest,

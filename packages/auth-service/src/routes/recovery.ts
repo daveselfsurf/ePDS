@@ -19,7 +19,10 @@ import type { AuthServiceContext } from '../context.js'
 import { createLogger, escapeHtml, maskEmail } from '@certified-app/shared'
 import { buildOtpInputProps } from '../otp-input.js'
 import { resolveClientBranding } from '../lib/client-metadata.js'
-import { renderOptionalStyleTag } from '../lib/page-helpers.js'
+import {
+  renderOptionalStyleTag,
+  renderFaviconTag,
+} from '../lib/page-helpers.js'
 import { renderError } from '../lib/render-error.js'
 
 const logger = createLogger('auth:recovery')
@@ -35,22 +38,36 @@ export function createRecoveryRouter(
   const otpLength = ctx.config.otpLength
   const otpCharset = ctx.config.otpCharset
 
-  /** Look up clientId and requestUri from the epds_auth_flow cookie. */
-  async function getFlowCss(req: Request): Promise<{
+  /** Look up clientId, requestUri, and branding from the epds_auth_flow cookie. */
+  async function getFlowBranding(req: Request): Promise<{
     clientId: string | null
     backUri: string | null
     customCss: string | null
+    customFaviconUrl: string | null
+    customFaviconUrlDark: string | null
   }> {
     const flowId = req.cookies[AUTH_FLOW_COOKIE] as string | undefined
     const flow = flowId ? ctx.db.getAuthFlow(flowId) : undefined
     const clientId = flow?.clientId ?? null
     const backUri = flow?.requestUri ?? null
-    if (!clientId) return { clientId: null, backUri, customCss: null }
-    const { customCss } = await resolveClientBranding(
+    if (!clientId) {
+      return {
+        clientId: null,
+        backUri,
+        customCss: null,
+        customFaviconUrl: null,
+        customFaviconUrlDark: null,
+      }
+    }
+    const { customCss, customFaviconUrl, customFaviconUrlDark } =
+      await resolveClientBranding(clientId, ctx.config.trustedClients)
+    return {
       clientId,
-      ctx.config.trustedClients,
-    )
-    return { clientId, backUri, customCss }
+      backUri,
+      customCss,
+      customFaviconUrl,
+      customFaviconUrlDark,
+    }
   }
 
   router.get('/auth/recover', async (req: Request, res: Response) => {
@@ -64,13 +81,16 @@ export function createRecoveryRouter(
       return
     }
 
-    const { customCss, backUri } = await getFlowCss(req)
+    const { customCss, customFaviconUrl, customFaviconUrlDark, backUri } =
+      await getFlowBranding(req)
 
     res.type('html').send(
       renderRecoveryForm({
         requestUri,
         csrfToken: res.locals.csrfToken,
         customCss,
+        customFaviconUrl,
+        customFaviconUrlDark,
         backUri,
       }),
     )
@@ -80,7 +100,8 @@ export function createRecoveryRouter(
     const email = ((req.body.email as string) || '').trim().toLowerCase()
     const requestUri = req.body.request_uri as string
 
-    const { customCss, backUri } = await getFlowCss(req)
+    const { customCss, customFaviconUrl, customFaviconUrlDark, backUri } =
+      await getFlowBranding(req)
 
     if (!email || !requestUri) {
       res.status(400).send(
@@ -89,6 +110,8 @@ export function createRecoveryRouter(
           csrfToken: res.locals.csrfToken,
           error: 'Email and request URI are required.',
           customCss,
+          customFaviconUrl,
+          customFaviconUrlDark,
           backUri,
         }),
       )
@@ -102,6 +125,8 @@ export function createRecoveryRouter(
           csrfToken: res.locals.csrfToken,
           error: 'Please enter a valid email address.',
           customCss,
+          customFaviconUrl,
+          customFaviconUrlDark,
           backUri,
         }),
       )
@@ -152,6 +177,8 @@ export function createRecoveryRouter(
             otpLength,
             otpCharset,
             customCss,
+            customFaviconUrl,
+            customFaviconUrlDark,
             backUri,
           }),
         )
@@ -166,6 +193,8 @@ export function createRecoveryRouter(
             otpLength,
             otpCharset,
             customCss,
+            customFaviconUrl,
+            customFaviconUrlDark,
             backUri,
           }),
         )
@@ -180,6 +209,8 @@ export function createRecoveryRouter(
           otpLength,
           otpCharset,
           customCss,
+          customFaviconUrl,
+          customFaviconUrlDark,
           backUri,
         }),
       )
@@ -229,7 +260,8 @@ export function createRecoveryRouter(
         (err.message.includes('invalid') || err.message.includes('expired'))
           ? 'Invalid or expired code. Please try again.'
           : 'Verification failed. Please try again.'
-      const { customCss, backUri } = await getFlowCss(req)
+      const { customCss, customFaviconUrl, customFaviconUrlDark, backUri } =
+        await getFlowBranding(req)
       res.send(
         renderRecoveryOtpForm({
           email,
@@ -239,6 +271,8 @@ export function createRecoveryRouter(
           otpLength,
           otpCharset,
           customCss,
+          customFaviconUrl,
+          customFaviconUrlDark,
           backUri,
         }),
       )
@@ -253,6 +287,8 @@ export function renderRecoveryForm(opts: {
   csrfToken: string
   error?: string
   customCss?: string | null
+  customFaviconUrl?: string | null
+  customFaviconUrlDark?: string | null
   backUri?: string | null
 }): string {
   const requestUriForBack = opts.backUri ?? opts.requestUri
@@ -264,8 +300,7 @@ export function renderRecoveryForm(opts: {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" href="/static/favicon.svg" media="(prefers-color-scheme: light)" type="image/svg+xml">
-  <link rel="icon" href="/static/favicon-dark.svg" media="(prefers-color-scheme: dark)" type="image/svg+xml">
+  ${renderFaviconTag(opts.customFaviconUrl, opts.customFaviconUrlDark)}
   <title>Account Recovery</title>
   <style>${CSS}</style>${renderOptionalStyleTag(opts.customCss)}
 </head>
@@ -298,6 +333,8 @@ export function renderRecoveryOtpForm(opts: {
   otpCharset: 'numeric' | 'alphanumeric'
   error?: string
   customCss?: string | null
+  customFaviconUrl?: string | null
+  customFaviconUrlDark?: string | null
   backUri?: string | null
 }): string {
   const maskedEmail = maskEmail(opts.email)
@@ -312,8 +349,7 @@ export function renderRecoveryOtpForm(opts: {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" href="/static/favicon.svg" media="(prefers-color-scheme: light)" type="image/svg+xml">
-  <link rel="icon" href="/static/favicon-dark.svg" media="(prefers-color-scheme: dark)" type="image/svg+xml">
+  ${renderFaviconTag(opts.customFaviconUrl, opts.customFaviconUrlDark)}
   <title>Enter recovery code</title>
   <style>${CSS}</style>${renderOptionalStyleTag(opts.customCss)}
 </head>

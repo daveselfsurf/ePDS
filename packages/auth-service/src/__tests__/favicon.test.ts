@@ -1,11 +1,11 @@
 /**
  * Ensures every rendered `<head>` in the auth-service routes wires both
- * the light- and dark-mode Certified favicons. The favicon tags are
- * static one-liners — rather than stand up each render helper with its
- * full `opts` shape, this test scans the route source for every `<head>`
- * block and asserts it contains both `<link rel="icon">` variants gated
- * by `prefers-color-scheme`. This catches future routes / render helpers
- * that forget the tags or wire only one of the two.
+ * the light- and dark-mode Certified favicons. Routes that render a
+ * branded page go through `renderFaviconTag()` so a custom client-supplied
+ * favicon can override the default — those are covered by the separate
+ * `renderFaviconTag` unit test in `page-helpers.test.ts`. Everything else
+ * still embeds the two `<link>` tags literally; this scanner catches
+ * future routes / render helpers that forget them.
  */
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -32,6 +32,17 @@ const FAVICON_DARK =
 const HEAD_BLOCK = /<head\b[^>]*>[\s\S]*?<\/head>/g
 
 /**
+ * Routes that render via `renderFaviconTag()` instead of literal
+ * `<link>` tags — the helper is exercised in `page-helpers.test.ts`, so
+ * scanning their source for the literal strings would false-fail.
+ */
+const HELPER_BACKED_ROUTES = new Set([
+  'choose-handle.ts',
+  'login-page.ts',
+  'recovery.ts',
+])
+
+/**
  * Auto-discover every source file that renders at least one `<head>` block.
  * A hardcoded list silently misses new rendered pages; raw `readdirSync`
  * false-fails on files that never render HTML (e.g. `complete.ts`).
@@ -43,6 +54,7 @@ const routeFiles = SCAN_DIRS.flatMap((dir) =>
   fs
     .readdirSync(dir)
     .filter((file) => file.endsWith('.ts'))
+    .filter((file) => !HELPER_BACKED_ROUTES.has(file))
     .map((file) => ({
       file: `${path.basename(dir)}/${file}`,
       heads:

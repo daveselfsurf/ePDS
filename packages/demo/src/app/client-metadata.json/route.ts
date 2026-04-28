@@ -71,7 +71,17 @@ export async function GET() {
       epds_skip_consent_on_signup: true,
     }),
     ...(theme && {
-      branding: { css: theme.injectedCss },
+      branding: {
+        css: theme.injectedCss,
+        // Same-origin favicons: served from this demo's PUBLIC_URL so they
+        // share an origin with `client_id` (auth-service rejects
+        // cross-origin favicons because the CSP img-src only widens to
+        // the client_id origin). Light + dark variants let auth-service
+        // emit two `<link rel="icon" media="(prefers-color-scheme: ...)">`
+        // tags so browsers pick the one that matches the user's OS theme.
+        favicon_url: `${baseUrl}/favicon-demo.svg`,
+        favicon_url_dark: `${baseUrl}/favicon-demo-dark.svg`,
+      },
     }),
   }
 
