@@ -339,6 +339,42 @@ The skip only applies to initial sign-up — returning users go through
 normal consent handling (which may still be auto-approved if they have
 already granted the requested scopes).
 
+#### Optional: offer ATProto/Bluesky handle sign-in
+
+Users who already have an ATProto identity on a different PDS (e.g.
+`alice.bsky.social`) can't authenticate against your PDS directly —
+they need to be redirected back to your client app, which can resolve
+the handle to their PDS and start a fresh OAuth flow against it.
+
+Opt in by adding `epds_handle_login_url` to your client metadata:
+
+```json
+{
+  "epds_handle_login_url": "https://yourapp.example.com/api/oauth/login"
+}
+```
+
+When set, the auth-service login page renders an "Or sign in with
+ATProto/Bluesky" button under the email form. Clicking it switches the
+form into handle-entry mode (placeholder `you.bsky.social`); submitting
+a handle navigates the browser to your declared URL with `?handle=<value>`
+appended. Your route is responsible for resolving the handle to its PDS
+and starting a fresh PAR against that PDS.
+
+The reference demo client implements this at
+`packages/demo/src/app/api/oauth/login/route.ts` — the same route
+already accepts `?handle=` and resolves it dynamically, so the easiest
+opt-in is to point `epds_handle_login_url` at your existing OAuth
+login route.
+
+Constraints:
+
+- The URL must use the `https:` scheme (or `http:` for local dev).
+  Other schemes (including `javascript:`) are rejected and the button
+  is not rendered.
+- If `epds_handle_login_url` is unset or invalid, the button is not
+  rendered. Existing clients see no behaviour change.
+
 #### Optional: custom CSS for ePDS pages (trusted clients)
 
 If your app is in the PDS operator's `PDS_OAUTH_TRUSTED_CLIENTS`, you can
