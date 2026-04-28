@@ -438,7 +438,15 @@ export function renderLoginPage(opts: {
 }): string {
   const b = opts.branding
   const appName = b.client_name || opts.clientName || 'Certified'
-  const brandColor = b.brand_color || '#1A130F'
+  // brand_color is interpolated into <style> below. escapeHtml() doesn't
+  // make a value safe in CSS context — a `;` or `}` would break out of the
+  // declaration — so restrict to a hex literal before use.
+  const rawBrandColor = b.brand_color || '#1A130F'
+  const brandColor = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(
+    rawBrandColor,
+  )
+    ? rawBrandColor
+    : '#1A130F'
   const logoHtml = b.logo_uri
     ? `<img src="${escapeHtml(b.logo_uri)}" alt="${escapeHtml(appName)}" class="client-logo">`
     : `<img src="/static/certified-brandmark.svg" alt="Certified" class="client-logo">`
@@ -511,7 +519,7 @@ export function renderLoginPage(opts: {
   ${renderFaviconTag(opts.customFaviconUrl, opts.customFaviconUrlDark)}
   <title>Sign in to ${escapeHtml(appName)}</title>
   <style>
-    :root { --muted-foreground: #999; --input-bg: #ffffff; --input-border: #e5e5e5; --page-bg: #E8E8E8; --card-bg: #F8F8F8; --card-border: #E5E5E5; --btn-secondary-border: #e5e5e5; --focus-border: ${escapeHtml(brandColor)}; }
+    :root { --muted-foreground: #999; --input-bg: #ffffff; --input-border: #e5e5e5; --page-bg: #E8E8E8; --card-bg: #F8F8F8; --card-border: #E5E5E5; --btn-secondary-border: #e5e5e5; --focus-border: ${brandColor}; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--page-bg); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; color: #1A130F; }
     .page-wrap { display: flex; flex-direction: column; align-items: stretch; max-width: 497px; width: 100%; }
@@ -528,7 +536,7 @@ export function renderLoginPage(opts: {
     .otp-box::placeholder { color: #d4d4d4; }
     .otp-box:focus { border-color: var(--focus-border); }
     .otp-actions { display: flex; gap: 32px; justify-content: center; margin-top: 12px; }
-    .btn-primary { width: 100%; padding: 15px; background: ${escapeHtml(brandColor)}; color: white; border: none; border-radius: 9999px; font-size: 15px; font-weight: 500; cursor: pointer; transition: opacity 0.15s; }
+    .btn-primary { width: 100%; padding: 15px; background: ${brandColor}; color: white; border: none; border-radius: 9999px; font-size: 15px; font-weight: 500; cursor: pointer; transition: opacity 0.15s; }
     .btn-primary:hover { opacity: 0.9; }
     .btn-primary:disabled { opacity: 0.7; cursor: not-allowed; }
     .btn-secondary { display: inline-block; color: #6b6b6b; background: none; border: none; font-size: 14px; font-weight: 500; cursor: pointer; padding: 4px 0; }
@@ -595,7 +603,8 @@ export function renderLoginPage(opts: {
                 `<input type="text" class="otp-box" data-slot="${i}" maxlength="1"
                    inputmode="${inputProps.inputmode}" autocapitalize="${inputProps.autocapitalize}"
                    ${i === 0 ? 'autocomplete="one-time-code"' : 'autocomplete="off"'}
-                   placeholder="0" aria-label="Digit ${i + 1}">`,
+                   placeholder="${opts.otpCharset === 'alphanumeric' ? 'A' : '0'}"
+                   aria-label="${opts.otpCharset === 'alphanumeric' ? 'Character' : 'Digit'} ${i + 1}">`,
             )
             .join('\n          ')}
         </div>
