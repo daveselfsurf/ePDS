@@ -21,18 +21,18 @@ Feature: ATProto/Bluesky handle login button on the auth-service login page
 
   Scenario: Clicking the button toggles the email form into handle-entry mode
     When the demo client initiates an OAuth login via flow 2
-    And the user clicks "Or sign in with ATProto/Bluesky"
+    And the user clicks the ATProto handle login button
     Then the login form input is in handle-entry mode
     And the button label changes to "Or sign in with email"
 
   Scenario: Clicking the button again returns to email-entry mode
     When the demo client initiates an OAuth login via flow 2
-    And the user clicks "Or sign in with ATProto/Bluesky"
-    And the user clicks "Or sign in with email"
+    And the user clicks the ATProto handle login button
+    And the user clicks the ATProto handle login button
     Then the login form input is in email-entry mode
 
   Scenario: Submitting a handle redirects to the client's handle login URL
     When the demo client initiates an OAuth login via flow 2
-    And the user clicks "Or sign in with ATProto/Bluesky"
+    And the user clicks the ATProto handle login button
     And the user enters the handle "alice.bsky.social" and submits
     Then the browser is navigated to the demo client's handle login URL with handle "alice.bsky.social"

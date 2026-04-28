@@ -29,6 +29,28 @@ When(
     const flow2Url = `${testEnv.demoUrl.replace(/\/$/, '')}/flow2`
     await page.goto(flow2Url)
     await page.click('button[type=submit]')
+    // Wait for the auth-service login page to fully load before letting
+    // subsequent steps interact with it. Without this, the click on the
+    // ATProto button can land before the inline <script> attaches its
+    // listener, so the toggle JS never runs and the input attributes
+    // stay in email mode.
+    await page.waitForLoadState('networkidle')
+  },
+)
+
+// Click the ATProto button via its class selector rather than the generic
+// "the user clicks {string}" step (which uses getByRole('button', {name})).
+// Direct selector gives deterministic locator behaviour across Railway
+// preview latency profiles. We don't share `the user clicks {string}` for
+// the handle-mode toggle anyway because the button is a label-toggling
+// control, not a generic named button.
+When(
+  'the user clicks the ATProto handle login button',
+  async function (this: EpdsWorld) {
+    const page = getPage(this)
+    const btn = page.locator(ATPROTO_BUTTON_SELECTOR)
+    await expect(btn).toBeVisible({ timeout: 10_000 })
+    await btn.click()
   },
 )
 
