@@ -18,6 +18,7 @@ import {
 } from '@certified-app/shared'
 import type { HandleMode } from '@certified-app/shared'
 import {
+  renderLoginPage,
   resolveHandleMode,
   safeResolveClientMetadata,
 } from '../routes/login-page.js'
@@ -407,5 +408,77 @@ describe('safeResolveClientMetadata', () => {
       'https://test-app.coolapp.dev',
     )
     expect(result).toEqual(mockMetadata)
+  })
+})
+
+describe('renderLoginPage handle login button', () => {
+  function render(branding: ClientMetadata): string {
+    return renderLoginPage({
+      flowId: 'flow-1',
+      clientId: 'https://example.com/client-metadata.json',
+      clientName: 'Example',
+      branding,
+      customCss: null,
+      loginHint: '',
+      initialStep: 'email',
+      otpAlreadySent: false,
+      csrfToken: 'csrf',
+      authBasePath: '/api/auth',
+      pdsPublicUrl: 'https://pds.example.com',
+      otpLength: 6,
+      otpCharset: 'numeric',
+    })
+  }
+
+  // The "btn-atproto" class name also appears in inline JS (querySelector
+  // for the toggle handler), so assertions must look for the actual button
+  // element and the inlined handleLoginUrl JS variable.
+  const BUTTON_HTML =
+    'class="btn-social btn-atproto">Or sign in with ATProto/Bluesky'
+
+  it('omits the button when epds_handle_login_url is not declared', () => {
+    const html = render({})
+    expect(html).not.toContain(BUTTON_HTML)
+    expect(html).toContain('var handleLoginUrl = ""')
+  })
+
+  it('renders the button when epds_handle_login_url is a valid https URL', () => {
+    const html = render({
+      epds_handle_login_url: 'https://client.example.com/api/oauth/login',
+    })
+    expect(html).toContain(BUTTON_HTML)
+    expect(html).toContain(
+      'var handleLoginUrl = "https://client.example.com/api/oauth/login"',
+    )
+  })
+
+  it('renders the button when epds_handle_login_url is http (dev)', () => {
+    const html = render({
+      epds_handle_login_url: 'http://localhost:3000/api/oauth/login',
+    })
+    expect(html).toContain(BUTTON_HTML)
+  })
+
+  it('rejects javascript: URLs and omits the button', () => {
+    const html = render({
+      epds_handle_login_url: 'javascript:alert(1)' as string,
+    })
+    expect(html).not.toContain(BUTTON_HTML)
+    expect(html).toContain('var handleLoginUrl = ""')
+  })
+
+  it('rejects malformed URLs and omits the button', () => {
+    const html = render({
+      epds_handle_login_url: 'not a url',
+    })
+    expect(html).not.toContain(BUTTON_HTML)
+    expect(html).toContain('var handleLoginUrl = ""')
+  })
+
+  it('rejects non-http(s) schemes (file:) and omits the button', () => {
+    const html = render({
+      epds_handle_login_url: 'file:///etc/passwd',
+    })
+    expect(html).not.toContain(BUTTON_HTML)
   })
 })

@@ -71,6 +71,11 @@ export class EpdsWorld extends World {
   /** Computed background colors captured by client-branding scenarios, keyed by label. */
   capturedBgColors?: Record<string, string>
 
+  /** URL captured when the auth-service login page redirects to the
+   *  client's `epds_handle_login_url` after handle-mode submission.
+   *  Used by atproto-login-button scenarios. */
+  handleLoginRedirectUrl?: string
+
   /** Console-capture stream for the current scenario. Set by hooks on
    *  scenario start, re-attached after resetBrowserContext. */
   consoleCapture?: NodeJS.WritableStream
