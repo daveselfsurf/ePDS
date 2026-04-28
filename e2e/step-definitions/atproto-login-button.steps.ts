@@ -16,6 +16,22 @@ import { getPage } from '../support/utils.js'
 
 const ATPROTO_BUTTON_SELECTOR = '.btn-atproto'
 
+// Drive the trusted demo client through its flow2 entry point: a plain
+// "Sign in" form (no email/handle prefill) that posts to /api/oauth/login
+// and lands the browser directly on the auth-service login page. We use
+// flow2 (not the demo home page's email form) because we need to land on
+// the auth-service login page where the ATProto button lives — the home
+// page has its own email form on the demo origin.
+When(
+  'the demo client initiates an OAuth login via flow 2',
+  async function (this: EpdsWorld) {
+    const page = getPage(this)
+    const flow2Url = `${testEnv.demoUrl.replace(/\/$/, '')}/flow2`
+    await page.goto(flow2Url)
+    await page.click('button[type=submit]')
+  },
+)
+
 Then(
   'the login page displays an {string} button',
   async function (this: EpdsWorld, label: string) {
