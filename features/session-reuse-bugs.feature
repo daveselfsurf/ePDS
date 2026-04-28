@@ -96,6 +96,34 @@ Feature: Session-reuse resilience against stale device cookies
     And the response clears the dev-id and ses-id cookies
 
   # ---------------------------------------------------------------------------
+  # Pre-PR-#103 host-only cookies shadow the freshly-set Domain-scoped pair.
+  # Reproduces GitHub issue #116. A user whose browser jar holds a host-only
+  # dev-id/ses-id pair from before cookie-domain broadening shipped — when
+  # the cookie parser keeps the first occurrence per name and per RFC 6265
+  # §5.4 the host-only stale entry comes first — the welcome-page-guard
+  # validates the wrong values, bounces to auth-service with prompt=login,
+  # and the user loops on the OTP form. The scenario's Given clears the
+  # jar (overriding what the Background's OAuth sign-in deposited) and
+  # plants only the stale host-only pair, matching the actual state of
+  # an affected user's browser.
+  # ---------------------------------------------------------------------------
+
+  Scenario: Stale host-only cookies don't trap the user in an OTP loop
+    # The Background's account-creation step recorded the trusted demo as
+    # an authorised client (PDS_SIGNUP_ALLOW_CONSENT_SKIP), so a returning
+    # login skips consent and lands on /welcome. Pre-fix the user never
+    # gets there — every post-callback /oauth/authorize hop bounces
+    # because the host-only stale pair shadows the freshly-set
+    # Domain-scoped pair.
+    Given the browser jar holds only a stale host-only dev-id and ses-id pair
+    When the demo client starts a new OAuth flow
+    And the user enters the test email on the login page
+    Then the login page shows an OTP verification form
+    And an OTP email arrives in the mail trap
+    When the user enters the OTP code
+    Then the browser is redirected back to the demo client
+
+  # ---------------------------------------------------------------------------
   # Flow 1 hint-vs-bindings gate: when login_hint resolves to an email that
   # is not bound to the current device, auth-service must skip session reuse
   # and surface the email/OTP form so the hinted user can sign in fresh.

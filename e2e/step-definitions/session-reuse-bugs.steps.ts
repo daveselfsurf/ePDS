@@ -491,10 +491,12 @@ When(
 //
 // These helpers establish the affected-user starting state directly:
 // only the host-only stale pair exists, no Domain-scoped pair, no live
-// device session in the DB. The Background's "returning user has a PDS
-// account" step has already reset the browser context to a clean jar
-// before this step plants the stale entries, so we know whatever ends
-// up on the jar after this Given is exactly what we placed.
+// device session in the DB. We unconditionally clear the cookie jar
+// first so the step works whether the preceding Background left it
+// empty (e.g. "a returning user has a PDS account" resets the context)
+// or populated (e.g. "the user has completed one OAuth sign-in" left
+// a fresh Domain-scoped pair). The post-plant assertions then prove
+// only the host-only entries we placed are present.
 // ---------------------------------------------------------------------------
 
 const STALE_HOST_ONLY_DEV_ID = 'dev-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
@@ -506,6 +508,13 @@ Given(
     const page = getPage(this)
     const ctx = page.context()
     const pdsHost = new URL(testEnv.pdsUrl).host
+
+    // Wipe any cookies a preceding Background step deposited. The
+    // affected-user starting state has nothing on the jar except the
+    // stale host-only pair; if the Background ran "the user has
+    // completed one OAuth sign-in" first, there'd be a fresh
+    // Domain-scoped pair to remove.
+    await ctx.clearCookies()
 
     // Playwright's cookie API treats `domain` without a leading dot as
     // host-only — exactly the scope an upstream-set cookie used pre-PR-#103.
