@@ -478,3 +478,141 @@ When(
       .click()
   },
 )
+
+// ---------------------------------------------------------------------------
+// Stale host-only cookies surviving from sessions predating PR #103
+// (GitHub issue #116).
+//
+// Pre-PR-#103 sign-ins set dev-id/ses-id host-only on the pds-core host.
+// A long-time user's jar still holds those entries indefinitely — and
+// post-PR-#103, the host-only stale pair shadows everything because the
+// `cookie` package's parse() keeps the first occurrence per name and
+// per RFC 6265 host-only comes first in the Cookie header.
+//
+// These helpers establish the affected-user starting state directly:
+// only the host-only stale pair exists, no Domain-scoped pair, no live
+// device session in the DB. The Background's "returning user has a PDS
+// account" step has already reset the browser context to a clean jar
+// before this step plants the stale entries, so we know whatever ends
+// up on the jar after this Given is exactly what we placed.
+// ---------------------------------------------------------------------------
+
+const STALE_HOST_ONLY_DEV_ID = 'dev-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+const STALE_HOST_ONLY_SES_ID = 'ses-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+
+Given(
+  'the browser jar holds only a stale host-only dev-id and ses-id pair',
+  async function (this: EpdsWorld) {
+    const page = getPage(this)
+    const ctx = page.context()
+    const pdsHost = new URL(testEnv.pdsUrl).host
+
+    // Playwright's cookie API treats `domain` without a leading dot as
+    // host-only — exactly the scope an upstream-set cookie used pre-PR-#103.
+    await ctx.addCookies([
+      {
+        name: 'dev-id',
+        value: STALE_HOST_ONLY_DEV_ID,
+        domain: pdsHost,
+        path: '/',
+        httpOnly: true,
+        secure: true,
+        sameSite: 'Lax',
+      },
+      {
+        name: 'ses-id',
+        value: STALE_HOST_ONLY_SES_ID,
+        domain: pdsHost,
+        path: '/',
+        httpOnly: true,
+        secure: true,
+        sameSite: 'Lax',
+      },
+    ])
+
+    // Sanity-check: the jar should now hold exactly one dev-id and one
+    // ses-id, both host-only. If something else is there (a leftover
+    // Domain-scoped pair from a previous scenario, etc.) we want a clear
+    // failure here rather than a confusing assertion downstream.
+    const all = await ctx.cookies()
+    const devEntries = all.filter((c) => c.name === 'dev-id')
+    const sesEntries = all.filter((c) => c.name === 'ses-id')
+    expect(
+      devEntries.length,
+      `Expected exactly 1 dev-id entry (host-only stale) after planting, got ${devEntries.length}: ${JSON.stringify(devEntries)}`,
+    ).toBe(1)
+    expect(
+      sesEntries.length,
+      `Expected exactly 1 ses-id entry (host-only stale) after planting, got ${sesEntries.length}: ${JSON.stringify(sesEntries)}`,
+    ).toBe(1)
+    expect(
+      devEntries[0].domain,
+      `dev-id should be host-only on ${pdsHost} but Playwright reports domain=${devEntries[0].domain}`,
+    ).toBe(pdsHost)
+    expect(
+      sesEntries[0].domain,
+      `ses-id should be host-only on ${pdsHost} but Playwright reports domain=${sesEntries[0].domain}`,
+    ).toBe(pdsHost)
+  },
+)
+
+Then(
+  'no host-only dev-id or ses-id cookie remains on the browser',
+  async function (this: EpdsWorld) {
+    const page = getPage(this)
+    const pdsHost = new URL(testEnv.pdsUrl).host
+    const cookies = await page.context().cookies()
+    for (const name of ['dev-id', 'ses-id']) {
+      const matches = cookies.filter(
+        (c) => c.name === name && c.domain === pdsHost,
+      )
+      expect(
+        matches.length,
+        `Expected no host-only ${name} cookie remaining on ${pdsHost} but found ${matches.length}: ${JSON.stringify(matches)}`,
+      ).toBe(0)
+    }
+  },
+)
+
+When(
+  'the user submits a valid OTP for the existing account',
+  async function (this: EpdsWorld) {
+    if (!testEnv.mailpitPass) return 'pending'
+    if (!this.testEmail) {
+      throw new Error(
+        'world.testEmail missing — Background must have set it via createAccountViaOAuth',
+      )
+    }
+    const page = getPage(this)
+    const email = this.testEmail
+    await clearMailpit(email)
+    // After "starts a new OAuth flow" the user lands on the email step
+    // (the affected-user starting state has no usable session). Fill
+    // the email, request OTP, then enter it.
+    await expect(page.locator('#email')).toBeVisible({ timeout: 30_000 })
+    await page.fill('#email', email)
+    await page.click('button[type=submit]')
+    await expect(page.locator('#step-otp.active')).toBeVisible({
+      timeout: 30_000,
+    })
+    const message = await waitForEmail(`to:${email}`)
+    const otp = await extractOtp(message.ID)
+    await page.fill('#code', otp)
+    await page.click('#form-verify-otp .btn-primary')
+  },
+)
+
+Then(
+  'the browser does not land back on the OTP form',
+  async function (this: EpdsWorld) {
+    const page = getPage(this)
+    // Wait for any redirects to settle, then assert we're not on the
+    // OTP step. If we ARE, the loop has reproduced.
+    await page.waitForLoadState('networkidle', { timeout: 30_000 })
+    const otpStepVisible = await page.locator('#step-otp.active').isVisible()
+    expect(
+      otpStepVisible,
+      `Loop reproduced: after submitting a valid OTP the browser is back on the OTP form at ${page.url()}`,
+    ).toBe(false)
+  },
+)
