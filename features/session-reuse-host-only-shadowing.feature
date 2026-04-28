@@ -46,5 +46,8 @@ Feature: Stale host-only device cookies must not trap users in an OTP loop
     # Domain-scoped pair every time the post-callback /oauth/authorize
     # hop runs welcome-page-guard.
     When the demo client starts a new OAuth flow
-    And the user submits a valid OTP for the existing account
+    And the user enters the test email on the login page
+    Then the login page shows an OTP verification form
+    And an OTP email arrives in the mail trap
+    When the user enters the OTP code
     Then the browser is redirected back to the demo client

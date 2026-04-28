@@ -555,31 +555,3 @@ Given(
     ).toBe(pdsHost)
   },
 )
-
-When(
-  'the user submits a valid OTP for the existing account',
-  async function (this: EpdsWorld) {
-    if (!testEnv.mailpitPass) return 'pending'
-    if (!this.testEmail) {
-      throw new Error(
-        'world.testEmail missing — Background must have set it via createAccountViaOAuth',
-      )
-    }
-    const page = getPage(this)
-    const email = this.testEmail
-    await clearMailpit(email)
-    // After "starts a new OAuth flow" the user lands on the email step
-    // (the affected-user starting state has no usable session). Fill
-    // the email, request OTP, then enter it.
-    await expect(page.locator('#email')).toBeVisible({ timeout: 30_000 })
-    await page.fill('#email', email)
-    await page.click('button[type=submit]')
-    await expect(page.locator('#step-otp.active')).toBeVisible({
-      timeout: 30_000,
-    })
-    const message = await waitForEmail(`to:${email}`)
-    const otp = await extractOtp(message.ID)
-    await page.fill('#code', otp)
-    await page.click('#form-verify-otp .btn-primary')
-  },
-)
