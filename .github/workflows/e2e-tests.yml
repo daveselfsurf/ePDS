@@ -296,7 +296,7 @@ jobs:
           # walk depth (we also hard-fail).
 
           GRACE_ATTEMPTS=4   # 4 × 5s = 20 seconds
-          MAX_ATTEMPTS=36    # 36 × 5s = 3 minutes
+          MAX_ATTEMPTS=72    # 72 × 5s = 6 minutes
           FALLBACK_WALK=10   # max depth when walking back to find a success
 
           # Event-type-specific query configuration.
