@@ -478,3 +478,89 @@ When(
       .click()
   },
 )
+
+// ---------------------------------------------------------------------------
+// Stale host-only cookies surviving from sessions predating PR #103
+// (GitHub issue #116).
+//
+// Pre-PR-#103 sign-ins set dev-id/ses-id host-only on the pds-core host.
+// A long-time user's jar still holds those entries indefinitely — and
+// post-PR-#103, the host-only stale pair shadows everything because the
+// `cookie` package's parse() keeps the first occurrence per name and
+// per RFC 6265 host-only comes first in the Cookie header.
+//
+// These helpers establish the affected-user starting state directly:
+// only the host-only stale pair exists, no Domain-scoped pair, no live
+// device session in the DB. We unconditionally clear the cookie jar
+// first so the step works whether the preceding Background left it
+// empty (e.g. "a returning user has a PDS account" resets the context)
+// or populated (e.g. "the user has completed one OAuth sign-in" left
+// a fresh Domain-scoped pair). The post-plant assertions then prove
+// only the host-only entries we placed are present.
+// ---------------------------------------------------------------------------
+
+const STALE_HOST_ONLY_DEV_ID = 'dev-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+const STALE_HOST_ONLY_SES_ID = 'ses-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+
+Given(
+  'the browser jar holds only a stale host-only dev-id and ses-id pair',
+  async function (this: EpdsWorld) {
+    const page = getPage(this)
+    const ctx = page.context()
+    const pdsHost = new URL(testEnv.pdsUrl).host
+
+    // Wipe any cookies a preceding Background step deposited. The
+    // affected-user starting state has nothing on the jar except the
+    // stale host-only pair; if the Background ran "the user has
+    // completed one OAuth sign-in" first, there'd be a fresh
+    // Domain-scoped pair to remove.
+    await ctx.clearCookies()
+
+    // Playwright's cookie API treats `domain` without a leading dot as
+    // host-only — exactly the scope an upstream-set cookie used pre-PR-#103.
+    await ctx.addCookies([
+      {
+        name: 'dev-id',
+        value: STALE_HOST_ONLY_DEV_ID,
+        domain: pdsHost,
+        path: '/',
+        httpOnly: true,
+        secure: true,
+        sameSite: 'Lax',
+      },
+      {
+        name: 'ses-id',
+        value: STALE_HOST_ONLY_SES_ID,
+        domain: pdsHost,
+        path: '/',
+        httpOnly: true,
+        secure: true,
+        sameSite: 'Lax',
+      },
+    ])
+
+    // Sanity-check: the jar should now hold exactly one dev-id and one
+    // ses-id, both host-only. If something else is there (a leftover
+    // Domain-scoped pair from a previous scenario, etc.) we want a clear
+    // failure here rather than a confusing assertion downstream.
+    const all = await ctx.cookies()
+    const devEntries = all.filter((c) => c.name === 'dev-id')
+    const sesEntries = all.filter((c) => c.name === 'ses-id')
+    expect(
+      devEntries.length,
+      `Expected exactly 1 dev-id entry (host-only stale) after planting, got ${devEntries.length}: ${JSON.stringify(devEntries)}`,
+    ).toBe(1)
+    expect(
+      sesEntries.length,
+      `Expected exactly 1 ses-id entry (host-only stale) after planting, got ${sesEntries.length}: ${JSON.stringify(sesEntries)}`,
+    ).toBe(1)
+    expect(
+      devEntries[0].domain,
+      `dev-id should be host-only on ${pdsHost} but Playwright reports domain=${devEntries[0].domain}`,
+    ).toBe(pdsHost)
+    expect(
+      sesEntries[0].domain,
+      `ses-id should be host-only on ${pdsHost} but Playwright reports domain=${sesEntries[0].domain}`,
+    ).toBe(pdsHost)
+  },
+)
