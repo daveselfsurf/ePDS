@@ -89,7 +89,9 @@ Then(
     await expect(input).toHaveAttribute('type', 'email')
     await expect(input).toHaveAttribute('name', 'email')
     await expect(input).toHaveAttribute('placeholder', 'you@example.com')
-    await expect(page.locator('label[for="email"]')).toHaveText('Email address')
+    await expect(page.locator('label[for="email"]')).toHaveText(
+      'Enter your email address',
+    )
   },
 )
 

@@ -30,6 +30,19 @@ export interface AuthServiceConfig {
    * PDS email templates.
    */
   trustedClients: string[]
+  /**
+   * Operator-supplied legal URLs surfaced on the login page (and intended
+   * to match the same upstream PDS env vars consumed by pds-core). When
+   * either is unset the terms line is omitted entirely.
+   */
+  termsOfServiceUrl?: string
+  privacyPolicyUrl?: string
+  /**
+   * Optional possessive used in the terms line ("By signing in, you
+   * agree to <name>'s Terms of Use and Privacy Policy."). When unset the
+   * line falls back to "the Terms of Use and Privacy Policy".
+   */
+  legalEntityName?: string
 }
 
 const logger = createLogger('auth-service')

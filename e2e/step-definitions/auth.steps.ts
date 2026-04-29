@@ -10,6 +10,7 @@ import {
 import { createAccountViaOAuth, pickHandle } from '../support/flows.js'
 import { sharedBrowser } from '../support/hooks.js'
 import { clearMailpit } from '../support/mailpit.js'
+import { fillOtp } from '../support/otp.js'
 
 function getOtpAlphabet(otpCharset: 'numeric' | 'alphanumeric'): string {
   return otpCharset === 'alphanumeric'
@@ -45,23 +46,16 @@ async function buildIncorrectOtpCode(world: EpdsWorld): Promise<string> {
   // When world.otpCode is not set (e.g. the OTP email step was skipped),
   // we cannot read OTP_LENGTH / OTP_CHARSET from env directly because the
   // test runner has no access to the deployed service's environment on
-  // Railway. Instead, infer the config from the DOM attributes that the
-  // auth service renders onto the #code input at render time.
+  // Railway. Instead, infer the config from the segmented OTP boxes that
+  // the auth service renders. Length comes from the box count; charset is
+  // inferred from the per-box inputmode attribute (the old hidden-input
+  // path's `pattern` attribute is no longer rendered).
   const page = getPage(world)
-  const codeInput = page.locator('#code')
-  const [maxLengthAttr, inputModeAttr, patternAttr] = await Promise.all([
-    codeInput.getAttribute('maxlength'),
-    codeInput.getAttribute('inputmode'),
-    codeInput.getAttribute('pattern'),
-  ])
-
-  const otpLength = Number(maxLengthAttr ?? '') || testEnv.otpLength
-  let otpCharset: 'numeric' | 'alphanumeric' = testEnv.otpCharset
-  if (inputModeAttr === 'numeric' || patternAttr === `[0-9]{${otpLength}}`) {
-    otpCharset = 'numeric'
-  } else if (patternAttr === `[A-Z0-9]{${otpLength}}`) {
-    otpCharset = 'alphanumeric'
-  }
+  const boxes = page.locator('.otp-box')
+  const otpLength = (await boxes.count()) || testEnv.otpLength
+  const inputModeAttr = await boxes.first().getAttribute('inputmode')
+  const otpCharset: 'numeric' | 'alphanumeric' =
+    inputModeAttr === 'numeric' ? 'numeric' : testEnv.otpCharset
 
   return mutateOtpCode('0'.repeat(otpLength), otpCharset)
 }
@@ -212,8 +206,8 @@ When('the user enters the OTP code', async function (this: EpdsWorld) {
   if (!testEnv.mailpitPass) return 'pending'
   if (!this.otpCode)
     throw new Error('No OTP code available — email step must run first')
-  await this.page?.fill('#code', this.otpCode)
-  await this.page?.click('#form-verify-otp .btn-primary')
+  const page = getPage(this)
+  await fillOtp(page, this.otpCode)
 })
 
 /**
@@ -317,8 +311,7 @@ When('enters an incorrect OTP code', async function (this: EpdsWorld) {
   const page = getPage(this)
   const wrongOtp = await buildIncorrectOtpCode(this)
 
-  await page.fill('#code', wrongOtp)
-  await page.click('#form-verify-otp .btn-primary')
+  await fillOtp(page, wrongOtp)
 })
 
 When(
@@ -328,16 +321,16 @@ When(
     const wrongOtp = await buildIncorrectOtpCode(this)
 
     for (let i = 0; i < times; i++) {
-      await page.fill('#code', wrongOtp)
-      await Promise.all([
-        page.waitForResponse(
-          (response) =>
-            response.request().method() === 'POST' &&
-            response.url().includes('/sign-in/email-otp'),
-          { timeout: 10_000 },
-        ),
-        page.click('#form-verify-otp .btn-primary'),
-      ])
+      // Register the response listener BEFORE filling: the page auto-submits
+      // on the 6th digit, so the request fires from inside fillOtp.
+      const responsePromise = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          response.url().includes('/sign-in/email-otp'),
+        { timeout: 10_000 },
+      )
+      await fillOtp(page, wrongOtp)
+      await responsePromise
       // Wait for the failed state after each submit so the flow remains stable
       // and we do not race into the next attempt.
       await expect(page.locator('#error-msg')).toBeVisible({ timeout: 10_000 })
@@ -355,7 +348,7 @@ Then(
 
 Then('the user can try again', async function (this: EpdsWorld) {
   const page = getPage(this)
-  await expect(page.locator('#code')).toBeEnabled()
+  await expect(page.locator('.otp-box').first()).toBeEnabled()
 })
 
 Then('further attempts are rejected', async function (this: EpdsWorld) {

@@ -62,7 +62,8 @@ inject_shared_vars() {
              EPDS_CALLBACK_SECRET EPDS_INTERNAL_SECRET PDS_ADMIN_PASSWORD \
              PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX \
              EPDS_INVITE_CODE PDS_INTERNAL_URL \
-             SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS SMTP_FROM SMTP_FROM_NAME PDS_EMAIL_FROM_ADDRESS; do
+             SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS SMTP_FROM SMTP_FROM_NAME PDS_EMAIL_FROM_ADDRESS \
+             PDS_TERMS_OF_SERVICE_URL PDS_PRIVACY_POLICY_URL PDS_LEGAL_ENTITY_NAME; do
     # Skip if the var isn't in the target AND isn't in the package's .env.example.
     # This avoids injecting vars a package doesn't use, while still handling
     # .env files created from an older .env.example that lacked the var.

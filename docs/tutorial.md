@@ -258,16 +258,22 @@ your client metadata JSON instead.
 
 #### Optional branding
 
-You can customise the OTP email and login page colours:
+You can customise the OTP email and login page primary colour:
 
 ```json
 {
   "email_template_uri": "https://yourapp.example.com/email-template.html",
   "email_subject_template": "{{code}} — Your {{app_name}} code",
-  "brand_color": "#000000",
-  "background_color": "#ffffff"
+  "brand_color": "#000000"
 }
 ```
+
+`brand_color` controls the primary button colour (and focus ring) on
+the login page, plus the email-template accent. To control surface
+colours on the login page (page bg, card bg, input bg, borders, muted
+text), trusted clients should use the `branding.css` CSS-var override
+mechanism documented below — `background_color` from client metadata
+is no longer read by the login page.
 
 The email template must be an HTML file containing at minimum a `{{code}}`
 placeholder. Supported template variables:
@@ -383,8 +389,29 @@ client metadata. ePDS injects the CSS into every page it renders during
 sign-in (login, OTP entry, choose-handle, account recovery, and the
 consent screen) and replaces the default ePDS favicon on those pages
 with the one you supply. This gives trusted clients full control over
-the look of those pages — not just the two hex colours in
-`brand_color` / `background_color`.
+the look of those pages — beyond what `brand_color` alone exposes.
+
+The login page's surface colours are exposed as CSS custom properties,
+so retinting the whole card is one declaration:
+
+```css
+:root {
+  --page-bg: #YOUR_OUTER_BG; /* page bg outside the card */
+  --card-bg: #YOUR_CARD_BG; /* card surface */
+  --input-bg: #YOUR_INPUT_BG; /* email + OTP box backgrounds */
+  --input-border: #YOUR_INPUT_BORDER;
+  --card-border: #YOUR_CARD_BORDER;
+  --btn-secondary-border: #YOUR_BTN_BORDER;
+  --muted-foreground: #YOUR_MUTED; /* terms text + "Powered by" tint */
+  --focus-border: #YOUR_FOCUS; /* defaults to brand_color */
+  --recovery-link-display: none; /* hide "Recover with backup email" */
+}
+```
+
+The upstream consent + chooser pages served by pds-core ship with
+default Certified-style styling out of the box; trusted-client
+`branding.css` is layered on top of it via cascade order, so any rules
+that overlap the defaults win.
 
 ```json
 {
