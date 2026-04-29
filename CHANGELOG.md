@@ -128,7 +128,7 @@
     --input-border: #YOUR_INPUT_BORDER; /* email + OTP box borders; default #e5e5e5 */
     --card-border: #YOUR_CARD_BORDER; /* card outline; default #E5E5E5 */
     --btn-secondary-border: #YOUR_BTN_BORDER; /* social / ATProto button borders; default #e5e5e5 */
-    --muted-foreground: #YOUR_MUTED_TEXT; /* terms text + "Powered by" tint; default &#35;999 */
+    --muted-foreground: #YOUR_MUTED_TEXT; /* terms text + "Powered by" tint; default #999 */
     --focus-border: #YOUR_FOCUS; /* defaults to your client metadata's brand_color */
   }
   ```
