@@ -16,20 +16,18 @@
   - [Error pages on the sign-in service now match the rest of the signup and login look instead of showing plain default text, and apps calling the sign-in service now receive structured error responses by default instead of HTML pages.](#v0.6.0-error-pages-on-the-sign-in-service-now-match-the-rest-of)
 - **Client app developers:**
   - [Auth-service login page can now offer ATProto/Bluesky handle sign-in alongside email OTP.](#v0.6.0-auth-service-login-page-can-now-offer-atproto-bluesky)
-  - [Preview the account chooser screen directly in your browser, without walking through the OAuth flow.](#v0.6.0-preview-the-account-chooser-screen-directly-in-your-browser)
+  - [Preview ePDS's auth-service screens and emails directly in your browser, without walking through the OAuth flow.](#v0.6.0-preview-epds-auth-service-screens-and-emails-directly-in)
   - [Trusted apps can now show their own icon in the browser tab on the sign-in page.](#v0.6.0-trusted-apps-can-now-show-their-own-icon-in-the-browser-tab)
   - [Trusted demo client now ships with a custom branded OTP email template.](#v0.6.0-trusted-demo-client-now-ships-with-a-custom-branded-otp)
-  - [Preview the transactional emails ePDS sends, directly in your browser.](#v0.6.0-preview-the-transactional-emails-epds-sends-directly-in)
   - [Refreshed sign-in page design, with new ways for apps to style it.](#v0.6.0-refreshed-sign-in-page-design-with-new-ways-for-apps-to)
   - [Signing in once in your browser now works across all apps that use this ePDS.](#v0.6.0-signing-in-once-in-your-browser-now-works-across-all-apps)
   - [Security fix: client-supplied email templates now require the client to be on the trusted-clients list.](#v0.6.0-security-fix-client-supplied-email-templates-now-require)
   - [Error pages on the sign-in service now match the rest of the signup and login look instead of showing plain default text, and apps calling the sign-in service now receive structured error responses by default instead of HTML pages.](#v0.6.0-error-pages-on-the-sign-in-service-now-match-the-rest-of)
 - **Operators:**
   - [Auth-service login page can now offer ATProto/Bluesky handle sign-in alongside email OTP.](#v0.6.0-auth-service-login-page-can-now-offer-atproto-bluesky)
-  - [Preview the account chooser screen directly in your browser, without walking through the OAuth flow.](#v0.6.0-preview-the-account-chooser-screen-directly-in-your-browser)
+  - [Preview ePDS's auth-service screens and emails directly in your browser, without walking through the OAuth flow.](#v0.6.0-preview-epds-auth-service-screens-and-emails-directly-in)
   - [Trusted apps can now show their own icon in the browser tab on the sign-in page.](#v0.6.0-trusted-apps-can-now-show-their-own-icon-in-the-browser-tab)
   - [Trusted demo client now ships with a custom branded OTP email template.](#v0.6.0-trusted-demo-client-now-ships-with-a-custom-branded-otp)
-  - [Preview the transactional emails ePDS sends, directly in your browser.](#v0.6.0-preview-the-transactional-emails-epds-sends-directly-in)
   - [Refreshed sign-in page design, with new ways for apps to style it.](#v0.6.0-refreshed-sign-in-page-design-with-new-ways-for-apps-to)
   - [Sign-in, account, error, and OAuth-consent pages now show an icon in the browser tab, with separate assets for light and dark browser themes.](#v0.6.0-sign-in-account-error-and-oauth-consent-pages-now-show-an)
   - [Signing in once in your browser now works across all apps that use this ePDS.](#v0.6.0-signing-in-once-in-your-browser-now-works-across-all-apps)
@@ -43,6 +41,8 @@
 
 - <a id="v0.6.0-auth-service-login-page-can-now-offer-atproto-bluesky"></a> [#115](https://github.com/hypercerts-org/ePDS/pull/115) [`7f265b7`](https://github.com/hypercerts-org/ePDS/commit/7f265b722eed721022e1b428111de44ff34b5c04) Thanks [@aspiers](https://github.com/aspiers)! - Auth-service login page can now offer ATProto/Bluesky handle sign-in alongside email OTP.
 
+  <img width="1720" height="1640" alt="image" src="https://github.com/user-attachments/assets/d4237a4d-162c-48d2-b680-7b40d921c256" />
+
   **Affects:** End users, Client app developers, Operators
 
   **End users:**
@@ -51,20 +51,31 @@
   - Clicking the button again returns you to the email form.
 
   **Client app developers:** opt in by adding `epds_handle_login_url` to your OAuth client metadata.
-  - The value must be an absolute https:// URL on your client's own origin. ePDS auth-service redirects the browser to that URL with `?handle=<value>` appended when the user submits a handle.
+  - The value must be an absolute https&#x3A;// URL on your client's own origin. ePDS auth-service redirects the browser to that URL with `?handle=<value>` appended when the user submits a handle.
   - Your route is responsible for resolving the handle to its PDS and starting a fresh OAuth flow against that PDS — auth-service is bound to one PDS and cannot start a PAR on your client's behalf, so off-PDS handles only work via this hand-off.
   - The reference demo client opts in by exposing `${baseUrl}/api/oauth/login?handle=...`, which already accepts a `handle` query parameter and resolves it dynamically.
   - If you do not declare `epds_handle_login_url`, the button is not rendered. Existing clients see no behaviour change.
 
   **Operators:** no new required configuration. The button only renders for OAuth clients that explicitly opt in via their metadata.
 
-- <a id="v0.6.0-preview-the-account-chooser-screen-directly-in-your-browser"></a> [#103](https://github.com/hypercerts-org/ePDS/pull/103) [`226781b`](https://github.com/hypercerts-org/ePDS/commit/226781b8f137bf16731b2d4af52ac6e5790d757e) Thanks [@aspiers](https://github.com/aspiers)! - Preview the account chooser screen directly in your browser, without walking through the OAuth flow.
+- <a id="v0.6.0-preview-epds-auth-service-screens-and-emails-directly-in"></a> [#103](https://github.com/hypercerts-org/ePDS/pull/103) [`226781b`](https://github.com/hypercerts-org/ePDS/commit/226781b8f137bf16731b2d4af52ac6e5790d757e) / [#93](https://github.com/hypercerts-org/ePDS/pull/93) [`d363b3d`](https://github.com/hypercerts-org/ePDS/commit/d363b3dcd40fa3603323650ccdb87527dea37147) Thanks [@aspiers](https://github.com/aspiers)! - Preview ePDS's auth-service screens and emails directly in your browser, without walking through the OAuth flow.
+
+  <img width="1011" height="775" alt="Screenshot 2026-04-30 at 00 14 00" src="https://github.com/user-attachments/assets/d6bec2bd-e390-47e1-ae9f-46ccad6ab1e1" />
 
   **Affects:** Client app developers, Operators
 
-  **Client app developers:** a new preview route on pds-core renders the account chooser with fixture sessions and your branding CSS, alongside the existing `/preview/consent` route. Open `/preview/chooser` (linked from the `/preview` index) to see how a returning user with one or more bound accounts will see your client. Inline controls on the index let you tweak the preview without editing the URL: a number field for `?numAccounts=N` (clamped to 1–10) grows or shrinks the fixture account list, and a dropdown for `?epds_handle_mode=` overrides the handle-picker mode the same way a real OAuth request can. The dropdown defaults to "Auto", which omits the param so client metadata (or the operator's env default) wins — exactly the production resolver order. The same `?client_id=<URL-of-your-client-metadata.json>` param the other preview routes accept also injects your branding CSS, subject to the standard trusted-clients gate. The existing `/preview/choose-handle` link on the auth-service index gains the same `?epds_handle_mode=` and `?error=` dropdowns and collapses the four enumerated handle-mode entries into a single link with bound controls.
+  **Client app developers:**
 
-  **Operators:** gated by the existing `PDS_PREVIEW_ROUTES=1` flag on pds-core — no new environment variables. When the flag is off the new route returns 404, identical to the rest of `/preview/*`. Intended for preview and development environments; leave the flag off in production.
+  A new preview route on pds-core renders the account chooser with fixture sessions and your branding CSS, alongside the existing `/preview/consent` route. Open `/preview/chooser` (linked from the `/preview` index) to see how a returning user with one or more bound accounts will see your client. Inline controls on the index let you tweak the preview without editing the URL: a number field for `?numAccounts=N` (clamped to 1–10) grows or shrinks the fixture account list, and a dropdown for `?epds_handle_mode=` overrides the handle-picker mode the same way a real OAuth request can. The dropdown defaults to "Auto", which omits the param so client metadata (or the operator's env default) wins — exactly the production resolver order. The same `?client_id=<URL-of-your-client-metadata.json>` param the other preview routes accept also injects your branding CSS, subject to the standard trusted-clients gate. The existing `/preview/choose-handle` link on the auth-service index gains the same `?epds_handle_mode=` and `?error=` dropdowns and collapses the four enumerated handle-mode entries into a single link with bound controls.
+
+  Three new preview routes on the auth service render the exact email HTML real users receive, inside a sandboxed iframe:
+  - `/preview/emails/new-user` — welcome / email-verification code sent during signup.
+  - `/preview/emails/returning-user` — sign-in OTP sent when an existing user logs in to your app.
+  - `/preview/emails/recovery` — backup-email verification link sent when a user adds a recovery address.
+
+  Each route accepts the same `?client_id=<URL-of-your-client-metadata.json>` query param as the other preview pages, so you can see how your branded template will look without walking through a real OAuth flow. Optional extras: `?otp=<code>` to override the fixture OTP, `?app=<name>` to override the fixture app name on the returning-user template, `?verify_url=<url>` to override the backup-email verification link. Links for all three are wired into the `/preview` index page on the auth service.
+
+  **Operators:** the chooser route is gated by the existing `PDS_PREVIEW_ROUTES=1` flag on pds-core, and the email routes by the existing `AUTH_PREVIEW_ROUTES=1` flag on the auth service — no new environment variables. When the flags are off the new routes return 404, identical to the rest of `/preview/*`. The email previews do not touch SMTP; they call the same template builders the real sender uses, so what renders is bit-for-bit what production would put in the envelope. Intended for preview and development environments; leave the flags off in production.
 
 - <a id="v0.6.0-trusted-apps-can-now-show-their-own-icon-in-the-browser-tab"></a> [#86](https://github.com/hypercerts-org/ePDS/pull/86) [`21a8bef`](https://github.com/hypercerts-org/ePDS/commit/21a8befa85bb4583aff3fe750372d3f592f9ee56) Thanks [@s-adamantine](https://github.com/s-adamantine)! - Trusted apps can now show their own icon in the browser tab on the sign-in page.
 
@@ -93,24 +104,13 @@
 
 - <a id="v0.6.0-trusted-demo-client-now-ships-with-a-custom-branded-otp"></a> [#93](https://github.com/hypercerts-org/ePDS/pull/93) [`03ebf36`](https://github.com/hypercerts-org/ePDS/commit/03ebf365d10748582ff120305e67581b2621587c) Thanks [@aspiers](https://github.com/aspiers)! - Trusted demo client now ships with a custom branded OTP email template.
 
+  <img width="1280" height="1126" alt="image" src="https://github.com/user-attachments/assets/cc186870-3ec4-453f-908c-e0bb614e19dd" />
+
   **Affects:** Client app developers, Operators
 
   **Client app developers:** the demo client's `client-metadata.json` now advertises `email_template_uri` (pointing at `/email-template.html` on the same origin) and `email_subject_template` (`{{code}} — your {{app_name}} code`), so operators running ePDS with the demo as a trusted client see a visually coherent login + email experience out of the box. The template is a minimal Mustache-style HTML email that respects the demo's `EPDS_CLIENT_THEME` palette: the OTP box, headings, and background all match whichever theme is active on the login and consent pages. Copy the shape from `packages/demo/src/app/email-template.html/route.ts` if you want a starting point for your own client's branded template — the supported placeholders are `{{code}}`, `{{app_name}}`, `{{logo_uri}}`, `{{email}}`, and the conditional blocks `{{#is_new_user}}…{{/is_new_user}}` / `{{^is_new_user}}…{{/is_new_user}}`.
 
   **Operators:** no env var change is required — the demo's branded email is served automatically when you run the bundled demo client as a trusted client on `PDS_OAUTH_TRUSTED_CLIENTS`. The template is served from the demo's own origin (`<demo-base-url>/email-template.html`) with `Cache-Control: public, max-age=300`, is capped at the same 100 KB / 5 s limits `makeSafeFetch` applies to any remote email template, and is only honoured for `client_id`s on the trusted-clients list (see the `gate-email-templates-on-trusted-clients` changeset). You can verify what your users will receive by opening `/preview/emails/returning-user?client_id=<demo-base-url>/client-metadata.json` on the auth service with `AUTH_PREVIEW_ROUTES=1`.
-
-- <a id="v0.6.0-preview-the-transactional-emails-epds-sends-directly-in"></a> [#93](https://github.com/hypercerts-org/ePDS/pull/93) [`d363b3d`](https://github.com/hypercerts-org/ePDS/commit/d363b3dcd40fa3603323650ccdb87527dea37147) Thanks [@aspiers](https://github.com/aspiers)! - Preview the transactional emails ePDS sends, directly in your browser.
-
-  **Affects:** Client app developers, Operators
-
-  **Client app developers:** three new preview routes on the auth service render the exact email HTML real users receive, inside a sandboxed iframe:
-  - `/preview/emails/new-user` — welcome / email-verification code sent during signup.
-  - `/preview/emails/returning-user` — sign-in OTP sent when an existing user logs in to your app.
-  - `/preview/emails/recovery` — backup-email verification link sent when a user adds a recovery address.
-
-  Each route accepts the same `?client_id=<URL-of-your-client-metadata.json>` query param as the other preview pages, so you can see how your branded template will look without walking through a real OAuth flow. Optional extras: `?otp=<code>` to override the fixture OTP, `?app=<name>` to override the fixture app name on the returning-user template, `?verify_url=<url>` to override the backup-email verification link. Links for all three are wired into the `/preview` index page on the auth service.
-
-  **Operators:** gated by the existing `AUTH_PREVIEW_ROUTES=1` flag — no new environment variables. When the flag is off the new routes return 404, identical to the rest of `/preview/*`. The previews do not touch SMTP; they call the same template builders the real sender uses, so what renders is bit-for-bit what production would put in the envelope. Intended for preview and development environments; leave the flag off in production.
 
 - <a id="v0.6.0-refreshed-sign-in-page-design-with-new-ways-for-apps-to"></a> [#110](https://github.com/hypercerts-org/ePDS/pull/110) [`f4f1040`](https://github.com/hypercerts-org/ePDS/commit/f4f104025561e5314978de450ff0a33044a19b46) Thanks [@s-adamantine](https://github.com/s-adamantine)! - Refreshed sign-in page design, with new ways for apps to style it.
 
@@ -128,7 +128,7 @@
     --input-border: #YOUR_INPUT_BORDER; /* email + OTP box borders; default #e5e5e5 */
     --card-border: #YOUR_CARD_BORDER; /* card outline; default #E5E5E5 */
     --btn-secondary-border: #YOUR_BTN_BORDER; /* social / ATProto button borders; default #e5e5e5 */
-    --muted-foreground: #YOUR_MUTED_TEXT; /* terms text + "Powered by" tint; default [#999](https://github.com/hypercerts-org/ePDS/issues/999) */
+    --muted-foreground: #YOUR_MUTED_TEXT; /* terms text + "Powered by" tint; default &#35;999 */
     --focus-border: #YOUR_FOCUS; /* defaults to your client metadata's brand_color */
   }
   ```
