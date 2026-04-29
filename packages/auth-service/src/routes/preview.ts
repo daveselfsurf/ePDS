@@ -18,6 +18,12 @@
  *   ?client_id=<URL>   fetch branding CSS from this client_metadata,
  *                      subject to the trusted-clients check.
  *   ?error=<msg>       show error banner (exercises error-state CSS).
+ *
+ * The ATProto/Bluesky login button on /preview/login is gated on the
+ * client's `epds_handle_login_url` field (same gate the real
+ * /oauth/authorize flow uses) — there's no preview-only override that
+ * synthesises the field, so the button is only visible when iterating
+ * against client metadata that already declares it.
  */
 import { Router, type Request, type Response } from 'express'
 import { randomBytes } from 'node:crypto'
