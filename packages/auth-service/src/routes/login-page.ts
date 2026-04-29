@@ -62,11 +62,9 @@ import {
   shouldReuseSession,
 } from '../lib/session-reuse.js'
 import { fetchDeviceAccountEmails } from '../lib/fetch-device-accounts.js'
+import { AUTH_FLOW_COOKIE, AUTH_FLOW_TTL_MS } from '../lib/auth-flow.js'
 
 const logger = createLogger('auth:login-page')
-
-const AUTH_FLOW_COOKIE = 'epds_auth_flow'
-const AUTH_FLOW_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
 // Inline the Certified wordmark so CSS `color` can tint it via `currentColor`.
 const __dirname = path.dirname(fileURLToPath(import.meta.url))

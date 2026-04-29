@@ -9,7 +9,7 @@ import {
 } from '../support/utils.js'
 import { createAccountViaOAuth, pickHandle } from '../support/flows.js'
 import { sharedBrowser } from '../support/hooks.js'
-import { clearMailpit } from '../support/mailpit.js'
+import { clearMailpit, extractOtp, waitForEmail } from '../support/mailpit.js'
 import { fillOtp } from '../support/otp.js'
 
 function getOtpAlphabet(otpCharset: 'numeric' | 'alphanumeric'): string {
@@ -360,6 +360,136 @@ Then('the user must request a new OTP', async function (this: EpdsWorld) {
   const page = getPage(this)
   await expect(page.locator('#btn-resend')).toBeVisible()
 })
+
+// ---------------------------------------------------------------------------
+// OTP expiry scenario
+// ---------------------------------------------------------------------------
+//
+// Simulates the user taking longer than 10 minutes between requesting
+// the OTP and entering it. To reproduce the real-world failure mode
+// faithfully (auth-service issue: even after Resend, /auth/complete
+// returns "Authentication session expired") we have to age out THREE
+// things in lockstep, all of which expire after 10 minutes in
+// production:
+//
+//   1. The better-auth verification row (the OTP itself) — backdated
+//      via POST /_internal/test/expire-otp.
+//   2. The auth_flow row in the auth-service SQLite — backdated via
+//      POST /_internal/test/expire-auth-flow.
+//   3. The epds_auth_flow cookie in the browser — Playwright doesn't
+//      let us forge an expiry timestamp on an existing cookie, so we
+//      delete it outright. Functionally equivalent for the bug we're
+//      reproducing: the browser presents no auth_flow cookie to
+//      /auth/complete.
+//
+// Both /_internal/test/* hooks are gated by EPDS_TEST_HOOKS=1 on the
+// server and authenticated with EPDS_INTERNAL_SECRET on the client.
+
+async function callExpiryHook(
+  hookPath: string,
+  email: string,
+  body: Record<string, unknown>,
+): Promise<{ updated: number }> {
+  const url = `${testEnv.authUrl}${hookPath}`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-internal-secret': testEnv.internalSecret,
+    },
+    body: JSON.stringify({ email, ...body }),
+    signal: AbortSignal.timeout(10_000),
+  })
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '')
+    throw new Error(
+      `${hookPath} hook failed: ${res.status} ${res.statusText}: ${errBody}`,
+    )
+  }
+  const data = (await res.json().catch(() => ({}))) as { updated?: number }
+  return { updated: data.updated ?? 0 }
+}
+
+When(
+  'more than 10 minutes pass before the user enters the OTP',
+  async function (this: EpdsWorld) {
+    if (!testEnv.mailpitPass) return 'pending'
+    if (!testEnv.internalSecret) return 'pending'
+    if (!this.testEmail) {
+      throw new Error(
+        'No test email set — the email-submit step must run first',
+      )
+    }
+
+    // Expire only the better-auth OTP row. The auth_flow row + cookie
+    // both have a 60-minute TTL (see lib/auth-flow.ts) and so MUST still
+    // be alive at the 10-minute mark — that is the fix this scenario is
+    // regression-testing. Aging them out here would falsify the
+    // post-fix scenario: after Resend the new OTP completes, and
+    // /auth/complete must still find the original auth_flow.
+    const otpResult = await callExpiryHook(
+      '/_internal/test/expire-otp',
+      this.testEmail,
+      { type: 'sign-in' },
+    )
+    if (otpResult.updated < 1) {
+      throw new Error(
+        `expire-otp hook reported no rows updated for ${this.testEmail} — was an OTP actually sent first?`,
+      )
+    }
+  },
+)
+
+Then(
+  'the verification form shows an {string} error',
+  async function (this: EpdsWorld, expected: string) {
+    const page = getPage(this)
+    await expect(page.locator('#error-msg')).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('#error-msg')).toHaveText(expected, {
+      timeout: 10_000,
+    })
+  },
+)
+
+When(
+  'the user requests a new OTP via the resend button',
+  async function (this: EpdsWorld) {
+    if (!testEnv.mailpitPass) return 'pending'
+    if (!this.testEmail) {
+      throw new Error(
+        'No test email set — the email-submit step must run first',
+      )
+    }
+    const page = getPage(this)
+    // Clear the inbox so the next "OTP arrived" wait pulls the fresh
+    // resend rather than the original (now-expired) message.
+    await clearMailpit(this.testEmail)
+    // Forget the stale code so a misuse before the new email arrives
+    // surfaces as a clear "no OTP available" error rather than
+    // re-submitting the expired one.
+    this.otpCode = undefined
+    await page.click('#btn-resend')
+  },
+)
+
+Then(
+  'a fresh OTP email arrives in the mail trap for the test email',
+  async function (this: EpdsWorld) {
+    // Distinct phrasing from the existing "an OTP email arrives ..."
+    // step in email.steps.ts so cucumber doesn't see a duplicate
+    // definition. The wait itself is the same — pull the next OTP
+    // from mailpit and stash it on the world for later submission.
+    if (!testEnv.mailpitPass) return 'pending'
+    if (!this.testEmail) {
+      throw new Error(
+        'No test email set — the email-submit step must run first',
+      )
+    }
+    const message = await waitForEmail(`to:${this.testEmail}`)
+    this.lastEmailSubject = message.Subject
+    this.otpCode = await extractOtp(message.ID)
+  },
+)
 
 // ---------------------------------------------------------------------------
 // Refresh / idempotency scenario

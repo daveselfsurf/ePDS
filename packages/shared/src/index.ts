@@ -9,6 +9,7 @@ export {
   generateVerificationToken,
   hashToken,
   timingSafeEqual,
+  verifyInternalSecret,
   generateCsrfToken,
   generateRandomHandle,
   signCallback,

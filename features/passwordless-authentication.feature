@@ -236,6 +236,42 @@ Feature: Passwordless authentication via email OTP
     Then the OTP input field has inputmode="text" (not "numeric")
     And the OTP code in the mail trap is 8 characters of uppercase letters and digits
 
+  # --- OTP expiry ---
+  #
+  # The OTP code expires 10 minutes after issue. The auth_flow row and the
+  # epds_auth_flow cookie that thread the OAuth request_uri through the
+  # flow have a longer lifetime (60 min — see lib/auth-flow.ts), so a
+  # slow user who hits OTP expiry can click Resend and complete the flow
+  # without losing the original OAuth ticket.
+  #
+  # Faking the wall-clock wait would make the suite painfully slow, so we
+  # use a test-only auth-service hook (POST /_internal/test/expire-otp,
+  # gated by EPDS_TEST_HOOKS=1 + EPDS_INTERNAL_SECRET) to backdate the
+  # better-auth verification row only. We deliberately leave the
+  # auth_flow row + cookie alive to mirror reality at the 10-minute mark.
+  # After the OTP has been aged past expiry, submitting it must fail with
+  # the helpful "OTP expired" message; resending must produce a fresh
+  # code that completes the flow normally.
+  #
+  @email @otp-expiry
+  Scenario: Expired OTP is rejected, resend recovers the flow
+    When the demo client initiates an OAuth login
+    Then the browser is redirected to the auth service login page
+    And the login page displays an email input form
+    When the user enters a unique test email and submits
+    Then an OTP email arrives in the mail trap for the test email
+    And the login page shows an OTP verification form
+    When more than 10 minutes pass before the user enters the OTP
+    And the user enters the OTP code
+    Then the verification form shows an "OTP expired" error
+    And the user can try again
+    When the user requests a new OTP via the resend button
+    Then a fresh OTP email arrives in the mail trap for the test email
+    When the user enters the OTP code
+    And the user picks a handle
+    Then the browser is redirected back to the demo client
+    And the demo client has a valid OAuth access token
+
   # --- Brute force protection ---
 
   Scenario: OTP verification rejects wrong code
