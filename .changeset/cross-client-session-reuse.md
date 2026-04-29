@@ -1,5 +1,5 @@
 ---
-'epds': patch
+'ePDS': patch
 ---
 
 Signing in once in your browser now works across all apps that use this ePDS.

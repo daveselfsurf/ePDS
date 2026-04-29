@@ -1,5 +1,5 @@
 ---
-'epds': patch
+'ePDS': patch
 ---
 
 Auth-service rate limiter can now be disabled for single-source-IP test environments.
