@@ -335,7 +335,15 @@ Then(
   'the browser lands on the auth-service email-and-OTP form',
   async function (this: EpdsWorld) {
     const page = getPage(this)
-    await expect(page.locator('#email')).toBeVisible({ timeout: 30_000 })
+    // Wait for one of the auth-service login-page steps to be visible.
+    // initialStep is 'email' on no-hint flows and 'otp' when a login_hint
+    // resolves to an email — both land on the same login-page route, just
+    // with a different step displayed initially. Either is a valid "lands
+    // on the login page" outcome; the assertion is "we're on auth-service,
+    // not pds-core".
+    await expect(
+      page.locator('#step-email:not(.hidden), #step-otp.active'),
+    ).toBeVisible({ timeout: 30_000 })
     const url = new URL(page.url())
     const authHost = new URL(testEnv.authUrl).host
     expect(

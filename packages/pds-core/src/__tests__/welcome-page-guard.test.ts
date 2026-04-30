@@ -233,6 +233,14 @@ type FakeProvider = {
       readDevice: (id: string) => Promise<{ sessionId: string } | null>
     }
   }
+  requestManager: {
+    store: {
+      readRequest: (
+        id: string,
+      ) => Promise<{ parameters?: Record<string, unknown> } | null>
+    }
+  }
+  checkLoginRequired: (binding: unknown) => boolean
 }
 
 /** Build a FakeProvider whose deviceStore returns a row matching the
@@ -242,6 +250,15 @@ function makeProvider(opts: {
   bindings?: () => Promise<unknown[]>
   sessionId?: string | null
   readDevice?: () => Promise<{ sessionId: string } | null>
+  // Stored PAR for the request_uri on the test URL. Returned shape mirrors
+  // what `(provider.requestManager as any).store.readRequest(id)` produces:
+  // a `{ parameters: { prompt?, login_hint?, ... } }` envelope.
+  readRequest?: (
+    id: string,
+  ) => Promise<{ parameters?: Record<string, unknown> } | null>
+  // Per-binding loginRequired predicate. Default: false (everything fresh).
+  // Tests for rows 6/9 supply a custom predicate.
+  checkLoginRequired?: (binding: unknown) => boolean
 }): FakeProvider {
   const ses = opts.sessionId === undefined ? VALID_SES : opts.sessionId
   return {
@@ -256,6 +273,12 @@ function makeProvider(opts: {
         ),
       },
     },
+    requestManager: {
+      store: {
+        readRequest: vi.fn(opts.readRequest ?? (() => Promise.resolve(null))),
+      },
+    },
+    checkLoginRequired: vi.fn(opts.checkLoginRequired ?? (() => false)),
   }
 }
 
