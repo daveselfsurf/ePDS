@@ -659,6 +659,7 @@ export function renderLoginPage(opts: {
       var requestUri = ${JSON.stringify('')};  // not needed client-side; flow_id is in cookie
       var currentEmail = '';
       var loginMode = 'email'; // 'email' | 'handle'
+      var verifying = false;
       var errorEl = document.getElementById('error-msg');
       var stepEmail = document.getElementById('step-email');
       var stepOtp = document.getElementById('step-otp');
@@ -867,18 +868,31 @@ export function renderLoginPage(opts: {
       // Form: verify OTP
       document.getElementById('form-verify-otp').addEventListener('submit', async function(e) {
         e.preventDefault();
+        // Collapse duplicate submits (auto-submit on 6th digit + Enter, OTP
+        // autofill firing input on every box, paste+input pair, etc.). The
+        // first call consumes the code; a second one races the redirect and
+        // flashes "Invalid OTP" before the page unloads.
+        if (verifying) return;
+        verifying = true;
         clearError();
         var otp = document.getElementById('code').value.trim();
         var btn = this.querySelector('button[type=submit]');
         btn.disabled = true;
         btn.textContent = 'Verifying...';
 
-        var result = await verifyOtp(currentEmail, otp);
-        btn.disabled = false;
-        btn.textContent = 'Verify';
-
-        if (result && result.error) {
-          showError(result.error);
+        try {
+          var result = await verifyOtp(currentEmail, otp);
+          if (result && result.error) {
+            showError(result.error);
+          }
+        } finally {
+          // Leave the latch set on success: verifyOtp triggers a redirect,
+          // and we don't want late events to re-open the form mid-navigation.
+          if (!result || result.error) {
+            verifying = false;
+            btn.disabled = false;
+            btn.textContent = 'Verify';
+          }
         }
       });
 
