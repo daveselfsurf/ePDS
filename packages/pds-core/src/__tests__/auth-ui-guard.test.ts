@@ -6,6 +6,8 @@ import {
   createAuthUiGuard,
   isGuardedPath,
   parseDeviceCookies,
+  parsePromptTokens,
+  promptHasLogin,
 } from '../auth-ui-guard.js'
 
 const VALID_DEV = 'dev-0123456789abcdef0123456789abcdef'
@@ -196,6 +198,70 @@ function makeResStub(): Response & { _calls: string[][] } {
   return res as any
 }
 
+describe('parsePromptTokens', () => {
+  it('returns an empty Set for non-string input', () => {
+    expect(parsePromptTokens(undefined).size).toBe(0)
+    expect(parsePromptTokens(null).size).toBe(0)
+    expect(parsePromptTokens(123).size).toBe(0)
+    expect(parsePromptTokens({}).size).toBe(0)
+  })
+
+  it('returns an empty Set for an empty / whitespace-only string', () => {
+    expect(parsePromptTokens('').size).toBe(0)
+    expect(parsePromptTokens('   ').size).toBe(0)
+  })
+
+  it('splits a single-token value', () => {
+    expect([...parsePromptTokens('login')]).toEqual(['login'])
+  })
+
+  it('splits a space-delimited multi-token value', () => {
+    // Per OIDC Core 1.0 §3.1.2.1, prompt is space-delimited. The order of
+    // tokens within a Set is insertion order, so an array roundtrip is
+    // stable.
+    expect([...parsePromptTokens('login consent')]).toEqual([
+      'login',
+      'consent',
+    ])
+  })
+
+  it('collapses repeated whitespace and ignores empty segments', () => {
+    expect([...parsePromptTokens('  login   consent  ')]).toEqual([
+      'login',
+      'consent',
+    ])
+  })
+})
+
+describe('promptHasLogin', () => {
+  it('is false for absent / non-string / unrelated prompt values', () => {
+    expect(promptHasLogin(undefined)).toBe(false)
+    expect(promptHasLogin(null)).toBe(false)
+    expect(promptHasLogin('')).toBe(false)
+    expect(promptHasLogin('consent')).toBe(false)
+    expect(promptHasLogin('select_account')).toBe(false)
+  })
+
+  it('is true when login is the only token', () => {
+    expect(promptHasLogin('login')).toBe(true)
+  })
+
+  it('is true when login appears alongside other tokens (in any order)', () => {
+    expect(promptHasLogin('login consent')).toBe(true)
+    expect(promptHasLogin('consent login')).toBe(true)
+    expect(promptHasLogin('login select_account consent')).toBe(true)
+  })
+
+  it('is false for substrings that do not match the login token exactly', () => {
+    // Defence against "login" appearing inside a longer token. OIDC has no
+    // such tokens defined today, but the matcher should still be exact —
+    // future spec extensions could add e.g. `login_required` and we want
+    // to be wrong-by-design rather than wrong-by-coincidence.
+    expect(promptHasLogin('logincreate')).toBe(false)
+    expect(promptHasLogin('relogin')).toBe(false)
+  })
+})
+
 describe('appendCookieClearHeaders', () => {
   it('clears dev-id and ses-id (plus :hash sidecars) host-only when no cookie domain given', () => {
     const res = makeResStub()
@@ -257,7 +323,8 @@ function makeProvider(opts: {
     id: string,
   ) => Promise<{ parameters?: Record<string, unknown> } | null>
   // Per-binding loginRequired predicate. Default: false (everything fresh).
-  // Tests for rows 6/9 supply a custom predicate.
+  // Sign-in-view leak tests supply a custom predicate to mark specific
+  // bindings stale.
   checkLoginRequired?: (binding: unknown) => boolean
 }): FakeProvider {
   const ses = opts.sessionId === undefined ? VALID_SES : opts.sessionId
@@ -703,12 +770,11 @@ describe('createAuthUiGuard', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // Sign-in-view leak coverage (rows 5 / 6 / 9 of the failure-mode taxonomy
-  // in features/session-reuse-bugs.feature). Every test below shares the
-  // same wiring — fresh cookies + non-empty bindings + a request_uri-bearing
-  // URL — and varies only in the stored PAR `prompt` / `login_hint` values
-  // and which bindings have loginRequired=true. The signinViewCase helper
-  // captures that wiring; each test just supplies the inputs and assertion.
+  // Sign-in-view leak coverage. Every test below shares the same wiring —
+  // fresh cookies + non-empty bindings + a request_uri-bearing URL — and
+  // varies only in the stored PAR `prompt` / `login_hint` values and which
+  // bindings have loginRequired=true. The signinViewCase helper captures
+  // that wiring; each test just supplies the inputs and assertion.
   // ---------------------------------------------------------------------------
 
   // Helper: build a binding fixture good enough for the guard's matchesHint
@@ -720,7 +786,7 @@ describe('createAuthUiGuard', () => {
   }
 
   // urn-prefixed request_uri so loadStoredPar actually attempts the read
-  // (anything else makes it short-circuit and skip the row-5/9 logic).
+  // (anything else makes it short-circuit and skip the prompt/hint logic).
   const REQUEST_URI = 'urn:ietf:params:oauth:request_uri:req-abc'
 
   type SigninViewCaseOpts = Parameters<typeof makeProvider>[0] & {
@@ -771,7 +837,7 @@ describe('createAuthUiGuard', () => {
     expect(res.status).not.toHaveBeenCalled()
   }
 
-  it('row 5: bounces when stored PAR has prompt === "login"', async () => {
+  it('bounces when the stored PAR forces re-authentication via prompt=login', async () => {
     const { provider, res } = await signinViewCase({
       bindings: () => Promise.resolve([binding('did:plc:a', 'a.example')]),
       // Even though the binding itself is fresh (checkLoginRequired
@@ -783,7 +849,19 @@ describe('createAuthUiGuard', () => {
     expect(provider.checkLoginRequired).not.toHaveBeenCalled()
   })
 
-  it('row 6: bounces when every binding is loginRequired and there is no hint', async () => {
+  it('bounces when login appears alongside other prompt tokens', async () => {
+    // Per OIDC Core §3.1.2.1, prompt is space-delimited. A third-party
+    // client sending prompt="login consent" must trip the same bounce as
+    // a bare prompt="login" — the earlier exact-string check missed this.
+    const { res } = await signinViewCase({
+      bindings: () => Promise.resolve([binding('did:plc:a', 'a.example')]),
+      readRequest: () =>
+        Promise.resolve({ parameters: { prompt: 'login consent' } }),
+    })
+    expectBounce(res)
+  })
+
+  it('bounces when every binding is loginRequired and there is no hint', async () => {
     const { res } = await signinViewCase({
       bindings: () =>
         Promise.resolve([
@@ -796,9 +874,9 @@ describe('createAuthUiGuard', () => {
     expectBounce(res)
   })
 
-  // Picker for the row-9-shaped fixture: hint narrows to one binding,
-  // others stay fresh. Returns a checkLoginRequired predicate that
-  // marks only `did:plc:stale` as loginRequired.
+  // Fixture for the hint-narrowed cases: a device with two bindings,
+  // one stale and one fresh. The checkLoginRequired predicate marks
+  // only `did:plc:stale` as loginRequired.
   const onlyStaleIsLoginRequired = (b: unknown): boolean =>
     (b as { account: { sub: string } }).account.sub === 'did:plc:stale'
   const TWO_BINDINGS = [
@@ -806,7 +884,7 @@ describe('createAuthUiGuard', () => {
     binding('did:plc:fresh', 'fresh.example'),
   ]
 
-  it('row 9: bounces when login_hint matches the only stale binding', async () => {
+  it('bounces when login_hint narrows to a stale binding among otherwise-fresh bindings', async () => {
     const { res } = await signinViewCase({
       bindings: () => Promise.resolve(TWO_BINDINGS),
       readRequest: () =>
@@ -816,7 +894,7 @@ describe('createAuthUiGuard', () => {
     expectBounce(res)
   })
 
-  it('passes through when login_hint matches a fresh binding (row 7)', async () => {
+  it('passes through when login_hint matches a fresh binding', async () => {
     // Hint resolves to a single fresh binding → SSO/chooser path is
     // reachable; the guard must NOT bounce.
     const { res, next } = await signinViewCase({

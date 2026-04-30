@@ -5,14 +5,15 @@
  *
  *   1. The three-button welcome page ("Authenticate / Create new account /
  *      Sign in / Cancel") — rendered when the device has zero bound
- *      accounts (rows 1–4 of the failure-mode taxonomy: partial cookie
+ *      accounts (partial cookie
  *      pair, stale pair, migration-005 TTL purge, fixation race, etc.).
  *
  *   2. The sign-in-view (handle + password form) — rendered when bindings
- *      exist but every binding upstream considers has loginRequired: true
- *      (rows 5/6/9: stored PAR prompt=login; all bindings older than
- *      authenticationMaxAge; login_hint pre-selecting an individually
- *      stale binding).
+ *      exist but every binding upstream considers has loginRequired: true.
+ *      Three triggers: the stored PAR has prompt=login; every binding's
+ *      auth age exceeds authenticationMaxAge (default 7d); a login_hint
+ *      pre-selects an individually stale binding among otherwise-fresh
+ *      bindings on the same device.
  *
  * Both UIs are unreachable from ePDS by design — every entry point should
  * either show the enriched chooser (when the device has fresh bound
@@ -271,14 +272,14 @@ export function createAuthUiGuard(opts: {
     //
     // Read the stored PAR parameters and compute upstream's
     // candidate-binding set; bounce when every candidate would be
-    // loginRequired. See features/session-reuse-bugs.feature rows
-    // 5/6/9 for the externally-reproducible test cases.
+    // loginRequired. See features/session-reuse-bugs.feature for the
+    // externally-reproducible scenarios under "Sign-in-view leaks".
     const params = await loadStoredPar({
       provider,
       requestUrl: req.url,
       logger,
     })
-    if (params?.prompt === 'login') {
+    if (promptHasLogin(params?.prompt)) {
       bounceOrPass()
       return
     }
@@ -312,7 +313,8 @@ type Binding = DeviceAccount
 /** Read the stored PAR parameters for the request_uri on the current URL.
  *  Returns null when the URL has no request_uri, when the lookup fails, or
  *  when stored data is shaped unexpectedly. Used to read `prompt` and
- *  `login_hint` for the row-5/9 bounce decisions. */
+ *  `login_hint` for the bounce decisions on flows where the stored PAR
+ *  forces re-authentication or hints at a stale binding. */
 async function loadStoredPar(opts: {
   provider: OAuthProvider
   requestUrl: string
@@ -365,4 +367,22 @@ function filterCandidateBindings(
       account.sub === loginHint || account.preferred_username === loginHint,
   )
   return matched.length === 1 ? matched : bindings
+}
+
+/** Tokenise an OIDC `prompt` parameter value into its space-delimited set.
+ *  Per OpenID Connect Core 1.0 §3.1.2.1, `prompt` is a space-delimited list
+ *  of values (e.g. `"login consent"`), not a single literal — so an exact
+ *  string check would miss `login` when it appears alongside other tokens.
+ *  Returns an empty Set for null/undefined/non-string input. */
+export function parsePromptTokens(value: unknown): Set<string> {
+  if (typeof value !== 'string') return new Set()
+  return new Set(value.split(/\s+/).filter(Boolean))
+}
+
+/** True when the given OIDC prompt value contains the `login` token. Both
+ *  the auth-ui-guard and epds-callback's PAR mutation use this — they must
+ *  agree on what counts as "forced login" so the guard's bounce condition
+ *  and the callback's prompt-strip apply to exactly the same requests. */
+export function promptHasLogin(value: unknown): boolean {
+  return parsePromptTokens(value).has('login')
 }

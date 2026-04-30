@@ -8,9 +8,9 @@
  *   POST /_internal/test/expire-device-account
  *     Body: {did, deviceId?}
  *     Backdates `account_device.updatedAt` 8 days into the past for the
- *     matching row(s). Used by features/session-reuse-bugs.feature rows 6
- *     and 9 to age bindings past upstream's authenticationMaxAge (7d) so
- *     checkLoginRequired returns true for the targeted binding(s).
+ *     matching row(s). Used by the e2e suite to age bindings past
+ *     upstream's authenticationMaxAge (7d) so checkLoginRequired returns
+ *     true for the targeted binding(s).
  */
 import express, { type Application } from 'express'
 import type { PDS } from '@atproto/pds'

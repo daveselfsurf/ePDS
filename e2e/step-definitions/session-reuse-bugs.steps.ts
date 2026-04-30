@@ -1,16 +1,16 @@
 /**
  * Step definitions for features/session-reuse-bugs.feature — the
- * welcome-page guard scenarios. See docs/design/session-reuse-bugs.md for
- * the failure-mode taxonomy.
+ * auth-ui-guard scenarios. See docs/design/session-reuse-bugs.md for the
+ * full failure-mode taxonomy.
  *
  * These steps exercise the pre-route guard in pds-core that intercepts
  * /oauth/authorize and /account* before upstream's signin handler can
  * render its authentication UIs (stock welcome page or sign-in-view).
  * The guard bounces to auth-service when:
- *   - the dev-id/ses-id cookie pair is missing or malformed (rows 1–3)
- *   - the cookie pair resolves to a device with zero bound accounts (row 4)
- *   - the stored PAR carries `prompt=login` (row 5)
- *   - every relevant binding's auth age exceeds 7 days (rows 6 / 9)
+ *   - the dev-id/ses-id cookie pair is missing or malformed
+ *   - the cookie pair resolves to a device with zero bound accounts
+ *   - the stored PAR forces re-authentication (prompt contains 'login')
+ *   - every relevant binding's auth age exceeds 7 days
  *
  * All scenarios require a docker-compose topology where auth-service is a
  * sibling subdomain of pds-core so device-session cookies are domain-scoped
@@ -208,9 +208,9 @@ When(
     // /oauth/authorize redirect URL — this matches the third-party
     // OAuth-client pattern that drives upstream's matchesHint logic against
     // `parameters.login_hint` from the stored PAR. Without this, upstream's
-    // request-manager-loaded parameters carry no hint and the guard's row 9
-    // bounce condition can never fire (because filterCandidateBindings sees
-    // every binding as a candidate, not just the stale one).
+    // request-manager-loaded parameters carry no hint and the guard's
+    // hint-narrowed bounce condition can never fire — filterCandidateBindings
+    // would see every binding as a candidate, not just the stale one.
     const page = getPage(this)
     const url = new URL('/api/oauth/login', testEnv.demoUrl)
     url.searchParams.set('login_hint', this.userHandle)
@@ -600,12 +600,12 @@ Given(
 )
 
 // ---------------------------------------------------------------------------
-// Sign-in-view leaks (rows 5/6/9). Distinct from the welcome-page leaks
-// above: cookies + bindings are valid, but every binding upstream would
-// consider has `loginRequired: true`, so upstream falls through to its
-// sign-in-view (handle + password form). ePDS accounts are passwordless, so
-// any path into that form is unusable. The guard must bounce these to
-// auth-service for a fresh OTP round.
+// Sign-in-view leaks. Distinct from the welcome-page leaks above: cookies
+// and bindings are valid, but every binding upstream would consider has
+// `loginRequired: true`, so upstream falls through to its sign-in-view
+// (handle + password form). ePDS accounts are passwordless, so any path
+// into that form is unusable. The guard must bounce these to auth-service
+// for a fresh OTP round.
 // ---------------------------------------------------------------------------
 
 When(
@@ -617,7 +617,8 @@ When(
     // Cookies are preserved (the device must already be bound from the
     // Background) so once the auth-service-side OTP completes and the
     // pds-core epds-callback redirects back to /oauth/authorize, the
-    // stored PAR still carries `prompt=login` — the row-5 trigger.
+    // stored PAR still carries `prompt=login` — the trigger this scenario
+    // exercises.
     const page = getPage(this)
     const url = new URL('/api/oauth/login', testEnv.demoUrl)
     url.searchParams.set('prompt', 'login')
@@ -628,9 +629,9 @@ When(
 // Backdate `account_device.updated_at` past upstream's authenticationMaxAge
 // (7d) via a pds-core /_internal/test hook gated on EPDS_TEST_HOOKS=1. The
 // hook accepts a target DID and optional deviceId; omitting deviceId
-// backdates every device row for that DID (sufficient for row 6's
-// single-account device, while row 9 passes both did + deviceId for
-// surgical targeting).
+// backdates every device row for that DID (sufficient when the device has
+// only one binding; the multi-account-device scenario passes both did and
+// deviceId for surgical targeting).
 async function expireDeviceAccount(opts: {
   did: string
   deviceId?: string

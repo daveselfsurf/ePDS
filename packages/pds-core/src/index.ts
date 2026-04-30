@@ -62,7 +62,7 @@ import {
 } from './cookie-domain.js'
 import { createChooserEnrichmentMiddleware } from './chooser-enrichment.js'
 import { createUpstreamFaviconMiddleware } from './upstream-favicon.js'
-import { createAuthUiGuard } from './auth-ui-guard.js'
+import { createAuthUiGuard, parsePromptTokens } from './auth-ui-guard.js'
 import { loadDeviceAccountEmails } from './lib/device-accounts.js'
 import { installTestHooks } from './lib/test-hooks.js'
 
@@ -524,15 +524,15 @@ async function main() {
       //     prompt !== 'select_account'. (prompt is already 'consent',
       //     forced by the provider for unauthenticated clients.)
       //
-      //   - Strip `prompt: 'login'` if present. The auth-ui-guard at
-      //     /oauth/authorize bounces requests whose stored PAR carries
-      //     prompt=login (row 5 of the failure-mode taxonomy), so leaving
-      //     it set after a successful OTP cycle would loop forever:
-      //     authenticate → bounce → authenticate → bounce. By the time
-      //     this hop fires, the user IS freshly authenticated; the
-      //     prompt's contract is satisfied. Other prompt values
-      //     ('consent', 'select_account', etc.) stay untouched — only
-      //     'login' is loop-forming.
+      //   - Strip the `login` token from `prompt` if present. The
+      //     auth-ui-guard at /oauth/authorize bounces requests whose
+      //     stored PAR carries prompt=login, so leaving it set after a
+      //     successful OTP cycle would loop forever: authenticate →
+      //     bounce → authenticate → bounce. By the time this hop fires,
+      //     the user IS freshly authenticated; the forced-login
+      //     contract is satisfied. Other prompt tokens ('consent',
+      //     'select_account', etc.) stay untouched — only 'login' is
+      //     loop-forming.
       if (did) {
         const REQUEST_URI_PREFIX = 'urn:ietf:params:oauth:request_uri:'
         const requestId = decodeURIComponent(
@@ -546,8 +546,20 @@ async function main() {
             ...storedRequest.parameters,
             login_hint: did,
           }
-          if (nextParams.prompt === 'login') {
-            delete nextParams.prompt
+          // Strip the 'login' token from the prompt parameter, leaving any
+          // other tokens (e.g. 'consent') intact. Per OIDC Core §3.1.2.1
+          // prompt is space-delimited; a third-party client could send
+          // 'login consent', and an exact-string strip would miss 'login'
+          // in that case and re-trigger the guard's bounce after every
+          // OTP cycle.
+          if (typeof nextParams.prompt === 'string') {
+            const remaining = parsePromptTokens(nextParams.prompt)
+            remaining.delete('login')
+            if (remaining.size === 0) {
+              delete nextParams.prompt
+            } else {
+              nextParams.prompt = [...remaining].join(' ')
+            }
           }
           await store.updateRequest(requestId, { parameters: nextParams })
         }
