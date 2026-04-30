@@ -494,9 +494,9 @@ export function renderLoginPage(opts: {
         opts.initialStep === 'otp' ? 'none' : 'block'
       };">By signing in, you agree to ${termsLead} <a href="${escapeHtml(
         opts.termsOfServiceUrl as string,
-      )}" class="terms-link">Terms of Use</a> and <a href="${escapeHtml(
+      )}" class="terms-link" target="_blank" rel="noopener noreferrer">Terms of Use</a> and <a href="${escapeHtml(
         opts.privacyPolicyUrl as string,
-      )}" class="terms-link">Privacy Policy</a>.</div>`
+      )}" class="terms-link" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.</div>`
     : ''
 
   const hasGoogle = 'google' in socialProviders
