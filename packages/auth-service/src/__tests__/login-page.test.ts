@@ -499,27 +499,27 @@ describe('renderLoginPage handle login button', () => {
 // tests pin its structure so accidental refactors (removing the guard,
 // moving it after the fetch, resetting the flag unconditionally on
 // success) fail loudly.
-describe('renderLoginPage OTP verify-form double-submit latch (regression)', () => {
-  function renderDefault(): string {
-    return renderLoginPage({
-      flowId: 'flow-1',
-      clientId: 'https://example.com/client-metadata.json',
-      clientName: 'Example',
-      branding: {},
-      customCss: null,
-      customFaviconUrl: null,
-      customFaviconUrlDark: null,
-      loginHint: '',
-      initialStep: 'email',
-      otpAlreadySent: false,
-      csrfToken: 'csrf',
-      authBasePath: '/api/auth',
-      pdsPublicUrl: 'https://pds.example.com',
-      otpLength: 6,
-      otpCharset: 'numeric',
-    })
-  }
+function renderDefault(): string {
+  return renderLoginPage({
+    flowId: 'flow-1',
+    clientId: 'https://example.com/client-metadata.json',
+    clientName: 'Example',
+    branding: {},
+    customCss: null,
+    customFaviconUrl: null,
+    customFaviconUrlDark: null,
+    loginHint: '',
+    initialStep: 'email',
+    otpAlreadySent: false,
+    csrfToken: 'csrf',
+    authBasePath: '/api/auth',
+    pdsPublicUrl: 'https://pds.example.com',
+    otpLength: 6,
+    otpCharset: 'numeric',
+  })
+}
 
+describe('renderLoginPage OTP verify-form double-submit latch (regression)', () => {
   it('declares the verifying flag at IIFE scope so input/paste/submit handlers share it', () => {
     const html = renderDefault()
     expect(html).toContain('var verifying = false;')
