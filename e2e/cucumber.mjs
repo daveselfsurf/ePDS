@@ -22,6 +22,12 @@
 // (see e2e/README.md#two-demo-clients). They are only runnable against
 // environments that provide a second demo — reflect that in the tag
 // expression by excluding the tag when E2E_DEMO_UNTRUSTED_URL is unset.
+//
+// Scenarios tagged @otp-expiry call the auth-service /_internal/test/*
+// hooks (which require EPDS_TEST_HOOKS=1 on the server side and the
+// matching EPDS_INTERNAL_SECRET on the client side). Exclude them when
+// E2E_INTERNAL_SECRET is unset so they don't fail at run time on
+// environments that haven't enabled the hook.
 const defaultTagExclusions = [
   'not @manual',
   'not @docker-only',
@@ -29,6 +35,7 @@ const defaultTagExclusions = [
   'not @risk-of-disruption',
   'not @session-reuse',
   ...(process.env.E2E_DEMO_UNTRUSTED_URL ? [] : ['not @untrusted-client']),
+  ...(process.env.E2E_INTERNAL_SECRET ? [] : ['not @otp-expiry']),
 ]
 
 const shared = {

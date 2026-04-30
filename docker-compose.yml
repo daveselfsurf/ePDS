@@ -27,6 +27,11 @@ services:
     env_file: .env
     environment:
       - AUTH_PORT=3001
+      # Enable /_internal/test/* hooks used by the e2e suite (e.g. forcing
+      # OTP expiry without a 10-minute wait). Mounted only here and on the
+      # Railway pr-base preview env; production deployments leave it unset.
+      # The router throws at startup if NODE_ENV=production.
+      - EPDS_TEST_HOOKS=${EPDS_TEST_HOOKS:-1}
     volumes:
       - auth-data:/data
     restart: unless-stopped

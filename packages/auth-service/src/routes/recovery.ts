@@ -24,10 +24,9 @@ import {
   renderFaviconTag,
 } from '../lib/page-helpers.js'
 import { renderError } from '../lib/render-error.js'
+import { AUTH_FLOW_COOKIE, AUTH_FLOW_TTL_MS } from '../lib/auth-flow.js'
 
 const logger = createLogger('auth:recovery')
-
-const AUTH_FLOW_COOKIE = 'epds_auth_flow'
 
 export function createRecoveryRouter(
   ctx: AuthServiceContext,
@@ -153,13 +152,13 @@ export function createRecoveryRouter(
             // expired rows and we have no peek accessor.
             clientId: null,
             // handleMode omitted — recovery flows don't go through handle assignment
-            expiresAt: Date.now() + 10 * 60 * 1000,
+            expiresAt: Date.now() + AUTH_FLOW_TTL_MS,
           })
           res.cookie(AUTH_FLOW_COOKIE, flowId, {
             httpOnly: true,
             secure: process.env.NODE_ENV !== 'development',
             sameSite: 'lax',
-            maxAge: 10 * 60 * 1000,
+            maxAge: AUTH_FLOW_TTL_MS,
           })
         }
 

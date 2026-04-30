@@ -23,7 +23,7 @@ import { applyPdsPortFallback } from './lib/resolve-port.js'
 applyPdsPortFallback()
 
 import type * as http from 'node:http'
-import { randomBytes, timingSafeEqual, createHash } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import * as path from 'node:path'
 import { PDS, envToCfg, envToSecrets, readEnv } from '@atproto/pds'
 import { readFileSync } from 'node:fs'
@@ -36,6 +36,7 @@ import {
   generateRandomHandle,
   createLogger,
   verifyCallback,
+  verifyInternalSecret,
   escapeHtml,
   validateLocalPart,
   resolveClientMetadata,
@@ -921,20 +922,6 @@ async function main() {
   // =========================================================================
   // Internal endpoints
   // =========================================================================
-
-  /** Timing-safe check of the x-internal-secret header. Returns false if the
-   *  env var is unset or the header is missing/mismatched.
-   *  Both values are hashed to SHA-256 so timingSafeEqual always receives
-   *  equal-length buffers, avoiding length-leak timing side-channels and
-   *  ERR_INVALID_ARG_VALUE throws from multibyte string length mismatches. */
-  function verifyInternalSecret(
-    header: string | string[] | undefined,
-  ): boolean {
-    const secret = process.env.EPDS_INTERNAL_SECRET
-    if (!secret || typeof header !== 'string') return false
-    const hash = (v: string) => createHash('sha256').update(v).digest()
-    return timingSafeEqual(hash(header), hash(secret))
-  }
 
   // Protected internal endpoint for auth service to look up an account by email.
   // Replaces the old unauthenticated /_magic/check-email to prevent email enumeration.

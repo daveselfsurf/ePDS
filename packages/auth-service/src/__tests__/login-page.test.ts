@@ -289,13 +289,14 @@ describe('Login page redirect requirements', () => {
     expect(hasError).toBe(true)
   })
 
-  it('flow_id cookie expires in 10 minutes', () => {
-    const AUTH_FLOW_TTL_MS = 10 * 60 * 1000
+  it('flow_id cookie expires in 60 minutes (decoupled from OTP TTL)', () => {
+    const AUTH_FLOW_TTL_MS = 60 * 60 * 1000
     const nowish = Date.now()
     const expiresAt = nowish + AUTH_FLOW_TTL_MS
 
-    // Should be approximately 10 min from now
-    expect(expiresAt - nowish).toBe(600_000)
+    // 60 min lets a user who hits OTP expiry (10 min) and resends still
+    // have a live auth_flow + cookie to land on /auth/complete.
+    expect(expiresAt - nowish).toBe(3_600_000)
   })
 })
 
