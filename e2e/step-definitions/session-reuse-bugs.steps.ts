@@ -196,6 +196,29 @@ When(
   },
 )
 
+When(
+  "the demo client starts a new OAuth flow with the test user's handle as a PAR-body login_hint",
+  async function (this: EpdsWorld) {
+    if (!this.userHandle) {
+      throw new Error(
+        'world.userHandle missing — Background step must run first',
+      )
+    }
+    // login_hint_location=body puts the hint in the PAR body rather than the
+    // /oauth/authorize redirect URL — this matches the third-party
+    // OAuth-client pattern that drives upstream's matchesHint logic against
+    // `parameters.login_hint` from the stored PAR. Without this, upstream's
+    // request-manager-loaded parameters carry no hint and the guard's row 9
+    // bounce condition can never fire (because filterCandidateBindings sees
+    // every binding as a candidate, not just the stale one).
+    const page = getPage(this)
+    const url = new URL('/api/oauth/login', testEnv.demoUrl)
+    url.searchParams.set('login_hint', this.userHandle)
+    url.searchParams.set('login_hint_location', 'body')
+    await page.goto(url.toString())
+  },
+)
+
 Given(
   'another user has a separate PDS account',
   async function (this: EpdsWorld) {

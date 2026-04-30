@@ -206,6 +206,6 @@ Feature: Welcome-page guard suppresses upstream's authentication UI
     Given the device has two bound accounts
     And the test user's account_device row has been backdated past 7 days
     And the other user's account_device row is fresh
-    When the demo client starts a new OAuth flow with the test user's handle as login_hint
+    When the demo client starts a new OAuth flow with the test user's handle as a PAR-body login_hint
     Then the browser lands on the auth-service email-and-OTP form
     And no upstream password field is rendered anywhere on the page
