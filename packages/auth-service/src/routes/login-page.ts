@@ -578,8 +578,8 @@ export function renderLoginPage(opts: {
     .step-otp.active { display: block; }
     .step-email.hidden { display: none; }
     .terms { margin-top: 24px; color: var(--muted-foreground); font-size: 13px; font-weight: 400; line-height: 1.5; text-align: center; }
-    .terms-link { color: inherit; text-decoration: underline; }
-    .powered-by { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 16px; color: var(--muted-foreground); font-size: 13px; text-decoration: none; }
+    .terms-link { color: inherit; text-decoration: underline; cursor: pointer; }
+    .powered-by { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 16px; color: var(--muted-foreground); font-size: 13px; text-decoration: none; cursor: pointer; }
     .powered-by:hover, .powered-by:focus, .powered-by:visited { color: var(--muted-foreground); text-decoration: none; }
     .powered-by .certified-mark { height: 14px; width: auto; display: block; }
     /* Recovery-via-backup-email link. Shown by default; trusted clients
