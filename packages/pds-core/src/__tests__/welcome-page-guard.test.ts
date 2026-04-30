@@ -704,220 +704,39 @@ describe('createWelcomePageGuard', () => {
 
   // ---------------------------------------------------------------------------
   // Sign-in-view leak coverage (rows 5 / 6 / 9 of the failure-mode taxonomy
-  // in features/session-reuse-bugs.feature). Each row is the same shape:
-  // valid cookies + non-empty bindings + a request_uri, but every binding
-  // upstream would consider has loginRequired === true. The guard must
-  // bounce instead of letting upstream render the password form.
+  // in features/session-reuse-bugs.feature). Every test below shares the
+  // same wiring — fresh cookies + non-empty bindings + a request_uri-bearing
+  // URL — and varies only in the stored PAR `prompt` / `login_hint` values
+  // and which bindings have loginRequired=true. The signinViewCase helper
+  // captures that wiring; each test just supplies the inputs and assertion.
   // ---------------------------------------------------------------------------
 
   // Helper: build a binding fixture good enough for the guard's matchesHint
   // logic. Only `account.sub` and `account.preferred_username` are read.
-  function binding(opts: { sub: string; pu: string }) {
+  function binding(sub: string, pu: string) {
     return {
-      account: { sub: opts.sub, preferred_username: opts.pu },
+      account: { sub, preferred_username: pu },
     } as unknown as { account: { sub: string; preferred_username: string } }
   }
 
-  // The request_uri that the guard's loadStoredPar will look up. The
-  // urn-prefix matters — anything else makes the guard treat the URL as
-  // "no request_uri" and skip the stored-PAR read entirely.
+  // urn-prefixed request_uri so loadStoredPar actually attempts the read
+  // (anything else makes it short-circuit and skip the row-5/9 logic).
   const REQUEST_URI = 'urn:ietf:params:oauth:request_uri:req-abc'
 
-  it('row 5: bounces when stored PAR has prompt === "login"', async () => {
-    const provider = makeProvider({
-      bindings: () =>
-        Promise.resolve([binding({ sub: 'did:plc:a', pu: 'a.example' })]),
-      // Even though the binding itself is fresh (default checkLoginRequired
-      // returns false), the prompt=login branch must bounce first.
-      readRequest: () => Promise.resolve({ parameters: { prompt: 'login' } }),
-    })
-    const mw = createWelcomePageGuard({
-      authHostname: AUTH,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      provider: provider as any,
-      cookieDomain: null,
-    })
-    const res = makeRes()
-    await mw(
-      makeReq({
-        url: `/oauth/authorize?request_uri=${encodeURIComponent(REQUEST_URI)}`,
-        cookieHeader: `dev-id=${VALID_DEV}; ses-id=${VALID_SES}`,
-      }),
-      res,
-      vi.fn(),
-    )
-    expect(res.status).toHaveBeenCalledWith(303)
-    // Sanity: checkLoginRequired must NOT have been consulted — the
-    // prompt=login check short-circuits ahead of it.
-    expect(provider.checkLoginRequired).not.toHaveBeenCalled()
-  })
-
-  it('row 6: bounces when every binding is loginRequired and there is no hint', async () => {
-    const provider = makeProvider({
-      bindings: () =>
-        Promise.resolve([
-          binding({ sub: 'did:plc:a', pu: 'a.example' }),
-          binding({ sub: 'did:plc:b', pu: 'b.example' }),
-        ]),
-      // Empty stored PAR — no prompt=login, no login_hint. With every
-      // binding stale, the chooser would render and clicking either
-      // account would land on sign-in-view.
-      readRequest: () => Promise.resolve({ parameters: {} }),
-      checkLoginRequired: () => true,
-    })
-    const mw = createWelcomePageGuard({
-      authHostname: AUTH,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      provider: provider as any,
-      cookieDomain: null,
-    })
-    const res = makeRes()
-    await mw(
-      makeReq({
-        url: `/oauth/authorize?request_uri=${encodeURIComponent(REQUEST_URI)}`,
-        cookieHeader: `dev-id=${VALID_DEV}; ses-id=${VALID_SES}`,
-      }),
-      res,
-      vi.fn(),
-    )
-    expect(res.status).toHaveBeenCalledWith(303)
-  })
-
-  it('row 9: bounces when login_hint matches the only stale binding', async () => {
-    const stale = binding({ sub: 'did:plc:stale', pu: 'stale.example' })
-    const fresh = binding({ sub: 'did:plc:fresh', pu: 'fresh.example' })
-    const provider = makeProvider({
-      bindings: () => Promise.resolve([stale, fresh]),
-      readRequest: () =>
-        Promise.resolve({ parameters: { login_hint: 'stale.example' } }),
-      // Only the stale binding is loginRequired. With the hint narrowing
-      // the candidate set to just `stale`, the every-loginRequired check
-      // succeeds and the guard bounces — even though `fresh` exists.
-      checkLoginRequired: (b: unknown) =>
-        (b as { account: { sub: string } }).account.sub === 'did:plc:stale',
-    })
-    const mw = createWelcomePageGuard({
-      authHostname: AUTH,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      provider: provider as any,
-      cookieDomain: null,
-    })
-    const res = makeRes()
-    await mw(
-      makeReq({
-        url: `/oauth/authorize?request_uri=${encodeURIComponent(REQUEST_URI)}`,
-        cookieHeader: `dev-id=${VALID_DEV}; ses-id=${VALID_SES}`,
-      }),
-      res,
-      vi.fn(),
-    )
-    expect(res.status).toHaveBeenCalledWith(303)
-  })
-
-  it('passes through when login_hint matches a fresh binding (row 7)', async () => {
-    // Hint resolves to a single fresh binding → upstream's chooser /
-    // SSO redirect path is reachable. Guard must NOT bounce.
-    const stale = binding({ sub: 'did:plc:stale', pu: 'stale.example' })
-    const fresh = binding({ sub: 'did:plc:fresh', pu: 'fresh.example' })
-    const provider = makeProvider({
-      bindings: () => Promise.resolve([stale, fresh]),
-      readRequest: () =>
-        Promise.resolve({ parameters: { login_hint: 'fresh.example' } }),
-      checkLoginRequired: (b: unknown) =>
-        (b as { account: { sub: string } }).account.sub === 'did:plc:stale',
-    })
-    const mw = createWelcomePageGuard({
-      authHostname: AUTH,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      provider: provider as any,
-      cookieDomain: null,
-    })
-    const res = makeRes()
-    const next = vi.fn()
-    await mw(
-      makeReq({
-        url: `/oauth/authorize?request_uri=${encodeURIComponent(REQUEST_URI)}`,
-        cookieHeader: `dev-id=${VALID_DEV}; ses-id=${VALID_SES}`,
-      }),
-      res,
-      next,
-    )
-    expect(next).toHaveBeenCalledOnce()
-    expect(res.status).not.toHaveBeenCalled()
-  })
-
-  it('passes through when at least one binding is fresh and there is no hint', async () => {
-    // No prompt=login, no login_hint, mixed binding freshness → chooser
-    // reaches a usable session. Guard must pass through.
-    const stale = binding({ sub: 'did:plc:stale', pu: 'stale.example' })
-    const fresh = binding({ sub: 'did:plc:fresh', pu: 'fresh.example' })
-    const provider = makeProvider({
-      bindings: () => Promise.resolve([stale, fresh]),
-      readRequest: () => Promise.resolve({ parameters: {} }),
-      checkLoginRequired: (b: unknown) =>
-        (b as { account: { sub: string } }).account.sub === 'did:plc:stale',
-    })
-    const mw = createWelcomePageGuard({
-      authHostname: AUTH,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      provider: provider as any,
-      cookieDomain: null,
-    })
-    const res = makeRes()
-    const next = vi.fn()
-    await mw(
-      makeReq({
-        url: `/oauth/authorize?request_uri=${encodeURIComponent(REQUEST_URI)}`,
-        cookieHeader: `dev-id=${VALID_DEV}; ses-id=${VALID_SES}`,
-      }),
-      res,
-      next,
-    )
-    expect(next).toHaveBeenCalledOnce()
-    expect(res.status).not.toHaveBeenCalled()
-  })
-
-  it('falls back to all bindings when login_hint matches none of them', async () => {
-    // matchesHint resolves to an empty set, so per upstream's logic
-    // every binding becomes a candidate. With at least one fresh, the
-    // guard passes through.
-    const fresh = binding({ sub: 'did:plc:fresh', pu: 'fresh.example' })
-    const provider = makeProvider({
-      bindings: () => Promise.resolve([fresh]),
-      readRequest: () =>
-        Promise.resolve({ parameters: { login_hint: 'unknown.example' } }),
-      checkLoginRequired: () => false,
-    })
-    const mw = createWelcomePageGuard({
-      authHostname: AUTH,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      provider: provider as any,
-      cookieDomain: null,
-    })
-    const res = makeRes()
-    const next = vi.fn()
-    await mw(
-      makeReq({
-        url: `/oauth/authorize?request_uri=${encodeURIComponent(REQUEST_URI)}`,
-        cookieHeader: `dev-id=${VALID_DEV}; ses-id=${VALID_SES}`,
-      }),
-      res,
-      next,
-    )
-    expect(next).toHaveBeenCalledOnce()
-  })
-
-  it('passes through when readRequest fails — fail-open on the PAR-read path', async () => {
-    // store.readRequest throwing means we don't know whether prompt=login
-    // is set, but bindings exist and (default) none are loginRequired.
-    // Failing closed here would 303 every flow whose PAR happens to be
-    // unreachable. Pass through and let upstream handle it.
-    const provider = makeProvider({
-      bindings: () =>
-        Promise.resolve([binding({ sub: 'did:plc:a', pu: 'a.example' })]),
-      readRequest: () => Promise.reject(new Error('store down')),
-    })
-    const logger = { error: vi.fn() }
+  type SigninViewCaseOpts = Parameters<typeof makeProvider>[0] & {
+    loggerError?: (...args: unknown[]) => void
+  }
+  /** Run the guard against the standard sign-in-view scenario fixture and
+   *  return the (provider, res, next) trio for assertions. Centralises the
+   *  repetitive setup that Sonar flagged as duplication. */
+  async function signinViewCase(opts: SigninViewCaseOpts): Promise<{
+    provider: FakeProvider
+    res: ReturnType<typeof makeRes>
+    next: ReturnType<typeof vi.fn>
+  }> {
+    const { loggerError, ...providerOpts } = opts
+    const provider = makeProvider(providerOpts)
+    const logger = loggerError ? { error: loggerError } : undefined
     const mw = createWelcomePageGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -935,8 +754,116 @@ describe('createWelcomePageGuard', () => {
       res,
       next,
     )
+    return { provider, res, next }
+  }
+
+  /** Asserts the guard responded 303 (bounce). */
+  function expectBounce(res: ReturnType<typeof makeRes>): void {
+    expect(res.status).toHaveBeenCalledWith(303)
+  }
+
+  /** Asserts the guard called next() and didn't touch res.status. */
+  function expectPassThrough(
+    res: ReturnType<typeof makeRes>,
+    next: ReturnType<typeof vi.fn>,
+  ): void {
     expect(next).toHaveBeenCalledOnce()
-    expect(logger.error).toHaveBeenCalledWith(
+    expect(res.status).not.toHaveBeenCalled()
+  }
+
+  it('row 5: bounces when stored PAR has prompt === "login"', async () => {
+    const { provider, res } = await signinViewCase({
+      bindings: () => Promise.resolve([binding('did:plc:a', 'a.example')]),
+      // Even though the binding itself is fresh (checkLoginRequired
+      // defaults to false), the prompt=login branch must bounce first —
+      // and short-circuit ahead of the per-binding check.
+      readRequest: () => Promise.resolve({ parameters: { prompt: 'login' } }),
+    })
+    expectBounce(res)
+    expect(provider.checkLoginRequired).not.toHaveBeenCalled()
+  })
+
+  it('row 6: bounces when every binding is loginRequired and there is no hint', async () => {
+    const { res } = await signinViewCase({
+      bindings: () =>
+        Promise.resolve([
+          binding('did:plc:a', 'a.example'),
+          binding('did:plc:b', 'b.example'),
+        ]),
+      readRequest: () => Promise.resolve({ parameters: {} }),
+      checkLoginRequired: () => true,
+    })
+    expectBounce(res)
+  })
+
+  // Picker for the row-9-shaped fixture: hint narrows to one binding,
+  // others stay fresh. Returns a checkLoginRequired predicate that
+  // marks only `did:plc:stale` as loginRequired.
+  const onlyStaleIsLoginRequired = (b: unknown): boolean =>
+    (b as { account: { sub: string } }).account.sub === 'did:plc:stale'
+  const TWO_BINDINGS = [
+    binding('did:plc:stale', 'stale.example'),
+    binding('did:plc:fresh', 'fresh.example'),
+  ]
+
+  it('row 9: bounces when login_hint matches the only stale binding', async () => {
+    const { res } = await signinViewCase({
+      bindings: () => Promise.resolve(TWO_BINDINGS),
+      readRequest: () =>
+        Promise.resolve({ parameters: { login_hint: 'stale.example' } }),
+      checkLoginRequired: onlyStaleIsLoginRequired,
+    })
+    expectBounce(res)
+  })
+
+  it('passes through when login_hint matches a fresh binding (row 7)', async () => {
+    // Hint resolves to a single fresh binding → SSO/chooser path is
+    // reachable; the guard must NOT bounce.
+    const { res, next } = await signinViewCase({
+      bindings: () => Promise.resolve(TWO_BINDINGS),
+      readRequest: () =>
+        Promise.resolve({ parameters: { login_hint: 'fresh.example' } }),
+      checkLoginRequired: onlyStaleIsLoginRequired,
+    })
+    expectPassThrough(res, next)
+  })
+
+  it('passes through when at least one binding is fresh and there is no hint', async () => {
+    // Mixed freshness, no hint → chooser reaches a usable session.
+    const { res, next } = await signinViewCase({
+      bindings: () => Promise.resolve(TWO_BINDINGS),
+      readRequest: () => Promise.resolve({ parameters: {} }),
+      checkLoginRequired: onlyStaleIsLoginRequired,
+    })
+    expectPassThrough(res, next)
+  })
+
+  it('falls back to all bindings when login_hint matches none of them', async () => {
+    // matchesHint → empty set → upstream treats all bindings as candidates;
+    // with at least one fresh, the guard passes through.
+    const { next } = await signinViewCase({
+      bindings: () =>
+        Promise.resolve([binding('did:plc:fresh', 'fresh.example')]),
+      readRequest: () =>
+        Promise.resolve({ parameters: { login_hint: 'unknown.example' } }),
+      checkLoginRequired: () => false,
+    })
+    expect(next).toHaveBeenCalledOnce()
+  })
+
+  it('passes through when readRequest fails — fail-open on the PAR-read path', async () => {
+    // store.readRequest throwing means we don't know whether prompt=login
+    // is set, but bindings exist and none are loginRequired by default.
+    // Failing closed here would 303 every flow whose PAR happens to be
+    // unreachable; pass through and let upstream handle it.
+    const errSpy = vi.fn()
+    const { res, next } = await signinViewCase({
+      bindings: () => Promise.resolve([binding('did:plc:a', 'a.example')]),
+      readRequest: () => Promise.reject(new Error('store down')),
+      loggerError: errSpy,
+    })
+    expectPassThrough(res, next)
+    expect(errSpy).toHaveBeenCalledWith(
       expect.any(Object),
       expect.stringContaining('store.readRequest failed'),
     )

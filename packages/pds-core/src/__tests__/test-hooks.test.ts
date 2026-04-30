@@ -99,6 +99,34 @@ async function postHook(
   }
 }
 
+/** Build an express app with installTestHooks applied to a default
+ *  fake-pds + fake-update fixture. Centralises the boilerplate every test
+ *  used to repeat. Tests that need to inspect the underlying update or
+ *  override the failure mode pass extra options here. */
+function setupApp(opts?: {
+  failOnExecute?: boolean
+  updatedRows?: number | bigint
+}): {
+  app: express.Express
+  fakeUpdate: ReturnType<typeof makeFakeUpdate>
+  logger: { warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> }
+} {
+  const fakeUpdate = makeFakeUpdate()
+  if (opts?.updatedRows !== undefined)
+    fakeUpdate.setUpdatedRows(opts.updatedRows)
+  const logger = { warn: vi.fn(), error: vi.fn() }
+  const app = express()
+  installTestHooks({
+    pds: makeFakePds({ fakeUpdate, failOnExecute: opts?.failOnExecute }),
+    app,
+    logger,
+  })
+  return { app, fakeUpdate, logger }
+}
+
+const SECRET = 'test-secret-1234'
+const AUTH_HEADER = { 'x-internal-secret': SECRET }
+
 describe('installTestHooks — expire-device-account', () => {
   let priorEnv: { hooks?: string; secret?: string; node?: string } = {}
 
@@ -109,7 +137,8 @@ describe('installTestHooks — expire-device-account', () => {
       node: process.env.NODE_ENV,
     }
     delete process.env.NODE_ENV
-    process.env.EPDS_INTERNAL_SECRET = 'test-secret-1234'
+    process.env.EPDS_INTERNAL_SECRET = SECRET
+    process.env.EPDS_TEST_HOOKS = '1'
   })
 
   afterEach(() => {
@@ -123,61 +152,27 @@ describe('installTestHooks — expire-device-account', () => {
 
   it('does nothing when EPDS_TEST_HOOKS is unset', async () => {
     delete process.env.EPDS_TEST_HOOKS
-    const fakeUpdate = makeFakeUpdate()
-    const app = express()
-    installTestHooks({
-      pds: makeFakePds({ fakeUpdate }),
-      app,
-      logger: { warn: vi.fn(), error: vi.fn() },
-    })
-
-    const res = await postHook(
-      app,
-      { did: 'did:plc:a' },
-      { 'x-internal-secret': 'test-secret-1234' },
-    )
+    const { app } = setupApp()
     // Route was never mounted, so the request 404s before any auth check.
+    const res = await postHook(app, { did: 'did:plc:a' }, AUTH_HEADER)
     expect(res.status).toBe(404)
   })
 
   it('refuses to install when NODE_ENV=production', () => {
-    process.env.EPDS_TEST_HOOKS = '1'
     process.env.NODE_ENV = 'production'
-    const fakeUpdate = makeFakeUpdate()
-    const app = express()
     expect(() => {
-      installTestHooks({
-        pds: makeFakePds({ fakeUpdate }),
-        app,
-        logger: { warn: vi.fn(), error: vi.fn() },
-      })
+      setupApp()
     }).toThrow(/production/i)
   })
 
   it('rejects requests without the internal secret', async () => {
-    process.env.EPDS_TEST_HOOKS = '1'
-    const fakeUpdate = makeFakeUpdate()
-    const app = express()
-    installTestHooks({
-      pds: makeFakePds({ fakeUpdate }),
-      app,
-      logger: { warn: vi.fn(), error: vi.fn() },
-    })
-
+    const { app } = setupApp()
     const res = await postHook(app, { did: 'did:plc:a' })
     expect(res.status).toBe(401)
   })
 
   it('rejects requests with the wrong secret', async () => {
-    process.env.EPDS_TEST_HOOKS = '1'
-    const fakeUpdate = makeFakeUpdate()
-    const app = express()
-    installTestHooks({
-      pds: makeFakePds({ fakeUpdate }),
-      app,
-      logger: { warn: vi.fn(), error: vi.fn() },
-    })
-
+    const { app } = setupApp()
     const res = await postHook(
       app,
       { did: 'did:plc:a' },
@@ -187,48 +182,21 @@ describe('installTestHooks — expire-device-account', () => {
   })
 
   it('rejects requests missing the did', async () => {
-    process.env.EPDS_TEST_HOOKS = '1'
-    const fakeUpdate = makeFakeUpdate()
-    const app = express()
-    installTestHooks({
-      pds: makeFakePds({ fakeUpdate }),
-      app,
-      logger: { warn: vi.fn(), error: vi.fn() },
-    })
-
-    const res = await postHook(
-      app,
-      {},
-      { 'x-internal-secret': 'test-secret-1234' },
-    )
+    const { app } = setupApp()
+    const res = await postHook(app, {}, AUTH_HEADER)
     expect(res.status).toBe(400)
     expect(String(res.json.error)).toMatch(/did/i)
   })
 
   it('backdates every device row for the did when no deviceId is given', async () => {
-    process.env.EPDS_TEST_HOOKS = '1'
-    const fakeUpdate = makeFakeUpdate()
-    fakeUpdate.setUpdatedRows(2)
-    const logger = { warn: vi.fn(), error: vi.fn() }
-    const app = express()
-    installTestHooks({
-      pds: makeFakePds({ fakeUpdate }),
-      app,
-      logger,
-    })
-
-    const res = await postHook(
-      app,
-      { did: 'did:plc:a' },
-      { 'x-internal-secret': 'test-secret-1234' },
-    )
+    const { app, fakeUpdate } = setupApp({ updatedRows: 2 })
+    const res = await postHook(app, { did: 'did:plc:a' }, AUTH_HEADER)
 
     expect(res.status).toBe(200)
     expect(res.json.updated).toBe(2)
     const { setVals, wheres } = fakeUpdate.inspect()
     // updatedAt is set to an ISO string ~8 days in the past.
     const updatedAt = setVals.updatedAt as string
-    expect(typeof updatedAt).toBe('string')
     const past = new Date(updatedAt).getTime()
     const eightDaysAgo = Date.now() - 8 * 24 * 60 * 60 * 1000
     expect(Math.abs(past - eightDaysAgo)).toBeLessThan(60_000)
@@ -237,47 +205,24 @@ describe('installTestHooks — expire-device-account', () => {
   })
 
   it('narrows by deviceId when both keys are provided', async () => {
-    process.env.EPDS_TEST_HOOKS = '1'
-    const fakeUpdate = makeFakeUpdate()
-    fakeUpdate.setUpdatedRows(1)
-    const app = express()
-    installTestHooks({
-      pds: makeFakePds({ fakeUpdate }),
-      app,
-      logger: { warn: vi.fn(), error: vi.fn() },
-    })
-
+    const { app, fakeUpdate } = setupApp({ updatedRows: 1 })
     const res = await postHook(
       app,
       { did: 'did:plc:a', deviceId: 'dev-deadbeef' },
-      { 'x-internal-secret': 'test-secret-1234' },
+      AUTH_HEADER,
     )
 
     expect(res.status).toBe(200)
     expect(res.json.updated).toBe(1)
-    const { wheres } = fakeUpdate.inspect()
-    expect(wheres).toEqual([
+    expect(fakeUpdate.inspect().wheres).toEqual([
       ['did', '=', 'did:plc:a'],
       ['deviceId', '=', 'dev-deadbeef'],
     ])
   })
 
   it('returns 500 and logs when the underlying update throws', async () => {
-    process.env.EPDS_TEST_HOOKS = '1'
-    const fakeUpdate = makeFakeUpdate()
-    const logger = { warn: vi.fn(), error: vi.fn() }
-    const app = express()
-    installTestHooks({
-      pds: makeFakePds({ fakeUpdate, failOnExecute: true }),
-      app,
-      logger,
-    })
-
-    const res = await postHook(
-      app,
-      { did: 'did:plc:a' },
-      { 'x-internal-secret': 'test-secret-1234' },
-    )
+    const { app, logger } = setupApp({ failOnExecute: true })
+    const res = await postHook(app, { did: 'did:plc:a' }, AUTH_HEADER)
 
     expect(res.status).toBe(500)
     expect(logger.error).toHaveBeenCalledWith(
@@ -288,21 +233,8 @@ describe('installTestHooks — expire-device-account', () => {
 
   it('coerces bigint numUpdatedRows to a regular Number', async () => {
     // Kysely's actual return type is `bigint` on better-sqlite3 driver.
-    process.env.EPDS_TEST_HOOKS = '1'
-    const fakeUpdate = makeFakeUpdate()
-    fakeUpdate.setUpdatedRows(BigInt(3))
-    const app = express()
-    installTestHooks({
-      pds: makeFakePds({ fakeUpdate }),
-      app,
-      logger: { warn: vi.fn(), error: vi.fn() },
-    })
-
-    const res = await postHook(
-      app,
-      { did: 'did:plc:a' },
-      { 'x-internal-secret': 'test-secret-1234' },
-    )
+    const { app } = setupApp({ updatedRows: BigInt(3) })
+    const res = await postHook(app, { did: 'did:plc:a' }, AUTH_HEADER)
 
     expect(res.status).toBe(200)
     expect(res.json.updated).toBe(3)
