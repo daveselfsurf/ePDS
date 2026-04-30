@@ -148,9 +148,11 @@ Feature: Welcome-page guard suppresses upstream's authentication UI
   # Sign-in-view leaks (rows 5/6/9 of the failure-mode taxonomy). Distinct
   # from the welcome-page leaks above: here cookies and bindings are valid,
   # but every binding upstream would consider has `loginRequired: true`, so
-  # upstream falls through to its sign-in-view (handle + password form). ePDS
-  # accounts are passwordless, so any path into that form is unusable. The
-  # guard must bounce these to auth-service for a fresh OTP round.
+  # upstream's only remaining path is to render its sign-in-view (handle +
+  # password form). The chooser may render first as an intermediate step,
+  # but every account on it leads to sign-in-view on click — equally a leak.
+  # ePDS accounts are passwordless, so any path into that form is unusable.
+  # The guard must bounce these to auth-service for a fresh OTP round.
   #
   # Three independent triggers force every binding into loginRequired:
   #   Row 5 — stored PAR `parameters.prompt === 'login'`

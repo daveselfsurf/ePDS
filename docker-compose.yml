@@ -8,6 +8,13 @@ services:
     env_file: .env
     environment:
       - PDS_PORT=3000
+      # Enable /_internal/test/* hooks used by the e2e suite (e.g.
+      # backdating account_device.updatedAt past upstream's 7-day
+      # authenticationMaxAge so checkLoginRequired returns true). Mounted
+      # only here and on the Railway pr-base preview env; production
+      # deployments leave it unset. The router throws at startup if
+      # NODE_ENV=production.
+      - EPDS_TEST_HOOKS=${EPDS_TEST_HOOKS:-1}
     volumes:
       - pds-data:/data
     restart: unless-stopped

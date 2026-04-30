@@ -22,7 +22,7 @@ import { expect } from '@playwright/test'
 import type { EpdsWorld } from '../support/world.js'
 import { testEnv } from '../support/env.js'
 import { getPage } from '../support/utils.js'
-import { createAccountViaOAuth } from '../support/flows.js'
+import { createAccountViaOAuth, pickHandle } from '../support/flows.js'
 import { sharedBrowser } from '../support/hooks.js'
 import { clearMailpit, extractOtp, waitForEmail } from '../support/mailpit.js'
 import { fillOtp } from '../support/otp.js'
@@ -652,7 +652,7 @@ async function expireDeviceAccount(opts: {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-EPDS-Internal-Secret': testEnv.internalSecret,
+      'x-internal-secret': testEnv.internalSecret,
     },
     body: JSON.stringify(opts),
   })
@@ -698,6 +698,7 @@ Given('the device has two bound accounts', async function (this: EpdsWorld) {
   const message = await waitForEmail(`to:${otherEmail}`)
   const otp = await extractOtp(message.ID)
   await fillOtp(page, otp)
+  await pickHandle(this)
   await page.waitForURL('**/welcome', { timeout: 30_000 })
 
   const bodyText = await page.locator('body').innerText()

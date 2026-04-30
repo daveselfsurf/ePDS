@@ -27,6 +27,7 @@ import { randomBytes } from 'node:crypto'
 import * as path from 'node:path'
 import { PDS, envToCfg, envToSecrets, readEnv } from '@atproto/pds'
 import { readFileSync } from 'node:fs'
+import Database from 'better-sqlite3'
 /* v8 ignore next 3 -- module-level init, only testable via e2e */
 const atprotoPdsPkg: { version: string } = JSON.parse(
   readFileSync(require.resolve('@atproto/pds/package.json'), 'utf8'),
@@ -1087,6 +1088,83 @@ async function main() {
     })
     res.json({ emails })
   })
+
+  // =========================================================================
+  // Test-only hooks for the e2e suite. Mounted only when EPDS_TEST_HOOKS=1
+  // and refused outright when NODE_ENV=production. Mirrors auth-service's
+  // /_internal/test/expire-otp pattern: a narrow UPDATE that backdates a
+  // single timestamp to reproduce time-dependent behaviour without waiting
+  // out the wall-clock TTL. Used by features/session-reuse-bugs.feature
+  // rows 6 and 9 to age account_device.updatedAt past upstream's
+  // authenticationMaxAge (7 days) so checkLoginRequired returns true for
+  // the targeted binding(s).
+  // =========================================================================
+
+  if (process.env.EPDS_TEST_HOOKS === '1') {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        'EPDS_TEST_HOOKS=1 is set but NODE_ENV=production — refusing to mount test-only endpoints',
+      )
+    }
+    const dataDir = process.env.PDS_DATA_DIRECTORY
+    if (!dataDir) {
+      throw new Error(
+        'EPDS_TEST_HOOKS=1 but PDS_DATA_DIRECTORY is unset — cannot locate account.sqlite',
+      )
+    }
+    const accountDbPath = `${dataDir.replace(/\/$/, '')}/account.sqlite`
+    logger.warn(
+      { accountDbPath },
+      'Test hooks ENABLED — /_internal/test/* routes are live (EPDS_TEST_HOOKS=1)',
+    )
+
+    pds.app.post(
+      '/_internal/test/expire-device-account',
+      express.json(),
+      (req, res) => {
+        if (!verifyInternalSecret(req.headers['x-internal-secret'])) {
+          res.status(401).json({ error: 'Unauthorized' })
+          return
+        }
+        const did = ((req.body?.did as string) || '').trim()
+        const deviceId =
+          typeof req.body?.deviceId === 'string'
+            ? req.body.deviceId.trim()
+            : undefined
+        if (!did) {
+          res.status(400).json({ error: 'Missing did' })
+          return
+        }
+        // 8 days ago — comfortably past upstream's 7-day authenticationMaxAge
+        // so checkLoginRequired returns true on every backdated row.
+        const past = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString()
+        const db = new Database(accountDbPath)
+        try {
+          const stmt = deviceId
+            ? db.prepare(
+                'UPDATE account_device SET updatedAt = ? WHERE did = ? AND deviceId = ?',
+              )
+            : db.prepare('UPDATE account_device SET updatedAt = ? WHERE did = ?')
+          const result = deviceId
+            ? stmt.run(past, did, deviceId)
+            : stmt.run(past, did)
+          logger.warn(
+            { did, deviceId, updated: result.changes, past },
+            'Backdated account_device.updatedAt',
+          )
+          res.json({ updated: result.changes })
+        } catch (err) {
+          logger.error(
+            { err, did, deviceId },
+            'Failed to backdate account_device.updatedAt',
+          )
+          res.status(500).json({ error: 'Internal server error' })
+        } finally {
+          db.close()
+        }
+      },
+    )
+  }
 
   // =========================================================================
   // TLS check - used by Caddy on-demand TLS to verify handle ownership
