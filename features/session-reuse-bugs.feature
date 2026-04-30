@@ -181,7 +181,9 @@ Feature: Welcome-page guard suppresses upstream's authentication UI
     # renders sign-in-view. The guard must instead bounce back to
     # auth-service for another OTP round.
     When the demo client starts a new OAuth flow with prompt=login
-    And the user completes the OTP flow
+    And the user enters the test email on the login page
+    Then an OTP email arrives in the mail trap
+    When the user enters the OTP code
     Then the browser lands on the auth-service email-and-OTP form
     And no upstream password field is rendered anywhere on the page
 

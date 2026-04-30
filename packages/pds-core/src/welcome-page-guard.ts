@@ -1,22 +1,39 @@
 /**
  * Pre-route middleware that short-circuits any request which would cause
- * upstream @atproto/oauth-provider to render its three-button welcome page
- * ("Authenticate / Create new account / Sign in / Cancel").
+ * upstream @atproto/oauth-provider to render either of its two stock
+ * authentication UIs:
  *
- * That page is unreachable from ePDS by design — every entry point should
- * either show the enriched chooser (when the device has bound accounts)
- * or fall back to auth-service's email/OTP form. So whenever the current
- * request resolves to a device with zero bound accounts (partial cookie
- * pair, stale pair, migration-005 TTL purge, fixation race, etc.), we
- * respond with a 303 redirect to auth-service and clear the stale
- * device-session cookies.
+ *   1. The three-button welcome page ("Authenticate / Create new account /
+ *      Sign in / Cancel") — rendered when the device has zero bound
+ *      accounts (rows 1–4 of the failure-mode taxonomy: partial cookie
+ *      pair, stale pair, migration-005 TTL purge, fixation race, etc.).
+ *
+ *   2. The sign-in-view (handle + password form) — rendered when bindings
+ *      exist but every binding upstream considers has loginRequired: true
+ *      (rows 5/6/9: stored PAR prompt=login; all bindings older than
+ *      authenticationMaxAge; login_hint pre-selecting an individually
+ *      stale binding).
+ *
+ * Both UIs are unreachable from ePDS by design — every entry point should
+ * either show the enriched chooser (when the device has fresh bound
+ * accounts) or fall back to auth-service's email/OTP form. ePDS accounts
+ * are passwordless, so the password form in particular is a contract
+ * violation: the user gets a form they cannot submit.
+ *
+ * The filename and function name retain "welcome-page" for stability —
+ * the welcome page was the original failure mode this guard handled, and
+ * a rename would churn every import site for no behavioural gain. The
+ * scope expanded organically as we discovered upstream's other
+ * unreachable UI; treat the names as historical rather than current.
  *
  * Upstream's DeviceManager.hasSession/getCookies has a side effect — it
  * deletes the device row on a partial cookie pair — so we re-parse the
  * cookies ourselves using the exported Zod schemas rather than calling
  * upstream. We then query account bindings via the public
- * accountManager.listDeviceAccounts API. If bindings exist, we call
- * next() and let upstream proceed; if not, we bounce.
+ * accountManager.listDeviceAccounts API. If bindings exist we additionally
+ * mirror upstream's matchesHint + checkLoginRequired logic to detect the
+ * sign-in-view path; on any bounce condition we 303 to auth-service and
+ * clear stale device-session cookies, otherwise we let upstream proceed.
  *
  * See docs/design/session-reuse-bugs.md for the full failure-mode taxonomy.
  */

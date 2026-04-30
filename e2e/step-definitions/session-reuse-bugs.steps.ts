@@ -625,27 +625,6 @@ When(
   },
 )
 
-When('the user completes the OTP flow', async function (this: EpdsWorld) {
-  if (!testEnv.mailpitPass) return 'pending'
-  if (!this.testEmail) {
-    throw new Error(
-      'world.testEmail missing — Background step must establish a returning user first',
-    )
-  }
-  // Drive auth-service's email/OTP form to completion. Same shape as the
-  // Background's returning-user sign-in but invoked mid-scenario after
-  // the prompt=login redirect lands the user there.
-  const page = getPage(this)
-  await page.fill('#email', this.testEmail)
-  await page.click('button[type=submit]')
-  await expect(page.locator('#step-otp.active')).toBeVisible({
-    timeout: 30_000,
-  })
-  const message = await waitForEmail(`to:${this.testEmail}`)
-  const otp = await extractOtp(message.ID)
-  await fillOtp(page, otp)
-})
-
 Then(
   'no upstream password field is rendered anywhere on the page',
   async function (this: EpdsWorld) {
