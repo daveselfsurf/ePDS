@@ -14,38 +14,14 @@
  * forms that orchestrate those calls.
  */
 import { Router, type Request, type Response } from 'express'
-import { readFileSync } from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { escapeHtml, maskEmail, createLogger } from '@certified-app/shared'
 import { fromNodeHeaders } from 'better-auth/node'
 import type { AuthServiceContext } from '../context.js'
 import { buildOtpInputProps } from '../otp-input.js'
 import type { BetterAuthInstance } from '../better-auth.js'
+import { POWERED_BY_CSS, POWERED_BY_HTML } from '../lib/page-helpers.js'
 
 const logger = createLogger('auth:account-login')
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const CERTIFIED_MARK_SVG = readFileSync(
-  path.resolve(
-    __dirname,
-    '..',
-    '..',
-    'public',
-    'certified-text-monochrome.svg',
-  ),
-  'utf8',
-)
-  .replace(/fill="#726A60"/g, 'fill="currentColor"')
-  .replace(
-    '<svg ',
-    '<svg class="certified-mark" aria-label="Certified" role="img" ',
-  )
-
-const POWERED_BY_HTML = `<a class="powered-by" href="https://certified.app/" target="_blank" rel="noopener noreferrer">
-      <span>Powered by</span>
-      ${CERTIFIED_MARK_SVG}
-    </a>`
 
 export function createAccountLoginRouter(
   auth: BetterAuthInstance,
@@ -252,9 +228,7 @@ const CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
   .page-wrap { display: flex; flex-direction: column; align-items: stretch; max-width: 420px; width: 100%; }
-  .powered-by { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 16px; color: #999; font-size: 13px; text-decoration: none; }
-  .powered-by:hover, .powered-by:focus, .powered-by:visited { color: #999; text-decoration: none; }
-  .powered-by .certified-mark { height: 14px; width: auto; display: block; }
+  ${POWERED_BY_CSS}
   .container { background: white; border-radius: 12px; padding: 40px; width: 100%; box-shadow: 0 2px 8px rgba(0,0,0,0.08); text-align: center; }
   h1 { font-size: 24px; margin-bottom: 8px; color: #111; }
   .subtitle { color: #666; margin-bottom: 20px; font-size: 15px; line-height: 1.5; }
