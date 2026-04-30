@@ -254,6 +254,18 @@ async function main() {
       return
     }
 
+    // Captured from Step 2's requestManager.get() — used by the catch
+    // block to redirect any later failure back to the client per RFC
+    // 6749 §4.1.2.1, even when the PAR row has since been deleted (in
+    // particular: RequestManager.get() deletes any expired row in the
+    // same call that throws AccessDeniedError, so by the time the
+    // catch block runs there's nothing left to re-read). Empty when
+    // Step 2 itself threw — i.e. the PAR was already dead on entry,
+    // the case the @par-callback-error scenario covers — and the
+    // catch falls through to a styled HTML page in that branch.
+    let capturedRedirectUri: string | undefined
+    let capturedState: string | undefined
+
     try {
       // Step 1: Load or create device session
       const deviceInfo = await provider.deviceManager.load(
@@ -294,6 +306,12 @@ async function main() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @atproto/oauth-provider requestManager not exported
       const requestData = await (provider.requestManager as any).get(requestUri)
       const { clientId } = requestData
+      // Stash redirect_uri/state now while the PAR is alive — if a later
+      // step throws and the row has since been deleted (e.g. flushed
+      // post-success or the test-only delete-par hook), the catch block
+      // can still mount an RFC 6749 redirect to the client.
+      capturedRedirectUri = requestData?.parameters?.redirect_uri
+      capturedState = requestData?.parameters?.state
 
       // Step 3: Resolve or create the account.
       // Use the PDS accountManager directly — account.sqlite is the single source of truth.
@@ -585,33 +603,61 @@ async function main() {
     } catch (err) {
       logger.error({ err }, 'ePDS callback error')
 
-      // Try to redirect error back to client
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @atproto/oauth-provider requestManager not exported
-        const requestData = await (provider.requestManager as any).get(
-          requestUri,
+      // Distinguish a dead PAR ("This request has expired" /
+      // InvalidRequestError on a missing row) from a generic server
+      // failure: the former is a normal user-paced timeout that
+      // upstream @atproto/oauth-provider already uses
+      // error=access_denied for on its own paths, the latter is
+      // genuinely server_error per RFC 6749 §4.1.2.1. We follow the
+      // upstream precedent for the timeout case so an OAuth client
+      // sees the same `error` value regardless of which path inside
+      // the AS surfaced the expiry — the user-friendly explanation
+      // lives in error_description, which is where clients are
+      // supposed to source their human-readable copy from.
+      const errMsg = err instanceof Error ? err.message : String(err)
+      // Match the upstream-thrown messages for both flavours of dead
+      // PAR: "This request has expired" (AccessDeniedError, row was
+      // alive at request time but past its expiresAt) and "Unknown
+      // request_uri" (InvalidRequestError, row was already gone). We
+      // also keep a generic "expired" / "invalid_grant" catch-all in
+      // case upstream rewords its messages in a future patch release.
+      const isExpired =
+        /request has expired|unknown request_uri|invalid_grant|expired/i.test(
+          errMsg,
         )
-        const redirectUri = requestData?.parameters?.redirect_uri
-        if (redirectUri) {
-          const errorUrl = new URL(redirectUri)
-          errorUrl.searchParams.set('error', 'server_error')
-          errorUrl.searchParams.set(
-            'error_description',
-            'Authentication failed',
-          )
-          errorUrl.searchParams.set('iss', pdsUrl)
-          if (requestData.parameters.state) {
-            errorUrl.searchParams.set('state', requestData.parameters.state)
-          }
-          res.redirect(303, errorUrl.toString())
-          return
-        }
-      } catch {
-        // Fall through
+      const errorCode = isExpired ? 'access_denied' : 'server_error'
+      const errorDescription = isExpired
+        ? 'Your sign-in took too long to complete and timed out. Please start sign-in again.'
+        : 'Authentication failed.'
+
+      // We rely on the redirect_uri / state captured during Step 2's
+      // requestManager.get(). Don't re-fetch here: by the time we
+      // reach this branch the PAR may have just been deleted by the
+      // very call that threw above (RequestManager.get() deletes any
+      // expired row in the same call), so a second fetch would only
+      // ever throw the same error and give us no new information.
+      // When the captured values are empty (i.e. Step 2 itself threw
+      // before populating them — the PAR was already dead on entry),
+      // we fall through to the HTML fallback below.
+      if (!res.headersSent && capturedRedirectUri) {
+        const errorUrl = new URL(capturedRedirectUri)
+        errorUrl.searchParams.set('error', errorCode)
+        errorUrl.searchParams.set('error_description', errorDescription)
+        errorUrl.searchParams.set('iss', pdsUrl)
+        if (capturedState) errorUrl.searchParams.set('state', capturedState)
+        res.redirect(303, errorUrl.toString())
+        return
       }
 
+      // No redirect_uri to send the user back to. Render a styled HTML
+      // page on the PDS host instead of leaking JSON to the browser.
+      // Status: 400 for an expected expiry, 500 for an unexpected
+      // failure, matching the semantics of errorCode.
       if (!res.headersSent) {
-        res.status(500).json({ error: 'Authentication failed' })
+        res
+          .status(isExpired ? 400 : 500)
+          .type('html')
+          .send(renderError(errorDescription))
       }
     }
   })
