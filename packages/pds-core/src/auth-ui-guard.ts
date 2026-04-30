@@ -20,12 +20,6 @@
  * are passwordless, so the password form in particular is a contract
  * violation: the user gets a form they cannot submit.
  *
- * The filename and function name retain "welcome-page" for stability —
- * the welcome page was the original failure mode this guard handled, and
- * a rename would churn every import site for no behavioural gain. The
- * scope expanded organically as we discovered upstream's other
- * unreachable UI; treat the names as historical rather than current.
- *
  * Upstream's DeviceManager.hasSession/getCookies has a side effect — it
  * deletes the device row on a partial cookie pair — so we re-parse the
  * cookies ourselves using the exported Zod schemas rather than calling
@@ -192,14 +186,14 @@ export function appendCookieClearHeaders(
 /** Create the Express middleware. `cookieDomain` may be null when the
  *  auth-service and pds-core don't share a common parent domain — in
  *  that case there's no domain-scoped cookie to clear. */
-export function createWelcomePageGuard(opts: {
+export function createAuthUiGuard(opts: {
   authHostname: string
   provider: OAuthProvider | null
   cookieDomain: string | null
   logger?: Partial<Pick<Logger, 'error' | 'debug'>>
 }) {
   const { authHostname, provider, cookieDomain, logger } = opts
-  return async function welcomePageGuard(
+  return async function authUiGuard(
     req: Request,
     res: Response,
     next: NextFunction,

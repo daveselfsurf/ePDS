@@ -235,7 +235,7 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
     // DeviceManager cannot hydrate from. Emit Max-Age=0 clears for both
     // cookies in both host-only and shared-parent-domain scopes so the
     // next OAuth flow gets a clean slate — otherwise the orphan half
-    // keeps bouncing through pds-core's welcome-page-guard every time.
+    // keeps bouncing through pds-core's auth-ui-guard every time.
     const orphan = hasOrphanDeviceCookie(sessionReuseReq)
     if (orphan.isOrphan) {
       const cookieDomain = deriveSharedCookieDomain(

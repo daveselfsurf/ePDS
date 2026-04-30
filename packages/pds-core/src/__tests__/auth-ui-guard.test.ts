@@ -3,10 +3,10 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   appendCookieClearHeaders,
   buildBounceUrl,
-  createWelcomePageGuard,
+  createAuthUiGuard,
   isGuardedPath,
   parseDeviceCookies,
-} from '../welcome-page-guard.js'
+} from '../auth-ui-guard.js'
 
 const VALID_DEV = 'dev-0123456789abcdef0123456789abcdef'
 const VALID_SES = 'ses-fedcba9876543210fedcba9876543210'
@@ -321,12 +321,12 @@ function makeRes(): Response & {
   return r as any
 }
 
-describe('createWelcomePageGuard', () => {
+describe('createAuthUiGuard', () => {
   const AUTH = 'auth.pds.example'
 
   it('passes non-GET requests through', async () => {
     const provider = makeProvider({})
-    const mw = createWelcomePageGuard({
+    const mw = createAuthUiGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       provider: provider as any,
@@ -344,7 +344,7 @@ describe('createWelcomePageGuard', () => {
 
   it('passes unguarded paths through', async () => {
     const provider = makeProvider({})
-    const mw = createWelcomePageGuard({
+    const mw = createAuthUiGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       provider: provider as any,
@@ -357,7 +357,7 @@ describe('createWelcomePageGuard', () => {
   })
 
   it('passes through when provider is null (OAuth disabled)', async () => {
-    const mw = createWelcomePageGuard({
+    const mw = createAuthUiGuard({
       authHostname: AUTH,
       provider: null,
       cookieDomain: null,
@@ -373,7 +373,7 @@ describe('createWelcomePageGuard', () => {
 
   it('bounces with cookie clears when cookies are missing', async () => {
     const provider = makeProvider({ bindings: () => Promise.resolve([]) })
-    const mw = createWelcomePageGuard({
+    const mw = createAuthUiGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       provider: provider as any,
@@ -408,7 +408,7 @@ describe('createWelcomePageGuard', () => {
     // "Missing request_uri" — worse than letting upstream render. The
     // guard explicitly opts out of this case.
     const provider = makeProvider({})
-    const mw = createWelcomePageGuard({
+    const mw = createAuthUiGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       provider: provider as any,
@@ -425,7 +425,7 @@ describe('createWelcomePageGuard', () => {
 
   it('passes /account* through when bindings are zero but there is no request_uri', async () => {
     const provider = makeProvider({ bindings: () => Promise.resolve([]) })
-    const mw = createWelcomePageGuard({
+    const mw = createAuthUiGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       provider: provider as any,
@@ -448,7 +448,7 @@ describe('createWelcomePageGuard', () => {
 
   it('bounces when cookies parse but bindings are empty', async () => {
     const provider = makeProvider({ bindings: () => Promise.resolve([]) })
-    const mw = createWelcomePageGuard({
+    const mw = createAuthUiGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       provider: provider as any,
@@ -475,7 +475,7 @@ describe('createWelcomePageGuard', () => {
     const provider = makeProvider({
       bindings: () => Promise.resolve([{ some: 'binding' }]),
     })
-    const mw = createWelcomePageGuard({
+    const mw = createAuthUiGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       provider: provider as any,
@@ -498,7 +498,7 @@ describe('createWelcomePageGuard', () => {
     const provider = makeProvider({
       bindings: () => Promise.reject(new Error('db down')),
     })
-    const mw = createWelcomePageGuard({
+    const mw = createAuthUiGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       provider: provider as any,
@@ -525,7 +525,7 @@ describe('createWelcomePageGuard', () => {
     const err = new Error('db down')
     const provider = makeProvider({ bindings: () => Promise.reject(err) })
     const logger = { error: vi.fn() }
-    const mw = createWelcomePageGuard({
+    const mw = createAuthUiGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       provider: provider as any,
@@ -551,7 +551,7 @@ describe('createWelcomePageGuard', () => {
     // triggers ERR_INVALID_URL). The guard must treat an unparseable URL
     // as "no OAuth context" and call next() rather than crash the request.
     const provider = makeProvider({})
-    const mw = createWelcomePageGuard({
+    const mw = createAuthUiGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       provider: provider as any,
@@ -584,7 +584,7 @@ describe('createWelcomePageGuard', () => {
       bindings: () => Promise.resolve([{ some: 'binding' }]),
       sessionId: ACTIVE_SES,
     })
-    const mw = createWelcomePageGuard({
+    const mw = createAuthUiGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       provider: provider as any,
@@ -616,7 +616,7 @@ describe('createWelcomePageGuard', () => {
       bindings: () => Promise.resolve([{ some: 'binding' }]),
       sessionId: null,
     })
-    const mw = createWelcomePageGuard({
+    const mw = createAuthUiGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       provider: provider as any,
@@ -648,7 +648,7 @@ describe('createWelcomePageGuard', () => {
       bindings: () => Promise.resolve([{ some: 'binding' }]),
       sessionId: ACTIVE_SES,
     })
-    const mw = createWelcomePageGuard({
+    const mw = createAuthUiGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       provider: provider as any,
@@ -679,7 +679,7 @@ describe('createWelcomePageGuard', () => {
       readDevice: () => Promise.reject(err),
     })
     const logger = { error: vi.fn() }
-    const mw = createWelcomePageGuard({
+    const mw = createAuthUiGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       provider: provider as any,
@@ -737,7 +737,7 @@ describe('createWelcomePageGuard', () => {
     const { loggerError, ...providerOpts } = opts
     const provider = makeProvider(providerOpts)
     const logger = loggerError ? { error: loggerError } : undefined
-    const mw = createWelcomePageGuard({
+    const mw = createAuthUiGuard({
       authHostname: AUTH,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       provider: provider as any,

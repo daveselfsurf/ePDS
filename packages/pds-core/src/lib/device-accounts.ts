@@ -1,5 +1,5 @@
 /**
- * Device-bound account lookup shared between welcome-page-guard and the
+ * Device-bound account lookup shared between auth-ui-guard and the
  * /_internal/device-accounts endpoint.
  *
  * Validates a (dev-id, ses-id) cookie pair against the live device row,
