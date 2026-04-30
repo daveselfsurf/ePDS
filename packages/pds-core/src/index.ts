@@ -62,8 +62,9 @@ import {
 } from './cookie-domain.js'
 import { createChooserEnrichmentMiddleware } from './chooser-enrichment.js'
 import { createUpstreamFaviconMiddleware } from './upstream-favicon.js'
-import { createWelcomePageGuard } from './welcome-page-guard.js'
+import { createAuthUiGuard, parsePromptTokens } from './auth-ui-guard.js'
 import { loadDeviceAccountEmails } from './lib/device-accounts.js'
+import { installTestHooks } from './lib/test-hooks.js'
 
 const logger = createLogger('pds-core')
 
@@ -513,13 +514,25 @@ async function main() {
         }
       }
 
-      // Step 6: Set login_hint in the stored PAR parameters so the stock
-      // authorize UI auto-selects this account's session and skips account
-      // selection (going straight to consent or auto-approve).
-      // The oauth-provider UI checks `selected` which is true when
-      // login_hint matches the account AND prompt !== 'select_account'.
-      // prompt is already 'consent' (forced by the provider for
-      // unauthenticated clients).
+      // Step 6: Mutate the stored PAR parameters before redirecting to the
+      // stock /oauth/authorize endpoint:
+      //
+      //   - Set `login_hint` to the freshly-authenticated DID so the stock
+      //     authorize UI auto-selects this account's session and skips
+      //     account selection. The oauth-provider UI checks `selected`,
+      //     which is true when login_hint matches the account AND
+      //     prompt !== 'select_account'. (prompt is already 'consent',
+      //     forced by the provider for unauthenticated clients.)
+      //
+      //   - Strip the `login` token from `prompt` if present. The
+      //     auth-ui-guard at /oauth/authorize bounces requests whose
+      //     stored PAR carries prompt=login, so leaving it set after a
+      //     successful OTP cycle would loop forever: authenticate →
+      //     bounce → authenticate → bounce. By the time this hop fires,
+      //     the user IS freshly authenticated; the forced-login
+      //     contract is satisfied. Other prompt tokens ('consent',
+      //     'select_account', etc.) stay untouched — only 'login' is
+      //     loop-forming.
       if (did) {
         const REQUEST_URI_PREFIX = 'urn:ietf:params:oauth:request_uri:'
         const requestId = decodeURIComponent(
@@ -529,9 +542,26 @@ async function main() {
         const store = (provider.requestManager as any).store
         const storedRequest = await store.readRequest(requestId)
         if (storedRequest?.parameters) {
-          await store.updateRequest(requestId, {
-            parameters: { ...storedRequest.parameters, login_hint: did },
-          })
+          const nextParams: Record<string, unknown> = {
+            ...storedRequest.parameters,
+            login_hint: did,
+          }
+          // Strip the 'login' token from the prompt parameter, leaving any
+          // other tokens (e.g. 'consent') intact. Per OIDC Core §3.1.2.1
+          // prompt is space-delimited; a third-party client could send
+          // 'login consent', and an exact-string strip would miss 'login'
+          // in that case and re-trigger the guard's bounce after every
+          // OTP cycle.
+          if (typeof nextParams.prompt === 'string') {
+            const remaining = parsePromptTokens(nextParams.prompt)
+            remaining.delete('login')
+            if (remaining.size === 0) {
+              delete nextParams.prompt
+            } else {
+              nextParams.prompt = [...remaining].join(' ')
+            }
+          }
+          await store.updateRequest(requestId, { parameters: nextParams })
         }
       }
 
@@ -673,44 +703,52 @@ async function main() {
   }
 
   // =========================================================================
-  // Welcome-page guard: never let upstream render the three-button page
+  // Auth-UI guard: never let upstream render the welcome page or sign-in-view
   // =========================================================================
   //
-  // The stock @atproto/oauth-provider welcome page (Authenticate / Create
-  // new account / Sign in / Cancel) appears whenever upstream ends up with
-  // a device that has zero bound accounts — due to partial cookie pairs,
-  // stale pairs, fixation-race device deletions, or the migration-005 1h
-  // TTL purge of remember=0 bindings. ePDS must never surface that page;
-  // users should always land on the email/OTP form or the enriched
+  // The stock @atproto/oauth-provider has two authentication UIs that ePDS
+  // must never surface:
+  //
+  //   1. Welcome page (Authenticate / Create new account / Sign in / Cancel) —
+  //      rendered when upstream ends up with a device that has zero bound
+  //      accounts (partial cookie pairs, stale pairs, fixation-race device
+  //      deletions, or the migration-005 1h TTL purge of remember=0 bindings).
+  //
+  //   2. Sign-in-view (handle + password form) — rendered when bindings exist
+  //      but every binding upstream considers has loginRequired: true (forced
+  //      `prompt=login`, all bindings older than authenticationMaxAge, or
+  //      login_hint pre-selecting an individually stale binding).
+  //
+  // ePDS users should always land on the email/OTP form or the enriched
   // account picker. See docs/design/session-reuse-bugs.md.
   //
   // The guard intercepts /oauth/authorize and /account* before upstream's
-  // own middleware, checks for a valid cookie pair and non-empty bindings,
-  // and bounces to auth-service with stale cookies cleared when either
-  // check fails. All other requests pass through unchanged.
+  // own middleware and bounces to auth-service with stale cookies cleared
+  // whenever upstream would render either UI. All other requests pass
+  // through unchanged.
 
-  const welcomePageGuardMiddleware = createWelcomePageGuard({
+  const authUiGuardMiddleware = createAuthUiGuard({
     authHostname,
     provider: provider ?? null,
     cookieDomain,
     logger,
   })
-  pds.app.use(welcomePageGuardMiddleware)
+  pds.app.use(authUiGuardMiddleware)
   // Fail closed: the guard has to run BEFORE upstream's OAuth / account
-  // middleware, otherwise it can never intercept the stock welcome
-  // page. If the Express `_router.stack` we rely on isn't exposed
-  // (Express 5, future pds-core swap), refuse to start rather than
-  // silently run the service with the guard defeated — the whole
-  // security value of this PR depends on the splice succeeding.
+  // middleware, otherwise it can never intercept the stock UIs. If the
+  // Express `_router.stack` we rely on isn't exposed (Express 5, future
+  // pds-core swap), refuse to start rather than silently run the service
+  // with the guard defeated — the whole security value of this guard
+  // depends on the splice succeeding.
   if (!stack) {
     throw new Error(
-      'Welcome-page guard install failed: Express _router.stack is unavailable — refusing to start pds-core with an inert guard',
+      'Auth-UI guard install failed: Express _router.stack is unavailable — refusing to start pds-core with an inert guard',
     )
   }
   const guardLayer = stack.pop()
   if (!guardLayer) {
     throw new Error(
-      'Welcome-page guard install failed: middleware layer missing from stack after pop',
+      'Auth-UI guard install failed: middleware layer missing from stack after pop',
     )
   }
   let guardIdx = 0
@@ -721,7 +759,7 @@ async function main() {
     }
   }
   stack.splice(guardIdx, 0, guardLayer)
-  logger.info('Welcome-page guard installed')
+  logger.info('Auth-UI guard installed')
 
   // =========================================================================
   // CSS injection for trusted OAuth clients
@@ -1087,6 +1125,8 @@ async function main() {
     })
     res.json({ emails })
   })
+
+  installTestHooks({ pds, app: pds.app, logger })
 
   // =========================================================================
   // TLS check - used by Caddy on-demand TLS to verify handle ownership

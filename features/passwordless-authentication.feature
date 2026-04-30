@@ -34,7 +34,7 @@ Feature: Passwordless authentication via email OTP
     Then an OTP email arrives in the mail trap
     And the email subject contains "ePDS Demo"
     When the user enters the OTP code
-    Then the browser is redirected back to the demo client with a valid session
+    Then the demo client's welcome page confirms the user is signed in
 
   @email
   Scenario: Returning user who has already approved skips consent
@@ -44,7 +44,7 @@ Feature: Passwordless authentication via email OTP
     Then an OTP email arrives in the mail trap
     And the email subject contains "ePDS Demo"
     When the user enters the OTP code
-    Then the browser is redirected back to the demo client with a valid session
+    Then the demo client's welcome page confirms the user is signed in
 
   # --- Session reuse across OAuth clients (HYPER-268) ---
   #

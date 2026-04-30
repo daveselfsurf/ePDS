@@ -233,7 +233,7 @@ Then(
 )
 
 Then(
-  'the browser is redirected back to the demo client with a valid session',
+  "the demo client's welcome page confirms the user is signed in",
   async function (this: EpdsWorld) {
     await assertDemoClientSession(this)
   },
