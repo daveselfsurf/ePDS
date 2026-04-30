@@ -38,11 +38,7 @@
  * See docs/design/session-reuse-bugs.md for the full failure-mode taxonomy.
  */
 import type { NextFunction, Request, Response } from 'express'
-import type {
-  DeviceAccount,
-  DeviceId,
-  OAuthProvider,
-} from '@atproto/oauth-provider'
+import type { DeviceAccount, OAuthProvider } from '@atproto/oauth-provider'
 import {
   DEVICE_ID_BYTES_LENGTH,
   DEVICE_ID_PREFIX,
@@ -50,6 +46,7 @@ import {
   SESSION_ID_PREFIX,
 } from '@atproto/oauth-provider'
 import type { Logger } from 'pino'
+import { loadDeviceBindings } from './lib/device-accounts.js'
 
 const DEVICE_ID_RE = new RegExp(
   `^${DEVICE_ID_PREFIX}[0-9a-f]{${DEVICE_ID_BYTES_LENGTH * 2}}$`,
@@ -254,6 +251,7 @@ export function createWelcomePageGuard(opts: {
       provider,
       deviceId: parsed.deviceId,
       sessionId: parsed.sessionId,
+      logCtx: 'guard',
       logger,
     })
     if (!bindings || bindings.length === 0) {
@@ -300,16 +298,12 @@ export function createWelcomePageGuard(opts: {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers used only by the guard middleware. Kept in this file rather than
-// the shared `lib/device-accounts.ts` because (a) the guard needs the full
-// DeviceAccount[] (with updatedAt + account.preferred_username) whereas the
-// `/_internal/device-accounts` consumer only needs emails, and (b) the
-// stored-PAR / login_hint logic is unique to the guard.
+// Helpers used only by the guard middleware. The cookie-pair-validating
+// `loadDeviceBindings` lives in `lib/device-accounts.ts` so this file and
+// the /_internal/device-accounts endpoint share the same miss semantics.
+// What's left here is the stored-PAR / login_hint logic that's unique to
+// the guard.
 // ---------------------------------------------------------------------------
-
-type DeviceStoreLike = {
-  readDevice: (deviceId: DeviceId) => Promise<{ sessionId: string } | null>
-}
 
 type StoredPar = {
   prompt?: string
@@ -320,41 +314,6 @@ type StoredPar = {
 // DeviceAccount has the fields we need (`account` for the hint match,
 // `updatedAt` for checkLoginRequired).
 type Binding = DeviceAccount
-
-/** Returns the full bindings list for a (deviceId, sessionId) pair, or null
- *  on any miss (malformed ids, missing device row, ses-id mismatch, or any
- *  underlying error). Mirrors loadDeviceAccountEmails' miss semantics — never
- *  returns partial data. */
-async function loadDeviceBindings(opts: {
-  provider: OAuthProvider
-  deviceId: string
-  sessionId: string
-  logger?: Partial<Pick<Logger, 'error' | 'debug'>>
-}): Promise<Binding[] | null> {
-  const { provider, deviceId, sessionId, logger } = opts
-  if (!DEVICE_ID_RE.test(deviceId)) return null
-  if (!SESSION_ID_RE.test(sessionId)) return null
-
-  const deviceStore = (
-    provider.deviceManager as unknown as { store: DeviceStoreLike }
-  ).store
-  try {
-    const data = await deviceStore.readDevice(deviceId as DeviceId)
-    if (!data || data.sessionId !== sessionId) return null
-  } catch (err) {
-    logger?.error?.({ err, deviceId }, 'guard: readDevice failed')
-    return null
-  }
-
-  try {
-    return await provider.accountManager.listDeviceAccounts(
-      deviceId as DeviceId,
-    )
-  } catch (err) {
-    logger?.error?.({ err, deviceId }, 'guard: listDeviceAccounts failed')
-    return null
-  }
-}
 
 /** Read the stored PAR parameters for the request_uri on the current URL.
  *  Returns null when the URL has no request_uri, when the lookup fails, or
