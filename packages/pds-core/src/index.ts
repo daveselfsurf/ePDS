@@ -27,7 +27,6 @@ import { randomBytes } from 'node:crypto'
 import * as path from 'node:path'
 import { PDS, envToCfg, envToSecrets, readEnv } from '@atproto/pds'
 import { readFileSync } from 'node:fs'
-import Database from 'better-sqlite3'
 /* v8 ignore next 3 -- module-level init, only testable via e2e */
 const atprotoPdsPkg: { version: string } = JSON.parse(
   readFileSync(require.resolve('@atproto/pds/package.json'), 'utf8'),
@@ -1106,22 +1105,14 @@ async function main() {
         'EPDS_TEST_HOOKS=1 is set but NODE_ENV=production — refusing to mount test-only endpoints',
       )
     }
-    const dataDir = process.env.PDS_DATA_DIRECTORY
-    if (!dataDir) {
-      throw new Error(
-        'EPDS_TEST_HOOKS=1 but PDS_DATA_DIRECTORY is unset — cannot locate account.sqlite',
-      )
-    }
-    const accountDbPath = `${dataDir.replace(/\/$/, '')}/account.sqlite`
     logger.warn(
-      { accountDbPath },
       'Test hooks ENABLED — /_internal/test/* routes are live (EPDS_TEST_HOOKS=1)',
     )
 
     pds.app.post(
       '/_internal/test/expire-device-account',
       express.json(),
-      (req, res) => {
+      async (req, res) => {
         if (!verifyInternalSecret(req.headers['x-internal-secret'])) {
           res.status(401).json({ error: 'Unauthorized' })
           return
@@ -1137,30 +1128,35 @@ async function main() {
         }
         // 8 days ago — comfortably past upstream's 7-day authenticationMaxAge
         // so checkLoginRequired returns true on every backdated row.
-        const past = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString()
-        const db = new Database(accountDbPath)
+        const past = new Date(
+          Date.now() - 8 * 24 * 60 * 60 * 1000,
+        ).toISOString()
         try {
-          const stmt = deviceId
-            ? db.prepare(
-                'UPDATE account_device SET updatedAt = ? WHERE did = ? AND deviceId = ?',
-              )
-            : db.prepare('UPDATE account_device SET updatedAt = ? WHERE did = ?')
-          const result = deviceId
-            ? stmt.run(past, did, deviceId)
-            : stmt.run(past, did)
+          // Reuse the PDS accountManager's own Kysely instance — same handle
+          // PDS uses for upsertDeviceAccount, so there are no two-connection
+          // WAL-visibility surprises.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- account_device shape not exported by @atproto/pds
+          const db = pds.ctx.accountManager.db.db as any
+          let q = db
+            .updateTable('account_device')
+            .set({ updatedAt: past })
+            .where('did', '=', did)
+          if (deviceId) {
+            q = q.where('deviceId', '=', deviceId)
+          }
+          const result = await q.executeTakeFirst()
+          const updated = Number(result?.numUpdatedRows ?? 0)
           logger.warn(
-            { did, deviceId, updated: result.changes, past },
+            { did, deviceId, updated, past },
             'Backdated account_device.updatedAt',
           )
-          res.json({ updated: result.changes })
+          res.json({ updated })
         } catch (err) {
           logger.error(
             { err, did, deviceId },
             'Failed to backdate account_device.updatedAt',
           )
           res.status(500).json({ error: 'Internal server error' })
-        } finally {
-          db.close()
         }
       },
     )
