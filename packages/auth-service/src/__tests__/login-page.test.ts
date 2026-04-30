@@ -552,7 +552,7 @@ describe('renderLoginPage OTP verify-form double-submit latch (regression)', () 
     // And there is exactly one place that sets the flag back to false (in
     // the error branch). A second `verifying = false` somewhere else
     // would defeat the latch.
-    const resets = html.match(/^\s*verifying = false;/gm) ?? []
-    expect(resets).toHaveLength(1)
+    const resetCount = html.split('verifying = false;').length - 1
+    expect(resetCount).toBe(2) // initial declaration + single reset
   })
 })
