@@ -64,6 +64,7 @@ import { createChooserEnrichmentMiddleware } from './chooser-enrichment.js'
 import { createUpstreamFaviconMiddleware } from './upstream-favicon.js'
 import { createAuthUiGuard, parsePromptTokens } from './auth-ui-guard.js'
 import { loadDeviceAccountEmails } from './lib/device-accounts.js'
+import { handleCallbackError } from './lib/epds-callback-error.js'
 import { installTestHooks } from './lib/test-hooks.js'
 
 const logger = createLogger('pds-core')
@@ -601,64 +602,15 @@ async function main() {
         'ePDS callback: redirecting to stock /oauth/authorize for consent/approval',
       )
     } catch (err) {
-      logger.error({ err }, 'ePDS callback error')
-
-      // Distinguish a dead PAR ("This request has expired" /
-      // InvalidRequestError on a missing row) from a generic server
-      // failure: the former is a normal user-paced timeout that
-      // upstream @atproto/oauth-provider already uses
-      // error=access_denied for on its own paths, the latter is
-      // genuinely server_error per RFC 6749 §4.1.2.1. We follow the
-      // upstream precedent for the timeout case so an OAuth client
-      // sees the same `error` value regardless of which path inside
-      // the AS surfaced the expiry — the user-friendly explanation
-      // lives in error_description, which is where clients are
-      // supposed to source their human-readable copy from.
-      const errMsg = err instanceof Error ? err.message : String(err)
-      // Match the upstream-thrown messages for both flavours of dead
-      // PAR: "This request has expired" (AccessDeniedError, row was
-      // alive at request time but past its expiresAt) and "Unknown
-      // request_uri" (InvalidRequestError, row was already gone). We
-      // also keep a generic "expired" / "invalid_grant" catch-all in
-      // case upstream rewords its messages in a future patch release.
-      const isExpired =
-        /request has expired|unknown request_uri|invalid_grant|expired/i.test(
-          errMsg,
-        )
-      const errorCode = isExpired ? 'access_denied' : 'server_error'
-      const errorDescription = isExpired
-        ? 'Your sign-in took too long to complete and timed out. Please start sign-in again.'
-        : 'Authentication failed.'
-
-      // We rely on the redirect_uri / state captured during Step 2's
-      // requestManager.get(). Don't re-fetch here: by the time we
-      // reach this branch the PAR may have just been deleted by the
-      // very call that threw above (RequestManager.get() deletes any
-      // expired row in the same call), so a second fetch would only
-      // ever throw the same error and give us no new information.
-      // When the captured values are empty (i.e. Step 2 itself threw
-      // before populating them — the PAR was already dead on entry),
-      // we fall through to the HTML fallback below.
-      if (!res.headersSent && capturedRedirectUri) {
-        const errorUrl = new URL(capturedRedirectUri)
-        errorUrl.searchParams.set('error', errorCode)
-        errorUrl.searchParams.set('error_description', errorDescription)
-        errorUrl.searchParams.set('iss', pdsUrl)
-        if (capturedState) errorUrl.searchParams.set('state', capturedState)
-        res.redirect(303, errorUrl.toString())
-        return
-      }
-
-      // No redirect_uri to send the user back to. Render a styled HTML
-      // page on the PDS host instead of leaking JSON to the browser.
-      // Status: 400 for an expected expiry, 500 for an unexpected
-      // failure, matching the semantics of errorCode.
-      if (!res.headersSent) {
-        res
-          .status(isExpired ? 400 : 500)
-          .type('html')
-          .send(renderError(errorDescription))
-      }
+      handleCallbackError({
+        res,
+        err,
+        capturedRedirectUri,
+        capturedState,
+        pdsUrl,
+        logger,
+        renderError,
+      })
     }
   })
 
