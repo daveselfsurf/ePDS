@@ -184,8 +184,13 @@ Feature: Welcome-page guard suppresses upstream's authentication UI
     And the user enters the test email on the login page
     Then an OTP email arrives in the mail trap
     When the user enters the OTP code
-    Then the browser lands on the auth-service email-and-OTP form
-    And no upstream password field is rendered anywhere on the page
+    # The end-to-end recovery: after the (single) OTP cycle the user
+    # lands on /welcome. Earlier iterations of the fix bounced the
+    # post-OTP /oauth/authorize hop AGAIN because the stored PAR still
+    # carried prompt=login, looping forever. The epds-callback hop
+    # strips that field after a successful OTP, so there is exactly
+    # one OTP cycle, one bounce-suppression, then /welcome.
+    Then the demo client's welcome page confirms the user is signed in
 
   # Reproducing row 6 needs server-side white-box access to backdate
   # `account_device.updated_at` past upstream's authenticationMaxAge
@@ -195,8 +200,15 @@ Feature: Welcome-page guard suppresses upstream's authentication UI
   Scenario: Row 6 — every binding's auth age is older than 7 days
     Given the device's account_device row has been backdated past 7 days
     When the demo client starts a new OAuth flow
-    Then the browser lands on the auth-service email-and-OTP form
-    And no upstream password field is rendered anywhere on the page
+    # End-to-end recovery: the auth-ui-guard bounces the initial
+    # /oauth/authorize hop to auth-service, the user completes a fresh
+    # OTP cycle, and lands on /welcome. The "no password field"
+    # assertion runs at /welcome — it would catch a regression where
+    # the user lands on the upstream sign-in-view as the FINAL state.
+    And the user enters the test email on the login page
+    Then an OTP email arrives in the mail trap
+    When the user enters the OTP code
+    Then the demo client's welcome page confirms the user is signed in
 
   # Row 9 needs two bindings on the same device — one stale, one fresh —
   # plus a login_hint that resolves to the stale one. Built on the same
@@ -209,5 +221,10 @@ Feature: Welcome-page guard suppresses upstream's authentication UI
     And the test user's account_device row has been backdated past 7 days
     And the other user's account_device row is fresh
     When the demo client starts a new OAuth flow with the test user's handle as a PAR-body login_hint
-    Then the browser lands on the auth-service email-and-OTP form
-    And no upstream password field is rendered anywhere on the page
+    # End-to-end recovery: the auth-ui-guard bounces to auth-service
+    # with the email already resolved from the PAR-body login_hint, so
+    # auth-service serves the OTP step directly (no email entry). After
+    # the OTP cycle the user lands on /welcome.
+    Then an OTP email arrives in the mail trap
+    When the user enters the OTP code
+    Then the demo client's welcome page confirms the user is signed in

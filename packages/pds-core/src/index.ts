@@ -514,13 +514,25 @@ async function main() {
         }
       }
 
-      // Step 6: Set login_hint in the stored PAR parameters so the stock
-      // authorize UI auto-selects this account's session and skips account
-      // selection (going straight to consent or auto-approve).
-      // The oauth-provider UI checks `selected` which is true when
-      // login_hint matches the account AND prompt !== 'select_account'.
-      // prompt is already 'consent' (forced by the provider for
-      // unauthenticated clients).
+      // Step 6: Mutate the stored PAR parameters before redirecting to the
+      // stock /oauth/authorize endpoint:
+      //
+      //   - Set `login_hint` to the freshly-authenticated DID so the stock
+      //     authorize UI auto-selects this account's session and skips
+      //     account selection. The oauth-provider UI checks `selected`,
+      //     which is true when login_hint matches the account AND
+      //     prompt !== 'select_account'. (prompt is already 'consent',
+      //     forced by the provider for unauthenticated clients.)
+      //
+      //   - Strip `prompt: 'login'` if present. The auth-ui-guard at
+      //     /oauth/authorize bounces requests whose stored PAR carries
+      //     prompt=login (row 5 of the failure-mode taxonomy), so leaving
+      //     it set after a successful OTP cycle would loop forever:
+      //     authenticate → bounce → authenticate → bounce. By the time
+      //     this hop fires, the user IS freshly authenticated; the
+      //     prompt's contract is satisfied. Other prompt values
+      //     ('consent', 'select_account', etc.) stay untouched — only
+      //     'login' is loop-forming.
       if (did) {
         const REQUEST_URI_PREFIX = 'urn:ietf:params:oauth:request_uri:'
         const requestId = decodeURIComponent(
@@ -530,9 +542,14 @@ async function main() {
         const store = (provider.requestManager as any).store
         const storedRequest = await store.readRequest(requestId)
         if (storedRequest?.parameters) {
-          await store.updateRequest(requestId, {
-            parameters: { ...storedRequest.parameters, login_hint: did },
-          })
+          const nextParams: Record<string, unknown> = {
+            ...storedRequest.parameters,
+            login_hint: did,
+          }
+          if (nextParams.prompt === 'login') {
+            delete nextParams.prompt
+          }
+          await store.updateRequest(requestId, { parameters: nextParams })
         }
       }
 

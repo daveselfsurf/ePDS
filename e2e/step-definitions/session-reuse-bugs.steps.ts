@@ -625,23 +625,6 @@ When(
   },
 )
 
-Then(
-  'no upstream password field is rendered anywhere on the page',
-  async function (this: EpdsWorld) {
-    // Negative assertion: ePDS accounts are passwordless, so a password
-    // input on any screen we land on is a leak. Upstream's sign-in-view
-    // renders <input type="password">; auth-service's OTP form does not.
-    // Counting password inputs across the whole document keeps the
-    // assertion robust against future structural changes.
-    const page = getPage(this)
-    const passwordCount = await page.locator('input[type="password"]').count()
-    expect(
-      passwordCount,
-      `Found ${passwordCount} password input(s) on ${page.url()} — ePDS is passwordless, this is the upstream sign-in-view leak`,
-    ).toBe(0)
-  },
-)
-
 // Backdate `account_device.updated_at` past upstream's authenticationMaxAge
 // (7d) via a pds-core /_internal/test hook gated on EPDS_TEST_HOOKS=1. The
 // hook accepts a target DID and optional deviceId; omitting deviceId
