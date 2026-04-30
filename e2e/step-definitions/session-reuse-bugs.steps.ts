@@ -1,13 +1,16 @@
 /**
- * Step definitions for features/session-reuse-bugs.feature — the Layer 2
+ * Step definitions for features/session-reuse-bugs.feature — the
  * welcome-page guard scenarios. See docs/design/session-reuse-bugs.md for
  * the failure-mode taxonomy.
  *
  * These steps exercise the pre-route guard in pds-core that intercepts
  * /oauth/authorize and /account* before upstream's signin handler can
- * render the stock welcome page. The guard bounces to auth-service when
- * the dev-id/ses-id cookie pair is missing, malformed, or resolves to a
- * device with zero bound accounts.
+ * render its authentication UIs (stock welcome page or sign-in-view).
+ * The guard bounces to auth-service when:
+ *   - the dev-id/ses-id cookie pair is missing or malformed (rows 1–3)
+ *   - the cookie pair resolves to a device with zero bound accounts (row 4)
+ *   - the stored PAR carries `prompt=login` (row 5)
+ *   - every relevant binding's auth age exceeds 7 days (rows 6 / 9)
  *
  * All scenarios require a docker-compose topology where auth-service is a
  * sibling subdomain of pds-core so device-session cookies are domain-scoped
@@ -22,6 +25,7 @@ import { getPage } from '../support/utils.js'
 import { createAccountViaOAuth } from '../support/flows.js'
 import { sharedBrowser } from '../support/hooks.js'
 import { clearMailpit, extractOtp, waitForEmail } from '../support/mailpit.js'
+import { fillOtp } from '../support/otp.js'
 
 // ---------------------------------------------------------------------------
 // Background: returning user completes an OAuth sign-in, leaving valid
@@ -55,8 +59,7 @@ Given(
     })
     const message = await waitForEmail(`to:${email}`)
     const otp = await extractOtp(message.ID)
-    await page.fill('#code', otp)
-    await page.click('#form-verify-otp .btn-primary')
+    await fillOtp(page, otp)
     await page.waitForURL('**/welcome', { timeout: 30_000 })
     await clearMailpit(email)
   },
@@ -562,5 +565,172 @@ Given(
       sesEntries[0].domain,
       `ses-id should be host-only on ${pdsHost} but Playwright reports domain=${sesEntries[0].domain}`,
     ).toBe(pdsHost)
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Sign-in-view leaks (rows 5/6/9). Distinct from the welcome-page leaks
+// above: cookies + bindings are valid, but every binding upstream would
+// consider has `loginRequired: true`, so upstream falls through to its
+// sign-in-view (handle + password form). ePDS accounts are passwordless, so
+// any path into that form is unusable. The guard must bounce these to
+// auth-service for a fresh OTP round.
+// ---------------------------------------------------------------------------
+
+When(
+  'the demo client starts a new OAuth flow with prompt=login',
+  async function (this: EpdsWorld) {
+    // /api/oauth/login on the demo accepts ?prompt=login and propagates
+    // it to BOTH the PAR body AND the authorize-URL query string
+    // (packages/demo/src/app/api/oauth/login/route.ts:146,162).
+    // Cookies are preserved (the device must already be bound from the
+    // Background) so once the auth-service-side OTP completes and the
+    // pds-core epds-callback redirects back to /oauth/authorize, the
+    // stored PAR still carries `prompt=login` — the row-5 trigger.
+    const page = getPage(this)
+    const url = new URL('/api/oauth/login', testEnv.demoUrl)
+    url.searchParams.set('prompt', 'login')
+    await page.goto(url.toString())
+  },
+)
+
+When('the user completes the OTP flow', async function (this: EpdsWorld) {
+  if (!testEnv.mailpitPass) return 'pending'
+  if (!this.testEmail) {
+    throw new Error(
+      'world.testEmail missing — Background step must establish a returning user first',
+    )
+  }
+  // Drive auth-service's email/OTP form to completion. Same shape as the
+  // Background's returning-user sign-in but invoked mid-scenario after
+  // the prompt=login redirect lands the user there.
+  const page = getPage(this)
+  await page.fill('#email', this.testEmail)
+  await page.click('button[type=submit]')
+  await expect(page.locator('#step-otp.active')).toBeVisible({
+    timeout: 30_000,
+  })
+  const message = await waitForEmail(`to:${this.testEmail}`)
+  const otp = await extractOtp(message.ID)
+  await fillOtp(page, otp)
+})
+
+Then(
+  'no upstream password field is rendered anywhere on the page',
+  async function (this: EpdsWorld) {
+    // Negative assertion: ePDS accounts are passwordless, so a password
+    // input on any screen we land on is a leak. Upstream's sign-in-view
+    // renders <input type="password">; auth-service's OTP form does not.
+    // Counting password inputs across the whole document keeps the
+    // assertion robust against future structural changes.
+    const page = getPage(this)
+    const passwordCount = await page.locator('input[type="password"]').count()
+    expect(
+      passwordCount,
+      `Found ${passwordCount} password input(s) on ${page.url()} — ePDS is passwordless, this is the upstream sign-in-view leak`,
+    ).toBe(0)
+  },
+)
+
+// Backdate `account_device.updated_at` past upstream's authenticationMaxAge
+// (7d) via a pds-core /_internal/test hook gated on EPDS_TEST_HOOKS=1. The
+// hook accepts a target DID and optional deviceId; omitting deviceId
+// backdates every device row for that DID (sufficient for row 6's
+// single-account device, while row 9 passes both did + deviceId for
+// surgical targeting).
+async function expireDeviceAccount(opts: {
+  did: string
+  deviceId?: string
+}): Promise<void> {
+  if (!testEnv.internalSecret) {
+    throw new Error(
+      'E2E_INTERNAL_SECRET is unset — cannot call /_internal/test/expire-device-account',
+    )
+  }
+  const url = new URL('/_internal/test/expire-device-account', testEnv.pdsUrl)
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-EPDS-Internal-Secret': testEnv.internalSecret,
+    },
+    body: JSON.stringify(opts),
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`expire-device-account hook failed: ${res.status} ${body}`)
+  }
+}
+
+Given(
+  "the device's account_device row has been backdated past 7 days",
+  async function (this: EpdsWorld) {
+    if (!this.userDid) {
+      throw new Error('world.userDid missing — Background step must run first')
+    }
+    await expireDeviceAccount({ did: this.userDid })
+  },
+)
+
+Given('the device has two bound accounts', async function (this: EpdsWorld) {
+  if (!testEnv.mailpitPass) return 'pending'
+  if (!this.userDid) {
+    throw new Error('world.userDid missing — Background step must run first')
+  }
+  // Drive a second OAuth sign-in within the SAME browser context (no
+  // resetBrowserContext — the dev-id/ses-id cookies from the Background
+  // sign-in must survive). accountManager.upsertDeviceAccount(deviceId, sub)
+  // on the existing dev-id then binds the new account to the same device
+  // row, leaving the first binding intact.
+  //
+  // Identity extraction matches createAccountViaOAuth's regex pattern
+  // (e2e/support/flows.ts:165-173) — kept inline rather than reusing
+  // that helper because it writes to world.userDid/userHandle/testEmail
+  // which we explicitly do NOT want to clobber here.
+  const page = getPage(this)
+  const otherEmail = `row9-other-${Date.now()}@example.com`
+  await page.goto(testEnv.demoTrustedUrl)
+  await page.fill('#email', otherEmail)
+  await page.click('button[type=submit]')
+  await expect(page.locator('#step-otp.active')).toBeVisible({
+    timeout: 30_000,
+  })
+  const message = await waitForEmail(`to:${otherEmail}`)
+  const otp = await extractOtp(message.ID)
+  await fillOtp(page, otp)
+  await page.waitForURL('**/welcome', { timeout: 30_000 })
+
+  const bodyText = await page.locator('body').innerText()
+  const didMatch = /did:[a-z0-9:]+/i.exec(bodyText)
+  if (!didMatch) {
+    throw new Error('Could not find DID on welcome page for second user')
+  }
+  const handleMatch = /@([\w.-]+)/.exec(bodyText)
+  this.otherUserEmail = otherEmail
+  this.otherUserDid = didMatch[0]
+  this.otherUserHandle = handleMatch ? handleMatch[1] : undefined
+})
+
+Given(
+  "the test user's account_device row has been backdated past 7 days",
+  async function (this: EpdsWorld) {
+    if (!this.userDid) {
+      throw new Error('world.userDid missing — Background step must run first')
+    }
+    await expireDeviceAccount({ did: this.userDid })
+  },
+)
+
+Given(
+  "the other user's account_device row is fresh",
+  function (this: EpdsWorld) {
+    // No-op: the second sign-in driven by "the device has two bound
+    // accounts" leaves the other user's updatedAt at "now". This step
+    // exists to make the precondition explicit in the feature file.
+    if (!this.otherUserDid) {
+      throw new Error(
+        'world.otherUserDid missing — "the device has two bound accounts" step must run first',
+      )
+    }
   },
 )

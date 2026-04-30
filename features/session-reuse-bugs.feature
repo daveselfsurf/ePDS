@@ -1,15 +1,18 @@
 @session-reuse @docker-only @email
-Feature: Session-reuse resilience against stale device cookies
-  When a user's upstream @atproto/oauth-provider device cookies
-  (dev-id / ses-id) no longer match the server's device-session state,
-  the auth-service used to redirect them anyway. That landed the user on
-  pds-core's stock welcome page ("Authenticate / Create new account /
-  Sign in / Cancel") instead of the enriched ePDS account picker or the
-  email/OTP form.
+Feature: Welcome-page guard suppresses upstream's authentication UI
+  Upstream @atproto/oauth-provider has two authentication UIs that ePDS
+  must never render: its stock welcome page ("Authenticate / Create new
+  account / Sign in / Cancel") and its sign-in-view (handle + password
+  form). Both are unreachable by design — ePDS accounts are passwordless
+  and authentication goes through auth-service's OTP flow.
 
-  ePDS must recover gracefully from every variety of cookie/server
-  divergence by falling back to the auth-service email/OTP form and
-  clearing the stale cookies so the next visit starts clean.
+  The pre-route guard in pds-core (welcome-page-guard.ts) intercepts
+  every guarded GET and bounces to auth-service whenever upstream would
+  otherwise render either UI. ePDS must recover gracefully from every
+  variety of cookie/server divergence — and from every PAR-parameter
+  combination that would otherwise force upstream into its sign-in
+  form — by falling back to the auth-service email/OTP form and
+  clearing stale cookies so the next visit starts clean.
 
   See docs/design/session-reuse-bugs.md for the full failure-mode
   taxonomy. This feature covers the externally-reproducible cases.
@@ -140,3 +143,67 @@ Feature: Session-reuse resilience against stale device cookies
     When the demo client starts a new OAuth flow with the other user's handle as login_hint
     Then the login page renders directly at the OTP verification step
     And the OTP form will submit the other user's email
+
+  # ---------------------------------------------------------------------------
+  # Sign-in-view leaks (rows 5/6/9 of the failure-mode taxonomy). Distinct
+  # from the welcome-page leaks above: here cookies and bindings are valid,
+  # but every binding upstream would consider has `loginRequired: true`, so
+  # upstream falls through to its sign-in-view (handle + password form). ePDS
+  # accounts are passwordless, so any path into that form is unusable. The
+  # guard must bounce these to auth-service for a fresh OTP round.
+  #
+  # Three independent triggers force every binding into loginRequired:
+  #   Row 5 — stored PAR `parameters.prompt === 'login'`
+  #   Row 6 — every binding's `account_device.updated_at` is older than
+  #           upstream's authenticationMaxAge (7 days)
+  #   Row 9 — `login_hint` resolves to a binding that's individually stale
+  #           even though other bindings on the device are fresh; upstream
+  #           pre-selects the hinted account and clicking it lands on
+  #           sign-in-view
+  # ---------------------------------------------------------------------------
+
+  Scenario: Row 5 — prompt=login forces every binding loginRequired
+    # The demo's "Force re-authentication" checkbox sets prompt=login on
+    # both the auth-service redirect query AND the PAR body. Auth-service's
+    # `shouldReuseSession` honours the query and serves the OTP form rather
+    # than redirecting to pds-core (session-reuse.ts:158, isForceLoginPrompt).
+    # The user completes OTP, and pds-core's epds-callback redirects to
+    # pds-core's own /oauth/authorize?request_uri=... with the now-fresh
+    # device cookies. At THAT hop the welcome-page guard fires:
+    #   - cookie pair is valid (just set by the callback)
+    #   - the device has one binding (the user just authenticated)
+    #   - the stored PAR `parameters.prompt` is still 'login' (the demo also
+    #     set it in the PAR body)
+    # Today the guard passes through; upstream's authorize() reads the
+    # stored PAR, marks the only session loginRequired, and the frontend
+    # renders sign-in-view. The guard must instead bounce back to
+    # auth-service for another OTP round.
+    When the demo client starts a new OAuth flow with prompt=login
+    And the user completes the OTP flow
+    Then the browser lands on the auth-service email-and-OTP form
+    And no upstream password field is rendered anywhere on the page
+
+  # Reproducing row 6 needs server-side white-box access to backdate
+  # `account_device.updated_at` past upstream's authenticationMaxAge
+  # (7 days). A pds-core /_internal/test/expire-device-account hook
+  # provides this, gated on EPDS_TEST_HOOKS=1 && NODE_ENV !== 'production'
+  # (mirroring auth-service's expire-otp / expire-auth-flow hooks).
+  Scenario: Row 6 — every binding's auth age is older than 7 days
+    Given the device's account_device row has been backdated past 7 days
+    When the demo client starts a new OAuth flow
+    Then the browser lands on the auth-service email-and-OTP form
+    And no upstream password field is rendered anywhere on the page
+
+  # Row 9 needs two bindings on the same device — one stale, one fresh —
+  # plus a login_hint that resolves to the stale one. Built on the same
+  # /_internal/test/expire-device-account hook used for row 6, plus a
+  # second OAuth sign-in driven within the SAME browser context (so the
+  # second account's upsertDeviceAccount binds to the existing dev-id
+  # rather than creating a fresh device).
+  Scenario: Row 9 — login_hint resolves to a stale binding on a multi-account device
+    Given the device has two bound accounts
+    And the test user's account_device row has been backdated past 7 days
+    And the other user's account_device row is fresh
+    When the demo client starts a new OAuth flow with the test user's handle as login_hint
+    Then the browser lands on the auth-service email-and-OTP form
+    And no upstream password field is rendered anywhere on the page
