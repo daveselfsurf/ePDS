@@ -58,6 +58,7 @@ import {
   buildPdsAuthorizeRedirect,
   deriveSharedCookieDomain,
   hasOrphanDeviceCookie,
+  isForceLoginPrompt,
   readDeviceSessionCookies,
   shouldReuseSession,
 } from '../lib/session-reuse.js'
@@ -369,13 +370,22 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
     //      handle in the PAR body but don't duplicate it on the redirect URL)
     // The hint was already resolved above for the session-reuse decision; we
     // reuse `resolvedEmail` here rather than re-fetching.
+    //
+    // GitHub issue #138: prompt=login is the user's explicit "start fresh"
+    // signal — emitted by pds-core's "Another account" rebind injected into
+    // the chooser. The rebind preserves the original login_hint on the URL
+    // (so the OAuth flow can resume cleanly afterwards), but the user has
+    // just told us they want to sign in as a different account, so we must
+    // surface the email form regardless of the hint.
     const hasLoginHint = !!resolvedEmail
-    const initialStep = hasLoginHint ? 'otp' : 'email'
+    const forceLogin = isForceLoginPrompt(sessionReuseReq)
+    const initialStep = hasLoginHint && !forceLogin ? 'otp' : 'email'
 
     // Pillar 3 — Idempotency (Option A): when this is a duplicate GET for an
     // existing flow (e.g. browser extension, StayFocusd), tell the client-side
-    // script that OTP was already sent so it skips the auto-send.
-    const otpAlreadySent = hasLoginHint && !!existingFlow
+    // script that OTP was already sent so it skips the auto-send. Skipped on
+    // prompt=login: a forced re-auth must always re-send.
+    const otpAlreadySent = hasLoginHint && !forceLogin && !!existingFlow
 
     logger.info(
       {
@@ -391,7 +401,9 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
 
     // Use the resolved email (not the raw loginHint) for pre-filling forms.
     // This ensures handle-based hints get resolved to the correct email.
-    const emailHint = resolvedEmail ?? ''
+    // On prompt=login the user is opting out of the hinted account (issue
+    // #138), so suppress the pre-fill and start with an empty email box.
+    const emailHint = forceLogin ? '' : (resolvedEmail ?? '')
 
     res.type('html').send(
       renderLoginPage({

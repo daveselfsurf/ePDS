@@ -138,6 +138,21 @@ Feature: Welcome-page guard suppresses upstream's authentication UI
     When the demo client starts a new OAuth flow with the test user's handle as login_hint
     Then the browser lands on the ePDS enriched account picker
 
+  # GitHub issue #138: when the OAuth flow that reached the chooser carried
+  # a login_hint, the "Another account" rebind preserves it on the
+  # auth-service URL and adds prompt=login. shouldReuseSession honours
+  # prompt=login and falls through to the login page, but the initialStep
+  # selector at routes/login-page.ts only looks at hint presence — so the
+  # resolved email forces initialStep='otp' and the user lands on the OTP
+  # form for the *previous* account instead of the email entry form. The
+  # email form is the only correct outcome: prompt=login is the user's
+  # explicit "start over" signal.
+  Scenario: "Another account" with login_hint must reach the email form
+    When the demo client starts a new OAuth flow with the test user's handle as login_hint
+    Then the browser lands on the ePDS enriched account picker
+    When the user clicks "Another account" on the enriched account picker
+    Then the browser is on the auth service email form
+
   Scenario: Login hint resolves to an unbound account — skip chooser
     Given another user has a separate PDS account
     When the demo client starts a new OAuth flow with the other user's handle as login_hint
