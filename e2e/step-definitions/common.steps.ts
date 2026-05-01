@@ -19,25 +19,30 @@ import { getPage } from '../support/utils.js'
  * single such blip on the first scenario fails an entire 9-minute e2e
  * run; with retries, the rest of the suite runs unimpaired.
  *
- * Total budget: 6 attempts × 2s backoff = ~12s. Real outages still
- * surface — the suite cannot make meaningful progress past this Given
- * without a live PDS, so a hard failure is the right outcome once the
- * budget is spent.
+ * Each attempt has its own AbortSignal.timeout(2s) so a hung connection
+ * cannot blow past the documented wall-clock budget of 6 × (2s fetch +
+ * 2s backoff) = ~24s. Real outages still surface — the suite cannot make
+ * meaningful progress past this Given without a live PDS, so a hard
+ * failure is the right outcome once the budget is spent.
  */
 Given('the ePDS test environment is running', async function (this: EpdsWorld) {
   const url = `${testEnv.pdsUrl}/health`
   const maxAttempts = 6
+  const perAttemptTimeoutMs = 2000
+  const backoffMs = 2000
   let lastErr: unknown
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const res = await fetch(url)
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(perAttemptTimeoutMs),
+      })
       if (res.ok) return
       lastErr = new Error(`PDS health check failed: ${res.status} at ${url}`)
     } catch (err) {
       lastErr = err
     }
     if (attempt < maxAttempts) {
-      await new Promise((resolve) => setTimeout(resolve, 2000))
+      await new Promise((resolve) => setTimeout(resolve, backoffMs))
     }
   }
   throw new Error(
