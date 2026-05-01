@@ -30,7 +30,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
 import type { AddressInfo } from 'node:net'
-import { EpdsDb, _seedClientMetadataCacheForTest } from '@certified-app/shared'
+import { _seedClientMetadataCacheForTest } from '@certified-app/shared'
 import { csrfProtection } from '../middleware/csrf.js'
 import { createLoginPageRouter } from '../routes/login-page.js'
 import { AuthServiceContext, type AuthServiceConfig } from '../context.js'
@@ -111,7 +111,6 @@ async function startApp(ctx: AuthServiceContext): Promise<{
 }
 
 describe('GET /oauth/authorize prompt=login handling (issue #138)', () => {
-  let db: EpdsDb
   let dbPath: string
   let ctx: AuthServiceContext
   let app: { baseUrl: string; close: () => Promise<void> }
@@ -121,16 +120,16 @@ describe('GET /oauth/authorize prompt=login handling (issue #138)', () => {
       os.tmpdir(),
       `prompt-login-${Date.now()}-${randomBytes(4).toString('hex')}.db`,
     )
-    db = new EpdsDb(dbPath)
     // Avoid an outbound fetch when the handler resolves client metadata.
     _seedClientMetadataCacheForTest('https://app.example.com', {
       client_name: 'Test App',
     })
-    const config = makeConfig(dbPath)
-    ctx = new AuthServiceContext(config)
-    // Replace the constructor-created db (built against the same path) so
-    // the test's seed/inspection share state with the handler.
-    Object.defineProperty(ctx, 'db', { value: db, configurable: true })
+    // AuthServiceContext opens its own EpdsDb against config.dbLocation;
+    // we use ctx.db throughout (rather than constructing a parallel
+    // instance and overwriting) so there's exactly one open SQLite handle
+    // per test — `ctx.destroy()` in afterEach closes it cleanly and
+    // releases the WAL/SHM companion files for the unlink to remove.
+    ctx = new AuthServiceContext(makeConfig(dbPath))
     app = await startApp(ctx)
     mocks.fetchParLoginHint.mockReset()
     mocks.resolveLoginHint.mockReset()
@@ -140,10 +139,12 @@ describe('GET /oauth/authorize prompt=login handling (issue #138)', () => {
   afterEach(async () => {
     await app.close()
     ctx.destroy()
-    try {
-      fs.unlinkSync(dbPath)
-    } catch {
-      /* db may already be gone */
+    // Best-effort cleanup of the temp DB and its WAL/SHM companions.
+    // SQLite in WAL mode writes alongside the main file; rmSync(force)
+    // tolerates the missing companions when WAL was checkpointed before
+    // close, and avoids the empty try/catch antipattern.
+    for (const suffix of ['', '-wal', '-shm']) {
+      fs.rmSync(dbPath + suffix, { force: true })
     }
   })
 
