@@ -37,12 +37,12 @@ import {
   createLogger,
   verifyCallback,
   verifyInternalSecret,
-  escapeHtml,
   validateLocalPart,
   resolveClientMetadata,
   getClientCss,
   getClientMetadataCacheStatus,
   getEpdsVersion,
+  renderError,
   validateClientMetadataForPreview,
 } from '@certified-app/shared'
 import { shouldRewriteSecFetchSite } from './lib/sec-fetch-site-rewrite.js'
@@ -64,6 +64,7 @@ import { createChooserEnrichmentMiddleware } from './chooser-enrichment.js'
 import { createUpstreamFaviconMiddleware } from './upstream-favicon.js'
 import { createAuthUiGuard, parsePromptTokens } from './auth-ui-guard.js'
 import { loadDeviceAccountEmails } from './lib/device-accounts.js'
+import { handleCallbackError } from './lib/epds-callback-error.js'
 import { installTestHooks } from './lib/test-hooks.js'
 
 const logger = createLogger('pds-core')
@@ -254,6 +255,18 @@ async function main() {
       return
     }
 
+    // Captured from Step 2's requestManager.get() — used by the catch
+    // block to redirect any later failure back to the client per RFC
+    // 6749 §4.1.2.1, even when the PAR row has since been deleted (in
+    // particular: RequestManager.get() deletes any expired row in the
+    // same call that throws AccessDeniedError, so by the time the
+    // catch block runs there's nothing left to re-read). Empty when
+    // Step 2 itself threw — i.e. the PAR was already dead on entry,
+    // the case the @par-callback-error scenario covers — and the
+    // catch falls through to a styled HTML page in that branch.
+    let capturedRedirectUri: string | undefined
+    let capturedState: string | undefined
+
     try {
       // Step 1: Load or create device session
       const deviceInfo = await provider.deviceManager.load(
@@ -294,6 +307,12 @@ async function main() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @atproto/oauth-provider requestManager not exported
       const requestData = await (provider.requestManager as any).get(requestUri)
       const { clientId } = requestData
+      // Stash redirect_uri/state now while the PAR is alive — if a later
+      // step throws and the row has since been deleted (e.g. flushed
+      // post-success or the test-only delete-par hook), the catch block
+      // can still mount an RFC 6749 redirect to the client.
+      capturedRedirectUri = requestData?.parameters?.redirect_uri
+      capturedState = requestData?.parameters?.state
 
       // Step 3: Resolve or create the account.
       // Use the PDS accountManager directly — account.sqlite is the single source of truth.
@@ -583,36 +602,15 @@ async function main() {
         'ePDS callback: redirecting to stock /oauth/authorize for consent/approval',
       )
     } catch (err) {
-      logger.error({ err }, 'ePDS callback error')
-
-      // Try to redirect error back to client
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @atproto/oauth-provider requestManager not exported
-        const requestData = await (provider.requestManager as any).get(
-          requestUri,
-        )
-        const redirectUri = requestData?.parameters?.redirect_uri
-        if (redirectUri) {
-          const errorUrl = new URL(redirectUri)
-          errorUrl.searchParams.set('error', 'server_error')
-          errorUrl.searchParams.set(
-            'error_description',
-            'Authentication failed',
-          )
-          errorUrl.searchParams.set('iss', pdsUrl)
-          if (requestData.parameters.state) {
-            errorUrl.searchParams.set('state', requestData.parameters.state)
-          }
-          res.redirect(303, errorUrl.toString())
-          return
-        }
-      } catch {
-        // Fall through
-      }
-
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Authentication failed' })
-      }
+      handleCallbackError({
+        res,
+        err,
+        capturedRedirectUri,
+        capturedState,
+        pdsUrl,
+        logger,
+        renderError,
+      })
     }
   })
 
@@ -1199,14 +1197,6 @@ async function checkHandleRoute(
       .status(500)
       .json({ error: 'InternalServerError', message: 'Internal Server Error' })
   }
-}
-
-function renderError(message: string): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><link rel="icon" href="/static/favicon.svg" media="(prefers-color-scheme: light)" type="image/svg+xml"><link rel="icon" href="/static/favicon-dark.svg" media="(prefers-color-scheme: dark)" type="image/svg+xml"><title>Error</title></head>
-<body><p style="color:red;padding:20px">${escapeHtml(message)}</p></body>
-</html>`
 }
 
 main().catch((err: unknown) => {

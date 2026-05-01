@@ -5,6 +5,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import Database from 'better-sqlite3'
+import { postHook } from '@certified-app/shared'
 import { createTestHooksRouter } from '../routes/test-hooks.js'
 
 function readExpiresAt(dbPath: string, identifier: string): string | undefined {
@@ -41,42 +42,6 @@ function seedVerification(
     )
   } finally {
     db.close()
-  }
-}
-
-async function postHook(
-  app: express.Express,
-  hookPath: string,
-  body: Record<string, unknown>,
-  headers: Record<string, string> = {},
-): Promise<{ status: number; json: Record<string, unknown> }> {
-  const server = app.listen(0)
-  const port = await new Promise<number>((resolve, reject) => {
-    server.once('error', reject)
-    server.once('listening', () => {
-      const addr = server.address()
-      if (typeof addr === 'object' && addr) {
-        resolve(addr.port)
-      } else {
-        reject(new Error('Failed to resolve ephemeral port'))
-      }
-    })
-  })
-  server.unref()
-  try {
-    const res = await fetch(`http://127.0.0.1:${port}${hookPath}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...headers },
-      body: JSON.stringify(body),
-    })
-    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
-    return { status: res.status, json }
-  } finally {
-    await new Promise<void>((resolve) => {
-      server.close(() => {
-        resolve()
-      })
-    })
   }
 }
 
