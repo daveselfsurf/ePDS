@@ -152,6 +152,8 @@ Feature: Welcome-page guard suppresses upstream's authentication UI
     Then the browser lands on the ePDS enriched account picker
     When the user clicks "Another account" on the enriched account picker
     Then the browser is on the auth service email form
+    And the email input is empty
+    And the OTP verification step is not active
 
   Scenario: Login hint resolves to an unbound account — skip chooser
     Given another user has a separate PDS account

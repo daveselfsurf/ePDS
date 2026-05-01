@@ -173,6 +173,15 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
       query: req.query as Record<string, unknown>,
     }
 
+    // GitHub issue #138: prompt=login is the user's explicit "start fresh"
+    // signal — emitted by pds-core's "Another account" rebind injected into
+    // the chooser. On this path the resolved hint is never used for
+    // rendering (initialStep is forced to email and the prefill is
+    // suppressed) and shouldReuseSession bypasses its hint check, so the
+    // PAR/handle/device-account internal API round trips below would all be
+    // pure overhead. Compute it here so they can be skipped.
+    const forceLogin = isForceLoginPrompt(sessionReuseReq)
+
     // Resolve the login_hint up-front so we can decide whether the
     // device session is a match before redirecting to pds-core. The
     // resolution result is also reused below for the email/OTP form.
@@ -183,25 +192,27 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
     const internalSecret = process.env.EPDS_INTERNAL_SECRET ?? ''
 
     let effectiveLoginHint = loginHint ?? null
-    if (!effectiveLoginHint && requestUri) {
+    if (!forceLogin && !effectiveLoginHint && requestUri) {
       effectiveLoginHint = await fetchParLoginHint(
         pdsInternalUrl,
         requestUri,
         internalSecret,
       )
     }
-    const resolvedEmail = effectiveLoginHint
-      ? await resolveLoginHint(
-          effectiveLoginHint,
-          pdsInternalUrl,
-          internalSecret,
-        )
-      : null
+    const resolvedEmail =
+      !forceLogin && effectiveLoginHint
+        ? await resolveLoginHint(
+            effectiveLoginHint,
+            pdsInternalUrl,
+            internalSecret,
+          )
+        : null
 
     // Only fetch device-bound emails when we actually need them: the
     // cookie pair is present AND a hint resolved. Otherwise the existing
     // cookie-only reuse logic stands and the round trip to pds-core is
-    // pure overhead.
+    // pure overhead. forceLogin already short-circuited resolvedEmail to
+    // null, so the cookie-only branch covers the prompt=login path here.
     let deviceBoundEmails: string[] | null | undefined
     const cookiePair = readDeviceSessionCookies(sessionReuseReq)
     if (resolvedEmail && cookiePair) {
@@ -369,23 +380,16 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
     //   c) Only in the stored PAR request (third-party apps that put the
     //      handle in the PAR body but don't duplicate it on the redirect URL)
     // The hint was already resolved above for the session-reuse decision; we
-    // reuse `resolvedEmail` here rather than re-fetching.
-    //
-    // GitHub issue #138: prompt=login is the user's explicit "start fresh"
-    // signal — emitted by pds-core's "Another account" rebind injected into
-    // the chooser. The rebind preserves the original login_hint on the URL
-    // (so the OAuth flow can resume cleanly afterwards), but the user has
-    // just told us they want to sign in as a different account, so we must
-    // surface the email form regardless of the hint.
+    // reuse `resolvedEmail` here rather than re-fetching. On prompt=login
+    // (issue #138) `resolvedEmail` is forced to null up front so hasLoginHint
+    // is false and the email step always wins.
     const hasLoginHint = !!resolvedEmail
-    const forceLogin = isForceLoginPrompt(sessionReuseReq)
-    const initialStep = hasLoginHint && !forceLogin ? 'otp' : 'email'
+    const initialStep = hasLoginHint ? 'otp' : 'email'
 
     // Pillar 3 — Idempotency (Option A): when this is a duplicate GET for an
     // existing flow (e.g. browser extension, StayFocusd), tell the client-side
-    // script that OTP was already sent so it skips the auto-send. Skipped on
-    // prompt=login: a forced re-auth must always re-send.
-    const otpAlreadySent = hasLoginHint && !forceLogin && !!existingFlow
+    // script that OTP was already sent so it skips the auto-send.
+    const otpAlreadySent = hasLoginHint && !!existingFlow
 
     logger.info(
       {
@@ -401,9 +405,9 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
 
     // Use the resolved email (not the raw loginHint) for pre-filling forms.
     // This ensures handle-based hints get resolved to the correct email.
-    // On prompt=login the user is opting out of the hinted account (issue
-    // #138), so suppress the pre-fill and start with an empty email box.
-    const emailHint = forceLogin ? '' : (resolvedEmail ?? '')
+    // resolvedEmail is already null on the prompt=login path (issue #138),
+    // so the email box starts empty for "Another account".
+    const emailHint = resolvedEmail ?? ''
 
     res.type('html').send(
       renderLoginPage({
