@@ -25,6 +25,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import express from 'express'
 import cookieParser from 'cookie-parser'
+import { randomBytes } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
@@ -80,6 +81,12 @@ async function startApp(ctx: AuthServiceContext): Promise<{
   close: () => Promise<void>
 }> {
   const app = express()
+  // Silence sonar's "framework version disclosure" hotspot that fires
+  // on any vanilla express() instance. This is an in-process test
+  // server bound to 127.0.0.1 on an ephemeral port — the header is
+  // only visible to the test runner — but disabling it keeps the
+  // signal clean.
+  app.disable('x-powered-by')
   app.use(cookieParser())
   app.use(csrfProtection(ctx.config.csrfSecret))
   app.use(createLoginPageRouter(ctx))
@@ -112,7 +119,7 @@ describe('GET /oauth/authorize prompt=login handling (issue #138)', () => {
   beforeEach(async () => {
     dbPath = path.join(
       os.tmpdir(),
-      `prompt-login-${Date.now()}-${Math.random()}.db`,
+      `prompt-login-${Date.now()}-${randomBytes(4).toString('hex')}.db`,
     )
     db = new EpdsDb(dbPath)
     // Avoid an outbound fetch when the handler resolves client metadata.
