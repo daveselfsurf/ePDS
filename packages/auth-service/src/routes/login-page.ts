@@ -571,7 +571,9 @@ export function renderLoginPage(opts: {
     .btn-atproto { margin-top: 12px; margin-bottom: 0; color: #1A130F !important; background: var(--input-bg) !important; border-color: var(--input-border) !important; }
     .divider { display: flex; align-items: center; gap: 12px; margin: 20px 0; color: #999; font-size: 13px; }
     .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: #ececec; }
-    .error { color: #dc3545; background: #fdf0f0; padding: 12px; border-radius: 10px; margin: 12px 0; font-size: 14px; text-align: left; }
+    .flash-msg { padding: 12px; border-radius: 10px; margin: 12px 0; font-size: 14px; text-align: center; }
+    .flash-msg.error { color: #dc3545; background: #fdf0f0; }
+    .flash-msg.success { color: #28a745; background: #f0fff4; }
     .step-otp { display: none; }
     .step-otp.active { display: block; }
     .step-email.hidden { display: none; }
@@ -593,7 +595,7 @@ export function renderLoginPage(opts: {
     ${logoHtml}
     <h1 id="heading">${opts.initialStep === 'otp' ? 'Enter your code' : 'Sign in'}</h1>
 
-    <div id="error-msg" class="error" style="display:none;"></div>
+    <div id="error-msg" class="flash-msg" style="display:none;"></div>
 
     ${socialButtonsHtml}
 
@@ -659,6 +661,7 @@ export function renderLoginPage(opts: {
       var requestUri = ${JSON.stringify('')};  // not needed client-side; flow_id is in cookie
       var currentEmail = '';
       var loginMode = 'email'; // 'email' | 'handle'
+      var verifying = false;
       var errorEl = document.getElementById('error-msg');
       var stepEmail = document.getElementById('step-email');
       var stepOtp = document.getElementById('step-otp');
@@ -723,14 +726,20 @@ export function renderLoginPage(opts: {
         box.addEventListener('focus', function() { box.select(); });
       });
 
-      function showError(msg) {
+      function showFlash(msg, kind) {
         errorEl.textContent = msg;
+        errorEl.classList.remove('error', 'success');
+        errorEl.classList.add(kind);
         errorEl.style.display = 'block';
       }
+
+      function showError(msg) { showFlash(msg, 'error'); }
+      function showSuccess(msg) { showFlash(msg, 'success'); }
 
       function clearError() {
         errorEl.style.display = 'none';
         errorEl.textContent = '';
+        errorEl.classList.remove('error', 'success');
       }
 
       function setLoginMode(mode) {
@@ -867,18 +876,36 @@ export function renderLoginPage(opts: {
       // Form: verify OTP
       document.getElementById('form-verify-otp').addEventListener('submit', async function(e) {
         e.preventDefault();
+        // Collapse duplicate submits (auto-submit on 6th digit + Enter, OTP
+        // autofill firing input on every box, paste+input pair, etc.). The
+        // first call consumes the code; a second one races the redirect and
+        // flashes "Invalid OTP" before the page unloads.
+        if (verifying) return;
+        verifying = true;
         clearError();
         var otp = document.getElementById('code').value.trim();
         var btn = this.querySelector('button[type=submit]');
         btn.disabled = true;
         btn.textContent = 'Verifying...';
 
-        var result = await verifyOtp(currentEmail, otp);
-        btn.disabled = false;
-        btn.textContent = 'Verify';
-
-        if (result && result.error) {
-          showError(result.error);
+        try {
+          var result = await verifyOtp(currentEmail, otp);
+          if (result && result.error) {
+            showError(result.error);
+            // Clear the boxes so the user re-enters all 6 digits. Editing
+            // a still-full grid would auto-submit on the first keystroke
+            // (length stays at 6) and spam the rate limiter.
+            clearOtpBoxes();
+            if (otpBoxes.length) otpBoxes[0].focus();
+          }
+        } finally {
+          // Leave the latch set on success: verifyOtp triggers a redirect,
+          // and we don't want late events to re-open the form mid-navigation.
+          if (!result || result.error) {
+            verifying = false;
+            btn.disabled = false;
+            btn.textContent = 'Verify';
+          }
         }
       });
 
@@ -893,9 +920,7 @@ export function renderLoginPage(opts: {
         if (result.error) {
           showError(result.error);
         } else {
-          showError('Code resent!');
-          errorEl.style.color = '#28a745';
-          errorEl.style.background = '#f0fff4';
+          showSuccess('Code resent!');
         }
       });
 
