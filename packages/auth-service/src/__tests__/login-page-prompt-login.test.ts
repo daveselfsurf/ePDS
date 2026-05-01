@@ -176,18 +176,29 @@ describe('GET /oauth/authorize prompt=login handling (issue #138)', () => {
   it('skips internal-API round trips when prompt=login is present', async () => {
     mocks.fetchParLoginHint.mockResolvedValue('previous@example.com')
     mocks.resolveLoginHint.mockResolvedValue('previous@example.com')
-
+    // Make the assertion meaningful for fetchDeviceAccountEmails by sending
+    // a dev-id/ses-id cookie pair: the handler only fetches device-bound
+    // emails when BOTH a cookie pair is present AND `resolvedEmail` is
+    // truthy. Without the cookie pair, the assertion would pass trivially
+    // even if a regression reintroduced hint resolution.
     const url =
       app.baseUrl +
       '/oauth/authorize?request_uri=urn:ietf:params:oauth:request_uri:promptloginskip' +
       '&login_hint=previous%40example.com' +
       '&prompt=login'
-    const res = await fetch(url)
+    const res = await fetch(url, {
+      headers: {
+        cookie:
+          'dev-id=dev-test-skip-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; ses-id=ses-test-skip-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      },
+    })
     expect(res.status).toBe(200)
 
     // The hint resolution chain must be untouched — its result is unused
     // on the prompt=login path AND shouldReuseSession bypasses the hint
     // check, so calling these is pure overhead on the PDS internal API.
+    // With cookies present, a regression that left fetchDeviceAccountEmails
+    // unguarded by forceLogin would call it; this assertion catches that.
     expect(mocks.fetchParLoginHint).not.toHaveBeenCalled()
     expect(mocks.resolveLoginHint).not.toHaveBeenCalled()
     expect(mocks.fetchDeviceAccountEmails).not.toHaveBeenCalled()
