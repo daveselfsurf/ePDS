@@ -1,9 +1,0 @@
----
-'ePDS': patch
----
-
-"Use a different account" on the chooser now reliably takes you to the email form, not the code step for the previous account.
-
-**Affects:** End users
-
-**End users:** when you click "Another account" on the account chooser to sign in as someone else, you now always land on a fresh email entry form. Previously, if the app that started the sign-in had pre-filled an account hint, the page jumped straight to the verification-code step for the _previous_ account — leaving you stuck typing a code for an account you were trying to leave.
