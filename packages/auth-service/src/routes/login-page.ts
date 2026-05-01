@@ -884,6 +884,11 @@ export function renderLoginPage(opts: {
           var result = await verifyOtp(currentEmail, otp);
           if (result && result.error) {
             showError(result.error);
+            // Clear the boxes so the user re-enters all 6 digits. Editing
+            // a still-full grid would auto-submit on the first keystroke
+            // (length stays at 6) and spam the rate limiter.
+            clearOtpBoxes();
+            if (otpBoxes.length) otpBoxes[0].focus();
           }
         } finally {
           // Leave the latch set on success: verifyOtp triggers a redirect,

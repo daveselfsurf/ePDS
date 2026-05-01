@@ -555,4 +555,22 @@ describe('renderLoginPage OTP verify-form double-submit latch (regression)', () 
     const resetCount = html.split('verifying = false;').length - 1
     expect(resetCount).toBe(2) // initial declaration + single reset
   })
+
+  it('clears the OTP boxes on verify error so re-entry does not auto-spam', () => {
+    const html = renderDefault()
+    // Without clearing, the boxes stay full at length 6 after an invalid
+    // code. The auto-submit handler fires whenever total length === 6, so
+    // the next keystroke (replacing one wrong digit) would immediately
+    // trigger another verify, again with a still-wrong code, on every
+    // edit — easily tripping the per-IP rate limiter.
+    const branchStart = html.indexOf('if (result && result.error) {')
+    expect(branchStart).toBeGreaterThan(0)
+    // The next `verifying = false;` (in the `finally` block) bounds the
+    // error branch — bounded slice, no unbounded regex backtracking.
+    const branchEnd = html.indexOf('verifying = false;', branchStart)
+    expect(branchEnd).toBeGreaterThan(branchStart)
+    const branch = html.slice(branchStart, branchEnd)
+    expect(branch).toContain('showError(result.error);')
+    expect(branch).toContain('clearOtpBoxes();')
+  })
 })
