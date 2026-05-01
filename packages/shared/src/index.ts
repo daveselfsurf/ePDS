@@ -71,6 +71,7 @@ export type {
   PreviewCheck,
   PreviewValidationResult,
 } from './preview-validation.js'
+export { parsePromptTokens, promptHasLogin } from './oidc-prompt.js'
 export { getEpdsVersion } from './version.js'
 export { makeSafeFetch } from './safe-fetch.js'
 export type { SafeFetchOptions } from './safe-fetch.js'

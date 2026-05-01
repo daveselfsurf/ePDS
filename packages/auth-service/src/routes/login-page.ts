@@ -175,6 +175,16 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
     // Resolve the login_hint up-front so we can decide whether the
     // device session is a match before redirecting to pds-core. The
     // resolution result is also reused below for the email/OTP form.
+    //
+    // pds-core's "Another account" rebind sets epds_skip_par_hint=1
+    // (issue #138) — the user clicked an opt-out, so any login_hint
+    // stored in the PAR by the RP at OAuth init must be ignored. The
+    // rebind also strips URL login_hint, so on that path effectiveLoginHint
+    // ends up null and the spec-correct decision below renders the email
+    // form. This skip flag does NOT affect prompt=login alone: pds-core's
+    // sign-in-view bounce also sets prompt=login (without the skip flag)
+    // and expects the hint to resolve normally so the OTP step renders.
+    const skipParHint = req.query.epds_skip_par_hint === '1'
     const pdsInternalUrl = ensurePdsUrl(
       process.env.PDS_INTERNAL_URL,
       ctx.config.pdsPublicUrl,
@@ -182,7 +192,7 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
     const internalSecret = process.env.EPDS_INTERNAL_SECRET ?? ''
 
     let effectiveLoginHint = loginHint ?? null
-    if (!effectiveLoginHint && requestUri) {
+    if (!skipParHint && !effectiveLoginHint && requestUri) {
       effectiveLoginHint = await fetchParLoginHint(
         pdsInternalUrl,
         requestUri,
@@ -368,7 +378,10 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
     //   c) Only in the stored PAR request (third-party apps that put the
     //      handle in the PAR body but don't duplicate it on the redirect URL)
     // The hint was already resolved above for the session-reuse decision; we
-    // reuse `resolvedEmail` here rather than re-fetching.
+    // reuse `resolvedEmail` here rather than re-fetching. On the "Another
+    // account" rebind path (issue #138) `epds_skip_par_hint=1` upstream
+    // suppresses both URL and PAR hint resolution, so resolvedEmail is null
+    // and the email step falls out without a special case here.
     const hasLoginHint = !!resolvedEmail
     const initialStep = hasLoginHint ? 'otp' : 'email'
 

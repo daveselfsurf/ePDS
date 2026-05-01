@@ -41,7 +41,24 @@ import {
   SESSION_ID_PREFIX,
 } from '@atproto/oauth-provider'
 import type { Logger } from 'pino'
+import {
+  parsePromptTokens as parsePromptTokensShared,
+  promptHasLogin as promptHasLoginShared,
+} from '@certified-app/shared'
 import { loadDeviceBindings } from './lib/device-accounts.js'
+
+/** Re-export of the shared implementation. The canonical home is
+ *  `@certified-app/shared`; this re-export exists so internal callers
+ *  in pds-core (and the existing `auth-ui-guard.test.ts` import site)
+ *  don't have to be touched on every refactor. New callers should
+ *  import from `@certified-app/shared` directly. */
+export const parsePromptTokens = parsePromptTokensShared
+/** Re-export of the shared implementation. The canonical home is
+ *  `@certified-app/shared`; this re-export exists so internal callers
+ *  in pds-core (and the existing `auth-ui-guard.test.ts` import site)
+ *  don't have to be touched on every refactor. New callers should
+ *  import from `@certified-app/shared` directly. */
+export const promptHasLogin = promptHasLoginShared
 
 const DEVICE_ID_RE = new RegExp(
   `^${DEVICE_ID_PREFIX}[0-9a-f]{${DEVICE_ID_BYTES_LENGTH * 2}}$`,
@@ -367,22 +384,4 @@ function filterCandidateBindings(
       account.sub === loginHint || account.preferred_username === loginHint,
   )
   return matched.length === 1 ? matched : bindings
-}
-
-/** Tokenise an OIDC `prompt` parameter value into its space-delimited set.
- *  Per OpenID Connect Core 1.0 §3.1.2.1, `prompt` is a space-delimited list
- *  of values (e.g. `"login consent"`), not a single literal — so an exact
- *  string check would miss `login` when it appears alongside other tokens.
- *  Returns an empty Set for null/undefined/non-string input. */
-export function parsePromptTokens(value: unknown): Set<string> {
-  if (typeof value !== 'string') return new Set()
-  return new Set(value.split(/\s+/).filter(Boolean))
-}
-
-/** True when the given OIDC prompt value contains the `login` token. Both
- *  the auth-ui-guard and epds-callback's PAR mutation use this — they must
- *  agree on what counts as "forced login" so the guard's bounce condition
- *  and the callback's prompt-strip apply to exactly the same requests. */
-export function promptHasLogin(value: unknown): boolean {
-  return parsePromptTokens(value).has('login')
 }
