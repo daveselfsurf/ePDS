@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import express from 'express'
+import { postHook } from '@certified-app/shared'
 import { installTestHooks } from '../lib/test-hooks.js'
 
 // Minimal Kysely-like update query mock: chains `.set().where()*.executeTakeFirst()`
@@ -101,39 +102,6 @@ function makeFakePds(opts: {
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any
-}
-
-async function postHook(
-  app: express.Express,
-  hookPath: string,
-  body: Record<string, unknown>,
-  headers: Record<string, string> = {},
-): Promise<{ status: number; json: Record<string, unknown> }> {
-  const server = app.listen(0)
-  const port = await new Promise<number>((resolve, reject) => {
-    server.once('error', reject)
-    server.once('listening', () => {
-      const addr = server.address()
-      if (typeof addr === 'object' && addr) resolve(addr.port)
-      else reject(new Error('Failed to resolve ephemeral port'))
-    })
-  })
-  server.unref()
-  try {
-    const res = await fetch(`http://127.0.0.1:${port}${hookPath}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...headers },
-      body: JSON.stringify(body),
-    })
-    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
-    return { status: res.status, json }
-  } finally {
-    await new Promise<void>((resolve) => {
-      server.close(() => {
-        resolve()
-      })
-    })
-  }
 }
 
 /** Build an express app with installTestHooks applied to a default

@@ -74,3 +74,5 @@ export type {
 export { getEpdsVersion } from './version.js'
 export { makeSafeFetch } from './safe-fetch.js'
 export type { SafeFetchOptions } from './safe-fetch.js'
+export { postHook } from './test-utils/post-hook.js'
+export type { PostHookResult } from './test-utils/post-hook.js'
