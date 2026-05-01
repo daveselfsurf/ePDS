@@ -1,26 +1,26 @@
 /**
- * Route-level coverage for the prompt=login branch of GET /oauth/authorize.
+ * Route-level coverage for the "Another account" rebind branch of
+ * GET /oauth/authorize.
  *
- * GitHub issue #138: pds-core's "Another account" rebind navigates back to
- * auth-service with the original `login_hint` preserved AND `prompt=login`
- * appended. The login-page handler must:
+ * GitHub issue #138: pds-core's "Another account" rebind navigates back
+ * to auth-service with `prompt=login` AND `epds_skip_par_hint=1`
+ * appended (and any URL `login_hint` stripped). `epds_skip_par_hint=1`
+ * tells auth-service to ignore any login_hint stored in the PAR — the
+ * user clicked an opt-out, so the RP's hint must not influence rendering.
+ * With no hint resolving, `resolvedEmail` is null and the email step
+ * falls out from the standard rendering decision.
  *
- *  1. Render the email step (not the OTP step) regardless of the hint.
- *  2. Leave the `#email` input empty (no pre-fill from the previous account).
- *  3. Skip the three internal-API round trips that would normally resolve
- *     the hint (`fetchParLoginHint`, `resolveLoginHint`,
- *     `fetchDeviceAccountEmails`) — none of their results are used on this
- *     path, so calling them is pure overhead.
- *
- * Mirrors the e2e scenario at
- * `features/session-reuse-bugs.feature:148`. The e2e test catches a
- * regression of (1) and (2); this test pins (3) — a regression that
- * re-introduced the network calls would silently revert the optimisation
- * without any user-visible effect, so e2e wouldn't notice.
+ * `prompt=login` ALONE (without the skip flag) must NOT suppress hint
+ * resolution — pds-core's auth-ui-guard sign-in-view bounce appends
+ * prompt=login while still expecting the hint to be honoured (the user
+ * wants that account; upstream's password sign-in form is just
+ * unreachable in a passwordless deployment). The third test below pins
+ * this so a future "simplification" that conflates the two signals is
+ * caught.
  *
  * Lives in its own file because the `vi.mock` calls below replace the
- * shared resolver modules wholesale, and we don't want that bleed into the
- * existing unit tests in login-page.test.ts.
+ * shared resolver modules wholesale, and we don't want that bleed into
+ * the existing unit tests in login-page.test.ts.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import express from 'express'
@@ -148,67 +148,59 @@ describe('GET /oauth/authorize prompt=login handling (issue #138)', () => {
     }
   })
 
-  it('renders the email step with empty input on prompt=login + login_hint', async () => {
-    // Even if a stale hint resolution were to slip through, force its
-    // result to be a non-empty email so a regression that ignored
-    // forceLogin would be obviously visible as a pre-filled box.
+  it('renders the email step on the "Another account" rebind path', async () => {
+    // pds-core's "Another account" rebind sets epds_skip_par_hint=1
+    // and strips URL login_hint. Mock fetchParLoginHint to return a
+    // value anyway so a regression that ignored the skip flag would
+    // visibly pre-fill the email box with the previous user.
     mocks.fetchParLoginHint.mockResolvedValue('previous@example.com')
     mocks.resolveLoginHint.mockResolvedValue('previous@example.com')
 
     const url =
       app.baseUrl +
-      '/oauth/authorize?request_uri=urn:ietf:params:oauth:request_uri:promptlogin' +
+      '/oauth/authorize?request_uri=urn:ietf:params:oauth:request_uri:rebind' +
       '&client_id=' +
       encodeURIComponent('https://app.example.com') +
-      '&login_hint=previous%40example.com' +
+      '&prompt=login' +
+      '&epds_skip_par_hint=1'
+    const res = await fetch(url)
+    expect(res.status).toBe(200)
+    const html = await res.text()
+
+    // PAR hint resolution is skipped: fetchParLoginHint must NOT be called.
+    expect(mocks.fetchParLoginHint).not.toHaveBeenCalled()
+    // Email step rendered, OTP step not active, input empty.
+    expect(html).toMatch(/<div id="step-email" class="step-email">/)
+    expect(html).not.toMatch(/class="step-otp active"/)
+    expect(html).toMatch(/<input type="email" id="email"[^>]*value=""[^>]*>/)
+  })
+
+  it('honours PAR login_hint when prompt=login arrives without the skip flag', async () => {
+    // pds-core's auth-ui-guard sign-in-view bounce appends prompt=login
+    // (no epds_skip_par_hint) and expects auth-service to resolve any
+    // PAR login_hint and serve the OTP step. A regression that
+    // conflated prompt=login with the rebind semantics would re-break
+    // the @session-reuse e2e scenario "login_hint narrows to a stale
+    // binding on a multi-account device".
+    mocks.fetchParLoginHint.mockResolvedValue('hinted@example.com')
+    mocks.resolveLoginHint.mockResolvedValue('hinted@example.com')
+
+    const url =
+      app.baseUrl +
+      '/oauth/authorize?request_uri=urn:ietf:params:oauth:request_uri:guardbounce' +
       '&prompt=login'
     const res = await fetch(url)
     expect(res.status).toBe(200)
     const html = await res.text()
 
-    // (1) Email step is the rendered step, not the OTP step.
-    expect(html).toMatch(/<div id="step-email" class="step-email">/)
-    expect(html).not.toMatch(/class="step-otp active"/)
-
-    // (2) Email input is empty (no pre-fill from the previous account).
-    expect(html).toMatch(/<input type="email" id="email"[^>]*value=""[^>]*>/)
-  })
-
-  it('skips internal-API round trips when prompt=login is present', async () => {
-    mocks.fetchParLoginHint.mockResolvedValue('previous@example.com')
-    mocks.resolveLoginHint.mockResolvedValue('previous@example.com')
-    // Make the assertion meaningful for fetchDeviceAccountEmails by sending
-    // a dev-id/ses-id cookie pair: the handler only fetches device-bound
-    // emails when BOTH a cookie pair is present AND `resolvedEmail` is
-    // truthy. Without the cookie pair, the assertion would pass trivially
-    // even if a regression reintroduced hint resolution.
-    const url =
-      app.baseUrl +
-      '/oauth/authorize?request_uri=urn:ietf:params:oauth:request_uri:promptloginskip' +
-      '&login_hint=previous%40example.com' +
-      '&prompt=login'
-    const res = await fetch(url, {
-      headers: {
-        cookie:
-          'dev-id=dev-test-skip-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; ses-id=ses-test-skip-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-      },
-    })
-    expect(res.status).toBe(200)
-
-    // The hint resolution chain must be untouched — its result is unused
-    // on the prompt=login path AND shouldReuseSession bypasses the hint
-    // check, so calling these is pure overhead on the PDS internal API.
-    // With cookies present, a regression that left fetchDeviceAccountEmails
-    // unguarded by forceLogin would call it; this assertion catches that.
-    expect(mocks.fetchParLoginHint).not.toHaveBeenCalled()
-    expect(mocks.resolveLoginHint).not.toHaveBeenCalled()
-    expect(mocks.fetchDeviceAccountEmails).not.toHaveBeenCalled()
+    expect(mocks.fetchParLoginHint).toHaveBeenCalled()
+    expect(mocks.resolveLoginHint).toHaveBeenCalled()
+    expect(html).toMatch(/class="step-otp active"/)
   })
 
   it('still resolves login_hint when prompt=login is absent (regression guard)', async () => {
-    // Without prompt=login, the hint must still be resolved so the OTP
-    // step can pre-fill the email — the optimisation only applies to the
-    // forced-reauth path.
+    // Without prompt=login at all, the hint must resolve normally and
+    // the OTP step pre-fills with the email.
     mocks.resolveLoginHint.mockResolvedValue('user@example.com')
 
     const url =
@@ -224,7 +216,7 @@ describe('GET /oauth/authorize prompt=login handling (issue #138)', () => {
       expect.any(String),
       expect.any(String),
     )
-    // OTP step is the active step (hasLoginHint true, !forceLogin).
+    // OTP step is the active step (hasLoginHint true).
     expect(html).toMatch(/class="step-otp active"/)
   })
 })
