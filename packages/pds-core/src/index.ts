@@ -37,12 +37,12 @@ import {
   createLogger,
   verifyCallback,
   verifyInternalSecret,
-  escapeHtml,
   validateLocalPart,
   resolveClientMetadata,
   getClientCss,
   getClientMetadataCacheStatus,
   getEpdsVersion,
+  renderError,
   validateClientMetadataForPreview,
 } from '@certified-app/shared'
 import { shouldRewriteSecFetchSite } from './lib/sec-fetch-site-rewrite.js'
@@ -1197,14 +1197,6 @@ async function checkHandleRoute(
       .status(500)
       .json({ error: 'InternalServerError', message: 'Internal Server Error' })
   }
-}
-
-function renderError(message: string): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><link rel="icon" href="/static/favicon.svg" media="(prefers-color-scheme: light)" type="image/svg+xml"><link rel="icon" href="/static/favicon-dark.svg" media="(prefers-color-scheme: dark)" type="image/svg+xml"><title>Error</title></head>
-<body><p style="color:red;padding:20px">${escapeHtml(message)}</p></body>
-</html>`
 }
 
 main().catch((err: unknown) => {
