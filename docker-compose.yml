@@ -1,87 +1,65 @@
 services:
   core:
+    container_name: epds-core
     build:
       context: .
       dockerfile: Dockerfile.pds
-    ports:
-      - '${PDS_PORT:-3000}:3000'
-    env_file: .env
-    environment:
-      - PDS_PORT=3000
-    volumes:
-      - pds-data:/data
     restart: unless-stopped
+    env_file: .env
+    volumes:
+      - /opt/pds/data:/data
+    networks:
+      - epds-internal
     healthcheck:
-      test: ['CMD', 'wget', '--spider', '-q', 'http://localhost:3000/health']
-      interval: 10s
-      timeout: 3s
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/xrpc/_health"]
+      interval: 30s
+      timeout: 5s
       retries: 3
-      start_period: 15s
 
   auth:
+    container_name: epds-auth
     build:
       context: .
       dockerfile: Dockerfile.auth
-    ports:
-      - '${AUTH_PORT:-3001}:3001'
-    env_file: .env
-    environment:
-      - AUTH_PORT=3001
-    volumes:
-      - auth-data:/data
     restart: unless-stopped
-    healthcheck:
-      test: ['CMD', 'wget', '--spider', '-q', 'http://localhost:3001/health']
-      interval: 10s
-      timeout: 3s
-      retries: 3
-      start_period: 10s
+    env_file: .env
+    volumes:
+      - ./auth-data:/data
+    networks:
+      - epds-internal
+    depends_on:
+      core:
+        condition: service_healthy
 
   caddy:
+    container_name: epds-caddy
     image: caddy:2-alpine
-    ports:
-      - '80:80'
-      - '443:443'
+    restart: unless-stopped
+    env_file: .env
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy-data:/data
       - caddy-config:/config
-    env_file: .env
-    restart: unless-stopped
+    networks:
+      - epds-internal
     depends_on:
-      core:
-        condition: service_healthy
-      auth:
-        condition: service_healthy
+      - core
+      - auth
 
-  # Demo frontend (tutorial scaffold)
-  demo:
-    build:
-      context: .
-      dockerfile: Dockerfile.demo
-    ports:
-      - '${DEMO_PORT:-3002}:3002'
-    env_file: packages/demo/.env
-    environment:
-      - PDS_URL=https://${PDS_HOSTNAME:-pds.example}
-      - PDS_INTERNAL_URL=http://core:3000
-      - AUTH_ENDPOINT=https://auth.${PDS_HOSTNAME:-pds.example}/oauth/authorize
+  cloudflared:
+    container_name: epds-cloudflared
+    image: cloudflare/cloudflared:latest
     restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
+    networks:
+      - epds-internal
     depends_on:
-      core:
-        condition: service_healthy
+      - caddy
 
-  # Local email trap for development
-  mailhog:
-    image: mailhog/mailhog:latest
-    ports:
-      - '1025:1025'
-      - '8025:8025'
-    profiles:
-      - dev
+networks:
+  epds-internal:
+    driver: bridge
 
 volumes:
-  pds-data:
-  auth-data:
   caddy-data:
   caddy-config:
