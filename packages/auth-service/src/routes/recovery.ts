@@ -384,9 +384,9 @@ export function renderRecoveryOtpForm(opts: {
   // Verify (POST /auth/recover/verify) doesn't re-render this form,
   // so the flag is irrelevant there. Field is only emitted when
   // heartbeat is explicitly off — production calls leave it absent.
-  const noHeartbeatField = !opts.heartbeatEnabled
-    ? '<input type="hidden" name="no_heartbeat" value="1">'
-    : ''
+  const noHeartbeatField = opts.heartbeatEnabled
+    ? ''
+    : '<input type="hidden" name="no_heartbeat" value="1">'
 
   return `<!DOCTYPE html>
 <html lang="en">

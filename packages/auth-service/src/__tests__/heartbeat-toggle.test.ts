@@ -80,36 +80,47 @@ describe('heartbeatEnabledFor', () => {
   })
 })
 
-describe('renderLoginPage heartbeat wiring', () => {
-  function render(heartbeatEnabled: boolean): string {
-    return renderLoginPage({
-      flowId: 'flow-1',
-      clientId: 'https://example.com/client-metadata.json',
-      clientName: 'Example',
-      branding: {},
-      customCss: null,
-      customFaviconUrl: null,
-      customFaviconUrlDark: null,
-      loginHint: '',
-      initialStep: 'email',
-      otpAlreadySent: false,
-      csrfToken: 'csrf',
-      authBasePath: '/api/auth',
-      pdsPublicUrl: 'https://pds.example.com',
-      otpLength: 6,
-      otpCharset: 'numeric',
-      heartbeatEnabled,
-    })
-  }
+function renderLoginPageWithHeartbeat(heartbeatEnabled: boolean): string {
+  return renderLoginPage({
+    flowId: 'flow-1',
+    clientId: 'https://example.com/client-metadata.json',
+    clientName: 'Example',
+    branding: {},
+    customCss: null,
+    customFaviconUrl: null,
+    customFaviconUrlDark: null,
+    loginHint: '',
+    initialStep: 'email',
+    otpAlreadySent: false,
+    csrfToken: 'csrf',
+    authBasePath: '/api/auth',
+    pdsPublicUrl: 'https://pds.example.com',
+    otpLength: 6,
+    otpCharset: 'numeric',
+    heartbeatEnabled,
+  })
+}
 
+function renderRecoveryOtpFormWithHeartbeat(heartbeatEnabled: boolean): string {
+  return renderRecoveryOtpForm({
+    email: 'user@example.com',
+    csrfToken: 'csrf',
+    requestUri: 'urn:ietf:params:oauth:request_uri:req-abc',
+    otpLength: 6,
+    otpCharset: 'numeric',
+    heartbeatEnabled,
+  })
+}
+
+describe('renderLoginPage heartbeat wiring', () => {
   it('inlines /auth/ping when heartbeat is enabled', () => {
-    const html = render(true)
+    const html = renderLoginPageWithHeartbeat(true)
     expect(html).toContain("'/auth/ping'")
     expect(html).toContain('var heartbeatEnabled = true;')
   })
 
   it('emits a disabled flag when heartbeat is off', () => {
-    const html = render(false)
+    const html = renderLoginPageWithHeartbeat(false)
     expect(html).toContain('var heartbeatEnabled = false;')
     // The fetch literal is still in the bundle, gated at runtime by
     // the flag — that's fine and matches how the IIFE composes.
@@ -118,19 +129,8 @@ describe('renderLoginPage heartbeat wiring', () => {
 })
 
 describe('renderRecoveryOtpForm heartbeat wiring', () => {
-  function render(heartbeatEnabled: boolean): string {
-    return renderRecoveryOtpForm({
-      email: 'user@example.com',
-      csrfToken: 'csrf',
-      requestUri: 'urn:ietf:params:oauth:request_uri:req-abc',
-      otpLength: 6,
-      otpCharset: 'numeric',
-      heartbeatEnabled,
-    })
-  }
-
   it('inlines /auth/ping when heartbeat is enabled', () => {
-    const html = render(true)
+    const html = renderRecoveryOtpFormWithHeartbeat(true)
     expect(html).toContain("'/auth/ping'")
     // The if-guard at the top of the recovery script reads the flag
     // and bails when false, so check the flag's compile-time value.
@@ -138,7 +138,7 @@ describe('renderRecoveryOtpForm heartbeat wiring', () => {
   })
 
   it('emits an early-return guard when heartbeat is off', () => {
-    const html = render(false)
+    const html = renderRecoveryOtpFormWithHeartbeat(false)
     expect(html).toContain('if (!false) return;')
   })
 })

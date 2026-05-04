@@ -48,6 +48,109 @@ export function createCompleteRouter(
 
   const { pdsUrl, internalSecret } = requireInternalEnv()
 
+  /**
+   * Clean-exit shorthands for the three cleanExit() shapes this route
+   * uses. Lifted out of the handler to keep its branch density below
+   * Sonar's cognitive-complexity gate; the bodies are still trivial
+   * enough to inline-read at the call sites.
+   */
+  const exitWithSignInTimeout = (res: Response): Promise<void> =>
+    cleanExit({
+      res,
+      clientId: null,
+      pdsUrl,
+      code: 'access_denied',
+      description:
+        'Your sign-in took too long to complete. Please start sign-in again.',
+    })
+
+  const exitWithServerError = (
+    res: Response,
+    clientId: string | null,
+  ): Promise<void> =>
+    cleanExit({
+      res,
+      clientId,
+      pdsUrl,
+      code: 'server_error',
+      description:
+        'Authentication failed because of a server error. Please try again.',
+      fallbackStatus: 500,
+    })
+
+  /**
+   * Build the HMAC-signed `/oauth/epds-callback` redirect URL the
+   * route emits to bridge the user from auth-service to pds-core
+   * once the OTP / handle steps are done. Carries `client_id`
+   * alongside the rest of the signed params so pds-core's catch
+   * block can mount a clean-exit redirect to the client even when
+   * the PAR row has died and Step 2 itself throws (the row is gone
+   * before its .parameters.client_id can be read). client_id is
+   * signed too, so an attacker cannot tamper to redirect at a
+   * different client.
+   *
+   * `handle` is intentionally omitted on the random-mode path: an
+   * absent `handle` in the signed payload (serialised as '' by
+   * signCallback's `?? ''` sentinel) is the agreed signal to
+   * pds-core that it should call generateRandomHandle() instead of
+   * using a caller-supplied value. Both signCallback and
+   * verifyCallback use the same `params.handle ?? ''` shape; the
+   * sentinel is pinned by tests in
+   * packages/shared/src/__tests__/crypto.test.ts.
+   */
+  function buildEpdsCallbackUrl(args: {
+    flowRequestUri: string
+    flowClientId: string | null
+    email: string
+    isNewAccount: boolean
+  }): string {
+    const callbackParams: CallbackParams = {
+      request_uri: args.flowRequestUri,
+      email: args.email,
+      approved: '1',
+      new_account: args.isNewAccount ? '1' : '0',
+    }
+    if (args.flowClientId) callbackParams.client_id = args.flowClientId
+    const { sig, ts } = signCallback(
+      callbackParams,
+      ctx.config.epdsCallbackSecret,
+    )
+    const params = new URLSearchParams({ ...callbackParams, ts, sig })
+    return `${ctx.config.pdsPublicUrl}/oauth/epds-callback?${params.toString()}`
+  }
+
+  /**
+   * New-user random-mode bridge: skip the handle picker, ping the
+   * PAR to reset the inactivity timer (non-fatal — pds-core will
+   * surface any expiry it sees), and redirect to /oauth/epds-callback.
+   * Lifted out of the handler to keep its branch count down.
+   */
+  async function redirectNewUserRandomMode(
+    res: Response,
+    flow: { requestUri: string; clientId: string | null },
+    email: string,
+    flowId: string,
+  ): Promise<void> {
+    const ping = await pingParRequest(flow.requestUri, pdsUrl, internalSecret)
+    if (!ping.ok) {
+      logger.warn(
+        { status: ping.status, err: ping.err, requestUri: flow.requestUri },
+        'PAR ping returned non-OK on random mode complete — proceeding anyway',
+      )
+    }
+    const url = buildEpdsCallbackUrl({
+      flowRequestUri: flow.requestUri,
+      flowClientId: flow.clientId,
+      email,
+      isNewAccount: true,
+    })
+    logger.info(
+      { email, flowId },
+      'New user (random mode): skipping handle picker, redirecting to epds-callback',
+    )
+    res.redirect(303, url)
+  }
+
   router.get('/auth/complete', async (req: Request, res: Response) => {
     // Step 1: Get flow_id from cookie
     const flowId = req.cookies[AUTH_FLOW_COOKIE] as string | undefined
@@ -57,14 +160,7 @@ export function createCompleteRouter(
       // helper falls through to the styled Start Over page with no
       // button. The user has no recoverable context here; this is the
       // best we can do.
-      await cleanExit({
-        res,
-        clientId: null,
-        pdsUrl,
-        code: 'access_denied',
-        description:
-          'Your sign-in took too long to complete. Please start sign-in again.',
-      })
+      await exitWithSignInTimeout(res)
       return
     }
 
@@ -73,14 +169,7 @@ export function createCompleteRouter(
     if (!flow) {
       logger.warn({ flowId }, 'auth_flow not found or expired')
       res.clearCookie(AUTH_FLOW_COOKIE)
-      await cleanExit({
-        res,
-        clientId: null,
-        pdsUrl,
-        code: 'access_denied',
-        description:
-          'Your sign-in took too long to complete. Please start sign-in again.',
-      })
+      await exitWithSignInTimeout(res)
       return
     }
 
@@ -96,15 +185,7 @@ export function createCompleteRouter(
       // Internal failure rather than a user-paced timeout — server_error
       // per RFC 6749 §4.1.2.1. Flow has a clientId so the user gets
       // bounced cleanly back to the OAuth client.
-      await cleanExit({
-        res,
-        clientId: flow.clientId,
-        pdsUrl,
-        code: 'server_error',
-        description:
-          'Authentication failed because of a server error. Please try again.',
-        fallbackStatus: 500,
-      })
+      await exitWithServerError(res, flow.clientId)
       return
     }
 
@@ -149,64 +230,15 @@ export function createCompleteRouter(
 
     const isNewAccount = !did
 
+    if (isNewAccount && flow.handleMode === 'random') {
+      // Step 5a: skip the handle picker, let pds-core call
+      // generateRandomHandle() (signalled by the absent `handle`
+      // field in the signed callback).
+      await redirectNewUserRandomMode(res, flow, email, flowId)
+      return
+    }
+
     if (isNewAccount) {
-      if (flow.handleMode === 'random') {
-        // Step 5a (new user, random mode): Skip handle picker — let pds-core generate
-        // a random handle via generateRandomHandle().
-
-        // Ping the PAR to reset the inactivity timer before redirecting.
-        // Non-fatal: if the ping fails we log and proceed with the original
-        // request_uri — pds-core will surface the expiry if it has occurred.
-        const ping = await pingParRequest(
-          flow.requestUri,
-          pdsUrl,
-          internalSecret,
-        )
-        if (!ping.ok) {
-          logger.warn(
-            { status: ping.status, err: ping.err, requestUri: flow.requestUri },
-            'PAR ping returned non-OK on random mode complete — proceeding anyway',
-          )
-        }
-
-        /**  CONTRACT: `handle` is intentionally omitted from callbackParams here.
-         *  Absent `handle` in the signed payload (serialised as '' by signCallback's
-         *  `?? ''` sentinel) is the agreed signal to pds-core that it should call
-         *  generateRandomHandle() instead of using a caller-supplied value.
-         *
-         *  Both signCallback and verifyCallback use the same `params.handle ?? ''`
-         *
-         *  If you ever change this contract, update pds-core/src/index.ts
-         *  and the sentinel tests in packages/shared/src/__tests__/crypto.test.ts.
-         */
-        // Carry the OAuth client_id so pds-core's catch block can mount
-        // a clean-exit redirect to the client even when the PAR row has
-        // died and Step 2 itself throws (the row is gone before
-        // .parameters.client_id can be read). client_id is signed too,
-        // so an attacker cannot tamper to redirect at a different client.
-        const callbackParams: CallbackParams = {
-          request_uri: flow.requestUri,
-          email,
-          approved: '1',
-          new_account: '1',
-        }
-        if (flow.clientId) callbackParams.client_id = flow.clientId
-        const { sig, ts } = signCallback(
-          callbackParams,
-          ctx.config.epdsCallbackSecret,
-        )
-        const params = new URLSearchParams({ ...callbackParams, ts, sig })
-        logger.info(
-          { email, flowId },
-          'New user (random mode): skipping handle picker, redirecting to epds-callback',
-        )
-        res.redirect(
-          303,
-          `${ctx.config.pdsPublicUrl}/oauth/epds-callback?${params.toString()}`,
-        )
-        return
-      }
-
       // Step 5b (new user, picker/picker-with-random/null mode): Redirect to handle picker.
       // Default (null) preserves existing behavior — picker is always shown.
       // Do NOT delete auth_flow or clear cookie here — TTL cleanup handles expiry.
@@ -223,26 +255,14 @@ export function createCompleteRouter(
     // Consent is handled by the stock @atproto/oauth-provider middleware —
     // pds-core's epds-callback redirects through /oauth/authorize which shows
     // the upstream consent UI with actual OAuth scopes if needed.
-
-    // Cleanup: remove auth_flow row and cookie
     ctx.db.deleteAuthFlow(flowId)
     res.clearCookie(AUTH_FLOW_COOKIE)
-
-    // See the random-mode branch above for why client_id rides along.
-    const callbackParams: CallbackParams = {
-      request_uri: flow.requestUri,
+    const redirectUrl = buildEpdsCallbackUrl({
+      flowRequestUri: flow.requestUri,
+      flowClientId: flow.clientId,
       email,
-      approved: '1',
-      new_account: '0',
-    }
-    if (flow.clientId) callbackParams.client_id = flow.clientId
-    const { sig, ts } = signCallback(
-      callbackParams,
-      ctx.config.epdsCallbackSecret,
-    )
-    const params = new URLSearchParams({ ...callbackParams, ts, sig })
-    const redirectUrl = `${ctx.config.pdsPublicUrl}/oauth/epds-callback?${params.toString()}`
-
+      isNewAccount: false,
+    })
     logger.info(
       { email, flowId, isNewAccount },
       'Bridge: redirecting to epds-callback',
