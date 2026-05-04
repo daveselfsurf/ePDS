@@ -272,6 +272,139 @@ Feature: Passwordless authentication via email OTP
     Then the browser is redirected back to the demo client
     And the demo client has a valid OAuth access token
 
+  # --- OTP expiry combined with real-world PAR expiry ---
+  #
+  # The @otp-expiry scenario above only ages out the better-auth OTP row,
+  # deliberately keeping the PAR alive. That isolates the auth_flow TTL
+  # fix from the upstream PAR layer, but it does NOT match what a real
+  # user hits at the 10-minute mark. Upstream's PAR_EXPIRES_IN is 5 min,
+  # so by the time a user has waited long enough for the OTP to expire,
+  # the PAR row in pds-core is already gone too. Resend issues a fresh
+  # OTP and the browser still presents an alive auth_flow cookie, so
+  # auth-service happily threads the user to /auth/complete — but the
+  # subsequent /oauth/epds-callback hop trips AccessDeniedError on the
+  # dead PAR and the user is bounced to the friendly "Your sign-in took
+  # too long" page added in 0e62bd6. They are stuck: Resend regenerates
+  # the OTP but cannot regenerate the PAR (RequestManager.get() deletes
+  # the row in the same call that throws), and the user has no path
+  # forward without restarting from the OAuth client.
+  #
+  # This scenario reproduces that loop. It is currently RED. The fix
+  # is to make Resend re-push a fresh PAR (issuing a new request_uri,
+  # rebinding the auth_flow row + cookie) so the OAuth ticket survives
+  # the same 10-minute window the OTP can survive via Resend.
+  #
+  # Implementation note: this combines the two existing test-only
+  # hooks back-to-back at the moment the user submits the stale OTP —
+  # /_internal/test/expire-otp on auth-service, then
+  # /_internal/test/delete-par on pds-core. Both are gated by
+  # EPDS_TEST_HOOKS=1 + EPDS_INTERNAL_SECRET. The auth_flow row +
+  # cookie are left alive (matching reality at the 10 min mark) so
+  # the failure isolates to the PAR layer.
+  @email @otp-and-par-expiry
+  Scenario: Expired OTP + expired PAR — Resend must still recover the flow
+    When the demo client initiates an OAuth login
+    Then the browser is redirected to the auth service login page
+    And the login page displays an email input form
+    When the user enters a unique test email and submits
+    Then an OTP email arrives in the mail trap for the test email
+    And the login page shows an OTP verification form
+    When more than 10 minutes pass before the user enters the OTP
+    And the PAR request_uri has expired before the bridge fires
+    And the user enters the OTP code
+    Then the verification form shows an "OTP expired" error
+    And the user can try again
+    When the user requests a new OTP via the resend button
+    Then a fresh OTP email arrives in the mail trap for the test email
+    When the user enters the OTP code
+    And the user picks a handle
+    Then the browser is redirected back to the demo client
+    And the demo client has a valid OAuth access token
+
+  # --- Multiple Resend cycles silently age out the PAR ---
+  #
+  # A real user waits ~4 min for the first OTP, gives up, clicks Resend.
+  # Waits another ~4 min, clicks Resend again. They never see an "OTP
+  # expired" message because each Resend issues a fresh code well inside
+  # the 10-min OTP TTL — but the PAR (5 min hardcoded inactivity timeout
+  # upstream) has died sometime between Resend cycles. This is the same
+  # root cause as @otp-and-par-expiry but without any OTP-expired UI in
+  # the path, so a fix that only patches the OTP-expired branch would
+  # still leave this loop. Submitting the second-Resend OTP must
+  # complete the flow.
+  #
+  # We cannot wall-clock-wait the 5 min between Resends, so the PAR is
+  # killed mid-flow via /_internal/test/delete-par. The OTP and
+  # auth_flow rows are left alive (the user is well within their
+  # respective TTLs throughout) so the failure isolates to PAR.
+  @email @otp-and-par-expiry @multiple-resend
+  Scenario: Two Resend cycles after silent PAR death still complete the flow
+    When the demo client initiates an OAuth login
+    Then the browser is redirected to the auth service login page
+    And the login page displays an email input form
+    When the user enters a unique test email and submits
+    Then an OTP email arrives in the mail trap for the test email
+    And the login page shows an OTP verification form
+    When the user requests a new OTP via the resend button
+    Then a fresh OTP email arrives in the mail trap for the test email
+    When the PAR request_uri has expired before the bridge fires
+    And the user requests a new OTP via the resend button
+    Then a fresh OTP email arrives in the mail trap for the test email
+    When the user enters the OTP code
+    And the user picks a handle
+    Then the browser is redirected back to the demo client
+    And the demo client has a valid OAuth access token
+
+  # --- prompt=login forced re-auth + PAR expiry ---
+  #
+  # The demo's "Force re-authentication" checkbox sets prompt=login on
+  # both the auth-service redirect query AND the PAR body. Auth-service
+  # honours the query and serves the OTP form rather than redirecting
+  # to pds-core (session-reuse.ts:158, isForceLoginPrompt). prompt=login
+  # is the path most likely to trip a PAR-expiry loop in production
+  # because the demo's "Force re-authentication" UX implies a returning
+  # user who is consciously taking their time over the OTP, not
+  # rattling through it. The same delete-par hook reproduces what
+  # happens when that conscious pause crosses the 5-min PAR threshold.
+  # Asserts the same end state as the prompt=login scenario in
+  # session-reuse-bugs.feature: a single OTP cycle followed by /welcome.
+  @email @otp-and-par-expiry @prompt-login
+  Scenario: prompt=login + expired PAR — flow must still complete
+    Given a returning user has a PDS account
+    When the demo client starts a new OAuth flow with prompt=login
+    And the user enters the test email on the login page
+    Then an OTP email arrives in the mail trap
+    And the login page shows an OTP verification form
+    When the PAR request_uri has expired before the bridge fires
+    And the user enters the OTP code
+    Then the demo client's welcome page confirms the user is signed in
+
+  # --- Recovery via backup email + PAR expiry ---
+  #
+  # Recovery has its own /auth/recover entry point and its own OTP
+  # round, but ultimately hands the user back to the OAuth flow's
+  # original PAR via /auth/complete → /oauth/epds-callback. A user
+  # who triggers recovery (already an "I lost access" path, plausibly
+  # slow) and takes >5 minutes between landing on the recovery page
+  # and entering the recovery OTP will see the same PAR-dead loop.
+  # Reuses the recovery scenario shape from account-recovery.feature
+  # plus the PAR delete hook.
+  @email @otp-and-par-expiry @recovery
+  Scenario: Recovery via backup email + expired PAR — flow must still complete
+    Given a returning user has a PDS account
+    And the test user has a verified backup email
+    And the demo client initiates OAuth with the test email as login_hint
+    # /auth/recover is a plain URL with no request_uri query parameter,
+    # so we must snapshot the request_uri while we're still on the
+    # original /oauth/authorize page (the login_hint step lands here).
+    And the PAR request_uri is captured for later expiry
+    When the user navigates to the recovery page
+    And the user enters the backup email on the recovery page
+    Then an OTP email arrives in the mail trap for the backup email
+    When the PAR request_uri has expired before the bridge fires
+    And the user enters the recovery OTP
+    Then the demo client's welcome page confirms the user is signed in
+
   # --- PAR (request_uri) expiry ---
   #
   # The PAR ("Pushed Authorization Request") record lives in pds-core's

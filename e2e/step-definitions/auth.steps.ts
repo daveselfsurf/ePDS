@@ -566,24 +566,44 @@ async function callPdsExpiryHook(
 }
 
 /**
- * Read the PAR request_uri from the current auth-service login page
- * URL and stash it on the world for subsequent expiry hooks. The URL
- * is `https://<auth>/oauth/authorize?request_uri=urn:...&...` while the
- * user is on the login/OTP form. Throws if the URL doesn't carry it,
- * which means the surrounding scenario is mis-ordered (the page must
- * be on the auth-service side before this step runs).
+ * Read the PAR request_uri from the current auth-service page URL and
+ * stash it on the world for subsequent expiry hooks. While the user is
+ * on the login/OTP form the URL is
+ * `https://<auth>/oauth/authorize?request_uri=urn:...&...`, but on
+ * downstream pages (e.g. /auth/recover) the parameter has been dropped.
+ * Falls back to a previously-stashed `world.lastRequestUri` so a
+ * scenario can capture the URI early (via the dedicated capture step
+ * below) and consult it after navigation. Throws when neither source
+ * has a value, which means the scenario is mis-ordered.
  */
 function captureRequestUriFromPage(world: EpdsWorld): string {
   const page = getPage(world)
-  const requestUri = new URL(page.url()).searchParams.get('request_uri')
-  if (!requestUri) {
-    throw new Error(
-      `Expected request_uri in page URL but found none: ${page.url()}`,
-    )
+  const fromUrl = new URL(page.url()).searchParams.get('request_uri')
+  if (fromUrl) {
+    world.lastRequestUri = fromUrl
+    return fromUrl
   }
-  world.lastRequestUri = requestUri
-  return requestUri
+  if (world.lastRequestUri) {
+    return world.lastRequestUri
+  }
+  throw new Error(
+    `Expected request_uri in page URL or previously captured but found none: ${page.url()}`,
+  )
 }
+
+/**
+ * Capture and stash the PAR request_uri from the current auth-service
+ * page URL so a later step can refer to it after navigating away. Used
+ * by scenarios where the OTP form is left for /auth/recover (recovery)
+ * or any other downstream page where the request_uri has dropped off
+ * the URL.
+ */
+When(
+  'the PAR request_uri is captured for later expiry',
+  function (this: EpdsWorld) {
+    captureRequestUriFromPage(this)
+  },
+)
 
 When(
   'the PAR request_uri has expired before the bridge fires',
