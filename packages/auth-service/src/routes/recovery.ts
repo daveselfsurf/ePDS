@@ -407,6 +407,7 @@ export function renderRecoveryOtpForm(opts: {
         <input type="hidden" name="csrf" value="${escapeHtml(opts.csrfToken)}">
         <input type="hidden" name="request_uri" value="${escapeHtml(opts.requestUri)}">
         <input type="hidden" name="email" value="${escapeHtml(opts.email)}">
+        ${noHeartbeatField}
         <div class="field">
           <input type="text" id="code" name="code" required autofocus
                  aria-label="One-time code"
