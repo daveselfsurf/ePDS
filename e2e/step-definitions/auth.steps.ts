@@ -656,3 +656,35 @@ Then(
     }
   },
 )
+
+// ---------------------------------------------------------------------------
+// PAR heartbeat liveness (@par-heartbeat)
+// ---------------------------------------------------------------------------
+//
+// The OTP form auto-fires a fetch to /auth/ping every 3 minutes. Waiting
+// 3 minutes wall-clock is unacceptable for an e2e scenario, so this step
+// invokes the same fetch synchronously from the page's own JS context
+// — same origin, same cookies, same browser security boundary — and
+// asserts the response. That proves the wiring (page can reach
+// /auth/ping → auth-service forwards to pds-core's
+// /_internal/ping-request → returns 200) without waiting for the
+// interval to tick.
+
+Then(
+  'a heartbeat fetched from the OTP form returns ok:true',
+  async function (this: EpdsWorld) {
+    const page = getPage(this)
+    const body = await page.evaluate(async () => {
+      const r = await fetch('/auth/ping', {
+        credentials: 'include',
+        cache: 'no-store',
+      })
+      return (await r.json()) as { ok: boolean; reason?: string }
+    })
+    if (!body.ok) {
+      throw new Error(
+        `Expected /auth/ping to return ok:true but got: ${JSON.stringify(body)}`,
+      )
+    }
+  },
+)

@@ -405,6 +405,25 @@ Feature: Passwordless authentication via email OTP
     And the user enters the recovery OTP
     Then the demo client's welcome page confirms the user is signed in
 
+  # --- PAR heartbeat (live PAR, no delete) ---
+  #
+  # Proves the in-page heartbeat reaches /auth/ping and that
+  # /auth/ping forwards to pds-core's /_internal/ping-request,
+  # i.e. the wiring works end-to-end through Caddy. This is
+  # heartbeat liveness, not heartbeat efficacy — the unit tests in
+  # heartbeat.test.ts cover routing logic. We don't wall-clock-wait
+  # 5 min for the timer to lapse; instead the browser fires the
+  # heartbeat fetch synchronously from the OTP form's page context
+  # and we assert the response shape.
+  @email @par-heartbeat
+  Scenario: OTP form's heartbeat reaches /auth/ping with ok:true
+    When the demo client initiates an OAuth login
+    Then the browser is redirected to the auth service login page
+    When the user enters a unique test email and submits
+    Then an OTP email arrives in the mail trap for the test email
+    And the login page shows an OTP verification form
+    Then a heartbeat fetched from the OTP form returns ok:true
+
   # --- PAR (request_uri) expiry ---
   #
   # The PAR ("Pushed Authorization Request") record lives in pds-core's
