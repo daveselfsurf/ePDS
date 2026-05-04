@@ -572,7 +572,59 @@ describe('renderLoginPage OTP verify-form double-submit latch (regression)', () 
     const branchEnd = html.indexOf('verifying = false;', branchStart)
     expect(branchEnd).toBeGreaterThan(branchStart)
     const branch = html.slice(branchStart, branchEnd)
-    expect(branch).toContain('showError(result.error);')
+    // Either the plain showError or the inline-action variant is fine
+    // (both surface the message to the user); just assert SOME error
+    // surface is invoked.
+    expect(branch).toMatch(/showError(?:WithAction)?\(/)
     expect(branch).toContain('clearOtpBoxes();')
+  })
+})
+
+describe('renderLoginPage inline Resend action on expired OTP', () => {
+  // The OTP-expired error used to surface only as "OTP expired" /
+  // "Invalid or expired code" text inside the error banner. Users
+  // missed the separate Resend button below the form. The inline
+  // action button surfaces "Send a new code" right next to the
+  // error message and triggers the same Resend flow.
+
+  it('declares showErrorWithAction with a textContent-only label sink', () => {
+    const html = renderDefault()
+    expect(html).toContain('function showErrorWithAction(')
+    // The label is set via .textContent, never via innerHTML — a
+    // reflected error string that happened to look like HTML must
+    // not be able to inject script tags.
+    const fnStart = html.indexOf('function showErrorWithAction(')
+    expect(fnStart).toBeGreaterThan(0)
+    const fnEnd = html.indexOf('function clearError', fnStart)
+    expect(fnEnd).toBeGreaterThan(fnStart)
+    const fnBody = html.slice(fnStart, fnEnd)
+    expect(fnBody).toContain('btn.textContent = actionLabel')
+    expect(fnBody).not.toContain('innerHTML')
+  })
+
+  it('detects OTP-expired errors via a substring-stable regex', () => {
+    const html = renderDefault()
+    // The detection must catch:
+    //   - better-auth's "Invalid or expired code"
+    //   - auth-service's "OTP expired"
+    //   - any future wording with "expir" or "too long" in it
+    expect(html).toMatch(/var isExpired = \/expir\|too long\/i\.test/)
+  })
+
+  it('renders the inline action with the "Send a new code" label and triggers the Resend button', () => {
+    const html = renderDefault()
+    // The inline action label and the click target must be present.
+    expect(html).toContain("'Send a new code'")
+    expect(html).toContain("document.getElementById('btn-resend').click()")
+  })
+
+  it('falls back to the plain showError on non-expired errors', () => {
+    const html = renderDefault()
+    // The non-expired branch must NOT route through
+    // showErrorWithAction (otherwise an "Invalid code" message
+    // would carry an inappropriate "Send a new code" link).
+    expect(html).toMatch(
+      /if \(isExpired\) \{[\s\S]*?\} else \{[\s\S]*?showError\(result\.error\);\s*\}/,
+    )
   })
 })

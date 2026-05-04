@@ -627,6 +627,12 @@ export function renderLoginPage(opts: {
     .flash-msg { padding: 12px; border-radius: 10px; margin: 12px 0; font-size: 14px; text-align: center; }
     .flash-msg.error { color: #dc3545; background: #fdf0f0; }
     .flash-msg.success { color: #28a745; background: #f0fff4; }
+    /* Inline action button rendered next to an OTP-expired error so
+       the user doesn't have to hunt for the separate Resend button.
+       Styled as a link rather than a button to make it visually
+       continuous with the message text. */
+    .flash-action { background: none; border: none; padding: 0; font: inherit; color: inherit; text-decoration: underline; cursor: pointer; }
+    .flash-action:hover { text-decoration: none; }
     .step-otp { display: none; }
     .step-otp.active { display: block; }
     .step-email.hidden { display: none; }
@@ -816,6 +822,11 @@ export function renderLoginPage(opts: {
       });
 
       function showFlash(msg, kind) {
+        // Build the message DOM imperatively so showErrorWithAction
+        // can append an inline action (e.g. Resend) without ever
+        // interpolating user-influenced strings as HTML. textContent
+        // is the only sink for the msg argument, which neutralises
+        // any HTML in the better-auth error string.
         errorEl.textContent = msg;
         errorEl.classList.remove('error', 'success');
         errorEl.classList.add(kind);
@@ -824,6 +835,26 @@ export function renderLoginPage(opts: {
 
       function showError(msg) { showFlash(msg, 'error'); }
       function showSuccess(msg) { showFlash(msg, 'success'); }
+
+      /**
+       * Show an error message with an inline action button (e.g. a
+       * "Send a new code" link rendered next to the OTP-expired
+       * message). The action label is set via textContent so a
+       * reflected error string can never inject HTML; the click
+       * handler runs the supplied callback. When actionLabel is
+       * absent, behaves like showError.
+       */
+      function showErrorWithAction(msg, actionLabel, onClick) {
+        showFlash(msg, 'error');
+        if (!actionLabel || typeof onClick !== 'function') return;
+        errorEl.appendChild(document.createTextNode(' '));
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'flash-action';
+        btn.textContent = actionLabel;
+        btn.addEventListener('click', onClick);
+        errorEl.appendChild(btn);
+      }
 
       function clearError() {
         errorEl.style.display = 'none';
@@ -985,7 +1016,20 @@ export function renderLoginPage(opts: {
         try {
           var result = await verifyOtp(currentEmail, otp);
           if (result && result.error) {
-            showError(result.error);
+            // Inline a "Send a new code" action when the error
+            // indicates the OTP has aged out — too easy to miss the
+            // separate Resend button below the form. The substring
+            // match catches the better-auth wording ("Invalid or
+            // expired code") and the auth-service wording ("OTP
+            // expired") plus generic "expir"/"too long" variants.
+            var isExpired = /expir|too long/i.test(result.error);
+            if (isExpired) {
+              showErrorWithAction(result.error, 'Send a new code', function() {
+                document.getElementById('btn-resend').click();
+              });
+            } else {
+              showError(result.error);
+            }
             // Clear the boxes so the user re-enters all 6 digits. Editing
             // a still-full grid would auto-submit on the first keystroke
             // (length stays at 6) and spam the rate limiter.
