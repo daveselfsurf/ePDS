@@ -39,7 +39,11 @@ afterAll(() => {
 })
 
 const buildRedirectMock = vi.hoisted(() => vi.fn())
-const resolveClientMetadataMock = vi.hoisted(() => vi.fn())
+// Mock the start-over-href resolver at the shared package boundary
+// rather than the underlying resolveClientMetadata, because the
+// resolver's internal call path uses a relative import that vi.mock
+// can't intercept transitively.
+const resolveStartOverHrefMock = vi.hoisted(() => vi.fn())
 
 vi.mock('../lib/redirect-to-client-error.js', () => ({
   buildClientErrorRedirect: buildRedirectMock,
@@ -48,7 +52,7 @@ vi.mock('@certified-app/shared', async (importActual) => {
   const actual = await importActual<Record<string, unknown>>()
   return {
     ...actual,
-    resolveClientMetadata: resolveClientMetadataMock,
+    resolveStartOverHref: resolveStartOverHrefMock,
   }
 })
 
@@ -56,7 +60,7 @@ import { cleanExit } from '../lib/clean-exit.js'
 
 beforeEach(() => {
   buildRedirectMock.mockReset()
-  resolveClientMetadataMock.mockReset()
+  resolveStartOverHrefMock.mockReset()
 })
 
 /** Build a minimal Response double that records the calls cleanExit
@@ -130,9 +134,9 @@ describe('cleanExit — Tier 1 (redirect to OAuth client)', () => {
       description: 'Sign-in took too long.',
       state: undefined,
     })
-    // No metadata lookup needed — the redirect path doesn't touch
-    // resolveClientHome.
-    expect(resolveClientMetadataMock).not.toHaveBeenCalled()
+    // No Start Over lookup needed — the redirect path doesn't fall
+    // through to the styled HTML.
+    expect(resolveStartOverHrefMock).not.toHaveBeenCalled()
     // No HTML body emitted.
     expect(got.body).toBeUndefined()
   })
@@ -168,11 +172,9 @@ describe('cleanExit — Tier 1 (redirect to OAuth client)', () => {
 })
 
 describe('cleanExit — Tier 2 (Start Over fallback when redirect fails)', () => {
-  it('renders the styled HTML page with a Start Over button targeting client_uri when buildClientErrorRedirect returns null', async () => {
+  it('renders the styled HTML page with a Start Over button using the resolved href', async () => {
     buildRedirectMock.mockResolvedValueOnce(null)
-    resolveClientMetadataMock.mockResolvedValueOnce({
-      client_uri: 'https://demo.example/',
-    })
+    resolveStartOverHrefMock.mockResolvedValueOnce('https://demo.example/')
     const { res, inspect } = makeResStub()
 
     await cleanExit({
@@ -191,53 +193,19 @@ describe('cleanExit — Tier 2 (Start Over fallback when redirect fails)', () =>
     expect(got.body).toContain('class="start-over"')
     expect(got.body).toContain('href="https://demo.example/"')
     expect(got.body).toContain('>Return to sign in</a>')
+    // The Start Over resolver is responsible for picking client_uri /
+    // origin / sanitising schemes — that logic is owned (and unit
+    // tested) by `@certified-app/shared`'s start-over-href.test.ts.
+    // cleanExit just trusts whatever the resolver returns.
+    expect(resolveStartOverHrefMock).toHaveBeenCalledWith(
+      CLIENT_ID,
+      expect.any(Object),
+    )
   })
 
-  it('falls back to the clientId origin when client_uri is absent', async () => {
+  it('omits the Start Over button when the resolver returns null', async () => {
     buildRedirectMock.mockResolvedValueOnce(null)
-    resolveClientMetadataMock.mockResolvedValueOnce({})
-    const { res, inspect } = makeResStub()
-
-    await cleanExit({
-      res,
-      clientId: CLIENT_ID,
-      pdsUrl: PDS_URL,
-      code: 'access_denied',
-      description: 'd',
-    })
-
-    const got = inspect()
-    expect(got.body).toContain('class="start-over"')
-    // Origin of the clientId metadata URL. Note: URL.toString() on a
-    // bare-origin URL adds a trailing slash, so the rendered href is
-    // "https://demo.example/" rather than "https://demo.example".
-    expect(got.body).toContain('href="https://demo.example/"')
-  })
-
-  it('rejects a client_uri with non-http(s) scheme and falls back to clientId origin', async () => {
-    buildRedirectMock.mockResolvedValueOnce(null)
-    resolveClientMetadataMock.mockResolvedValueOnce({
-      client_uri: 'javascript:alert(1)',
-    })
-    const { res, inspect } = makeResStub()
-
-    await cleanExit({
-      res,
-      clientId: CLIENT_ID,
-      pdsUrl: PDS_URL,
-      code: 'access_denied',
-      description: 'd',
-    })
-
-    const got = inspect()
-    expect(got.body).not.toContain('javascript:')
-    // Falls back to clientId-origin (with URL-canonical trailing slash).
-    expect(got.body).toContain('href="https://demo.example/"')
-  })
-
-  it('omits the Start Over button when client metadata lookup throws', async () => {
-    buildRedirectMock.mockResolvedValueOnce(null)
-    resolveClientMetadataMock.mockRejectedValueOnce(new Error('network'))
+    resolveStartOverHrefMock.mockResolvedValueOnce(null)
     const { res, inspect } = makeResStub()
 
     await cleanExit({
@@ -255,7 +223,7 @@ describe('cleanExit — Tier 2 (Start Over fallback when redirect fails)', () =>
 
   it('honours fallbackStatus override (e.g. 500 for server_error)', async () => {
     buildRedirectMock.mockResolvedValueOnce(null)
-    resolveClientMetadataMock.mockResolvedValueOnce({})
+    resolveStartOverHrefMock.mockResolvedValueOnce(null)
     const { res, inspect } = makeResStub()
 
     await cleanExit({
@@ -274,7 +242,7 @@ describe('cleanExit — Tier 2 (Start Over fallback when redirect fails)', () =>
     // users and operators — the body says "internal failure" so the
     // heading shouldn't say "Sign-in session expired".
     buildRedirectMock.mockResolvedValueOnce(null)
-    resolveClientMetadataMock.mockResolvedValueOnce({})
+    resolveStartOverHrefMock.mockResolvedValueOnce(null)
     const { res, inspect } = makeResStub()
     await cleanExit({
       res,
@@ -291,7 +259,7 @@ describe('cleanExit — Tier 2 (Start Over fallback when redirect fails)', () =>
 
   it('uses "Sign-in session expired" as the fallback title for access_denied code', async () => {
     buildRedirectMock.mockResolvedValueOnce(null)
-    resolveClientMetadataMock.mockResolvedValueOnce({})
+    resolveStartOverHrefMock.mockResolvedValueOnce(null)
     const { res, inspect } = makeResStub()
     await cleanExit({
       res,
@@ -307,7 +275,7 @@ describe('cleanExit — Tier 2 (Start Over fallback when redirect fails)', () =>
 
   it('honours an explicit fallbackTitle override regardless of code', async () => {
     buildRedirectMock.mockResolvedValueOnce(null)
-    resolveClientMetadataMock.mockResolvedValueOnce({})
+    resolveStartOverHrefMock.mockResolvedValueOnce(null)
     const { res, inspect } = makeResStub()
     await cleanExit({
       res,
@@ -322,7 +290,7 @@ describe('cleanExit — Tier 2 (Start Over fallback when redirect fails)', () =>
 
   it('sets Cache-Control: no-store on the HTML fallback too', async () => {
     buildRedirectMock.mockResolvedValueOnce(null)
-    resolveClientMetadataMock.mockResolvedValueOnce({})
+    resolveStartOverHrefMock.mockResolvedValueOnce(null)
     const { res, inspect } = makeResStub()
     await cleanExit({
       res,
@@ -348,10 +316,10 @@ describe('cleanExit — no clientId in scope', () => {
     })
 
     const got = inspect()
-    // No metadata fetch, no redirect builder call, no Start Over
+    // No Start Over lookup, no redirect builder call, no Start Over
     // button — there's nothing to link to.
     expect(buildRedirectMock).not.toHaveBeenCalled()
-    expect(resolveClientMetadataMock).not.toHaveBeenCalled()
+    expect(resolveStartOverHrefMock).not.toHaveBeenCalled()
     expect(got.redirectLocation).toBeUndefined()
     expect(got.statusCode).toBe(400)
     expect(got.contentType).toBe('html')

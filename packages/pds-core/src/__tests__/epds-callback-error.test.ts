@@ -7,11 +7,13 @@ import type { Response } from 'express'
 // applied at module-graph time) so it is in effect before the
 // epds-callback-error module is imported below.
 const resolveClientMetadataMock = vi.hoisted(() => vi.fn())
+const resolveStartOverHrefMock = vi.hoisted(() => vi.fn())
 vi.mock('@certified-app/shared', async (importActual) => {
   const actual = await importActual<Record<string, unknown>>()
   return {
     ...actual,
     resolveClientMetadata: resolveClientMetadataMock,
+    resolveStartOverHref: resolveStartOverHrefMock,
   }
 })
 
@@ -28,6 +30,7 @@ const CLIENT_ID = 'https://demo.example/client-metadata.json'
 
 beforeEach(() => {
   resolveClientMetadataMock.mockReset()
+  resolveStartOverHrefMock.mockReset()
 })
 
 const TIMEOUT_DESCRIPTION =
@@ -440,25 +443,23 @@ describe('handleCallbackError — signedClientId fallback', () => {
 
 describe('handleCallbackError — HTML fallback Start Over CTA', () => {
   // When neither tier produces a redirect, the HTML fallback should
-  // still surface a "Return to sign in" button when we can resolve
-  // a sign-in entry URL from the signed client_id's metadata. The
-  // shape mirrors the equivalent helper in auth-service's
-  // lib/clean-exit.ts so users see the same CTA wherever the
-  // fallback fires.
+  // still surface a "Return to sign in" button when the shared
+  // resolveStartOverHref resolves to a sign-in entry URL. The
+  // resolver's own behaviour (client_uri / origin / scheme
+  // sanitisation) is owned and tested by
+  // packages/shared/src/__tests__/start-over-href.test.ts;
+  // these tests just verify handleCallbackError trusts the resolver
+  // and threads its result onto the renderError options.
 
-  it('renders a Start Over button targeting client_uri when signedClientId resolves but redirect fails', async () => {
-    // First call (Tier 1b) resolves but redirect_uri is bad → falls through.
-    // Second call (Start Over CTA) returns client_uri.
-    resolveClientMetadataMock
-      .mockResolvedValueOnce({}) // Tier 1b: no redirect_uris → null
-      .mockResolvedValueOnce({ client_uri: 'https://demo.example/' })
+  it('renders a Start Over button when signedClientId resolves to a Start Over href', async () => {
+    resolveClientMetadataMock.mockResolvedValueOnce({}) // Tier 1b: no redirect_uris → falls through
+    resolveStartOverHrefMock.mockResolvedValueOnce('https://demo.example/')
     const got = await invoke({
       err: new Error('This request has expired'),
       signedClientId: CLIENT_ID,
     })
     expect(got.statusCode).toBe(400)
     expect(got.contentType).toBe('html')
-    // renderError invoked with options.startOverHref pointing at client_uri.
     expect(got.renderError).toHaveBeenCalledWith(
       TIMEOUT_DESCRIPTION,
       expect.objectContaining({
@@ -466,38 +467,24 @@ describe('handleCallbackError — HTML fallback Start Over CTA', () => {
         startOverLabel: 'Return to sign in',
       }),
     )
-  })
-
-  it('falls back to clientId origin when client_uri is absent', async () => {
-    resolveClientMetadataMock
-      .mockResolvedValueOnce({}) // Tier 1b
-      .mockResolvedValueOnce({}) // Start Over: no client_uri
-    const got = await invoke({
-      err: new Error('This request has expired'),
-      signedClientId: CLIENT_ID,
-    })
-    expect(got.renderError).toHaveBeenCalledWith(
-      TIMEOUT_DESCRIPTION,
-      expect.objectContaining({
-        // URL.origin of CLIENT_ID
-        startOverHref: 'https://demo.example/',
-        startOverLabel: 'Return to sign in',
-      }),
+    expect(resolveStartOverHrefMock).toHaveBeenCalledWith(
+      CLIENT_ID,
+      expect.any(Object),
     )
   })
 
   it('omits the Start Over button when no signedClientId is in scope', async () => {
     const got = await invoke({ err: new Error('This request has expired') })
+    expect(resolveStartOverHrefMock).not.toHaveBeenCalled()
     expect(got.renderError).toHaveBeenCalledWith(
       TIMEOUT_DESCRIPTION,
       expect.objectContaining({ startOverHref: undefined }),
     )
   })
 
-  it('omits the Start Over button when the second metadata lookup throws', async () => {
-    resolveClientMetadataMock
-      .mockResolvedValueOnce({}) // Tier 1b
-      .mockRejectedValueOnce(new Error('network')) // Start Over lookup fails
+  it('omits the Start Over button when the resolver returns null', async () => {
+    resolveClientMetadataMock.mockResolvedValueOnce({}) // Tier 1b
+    resolveStartOverHrefMock.mockResolvedValueOnce(null)
     const got = await invoke({
       err: new Error('This request has expired'),
       signedClientId: CLIENT_ID,
@@ -505,22 +492,6 @@ describe('handleCallbackError — HTML fallback Start Over CTA', () => {
     expect(got.renderError).toHaveBeenCalledWith(
       TIMEOUT_DESCRIPTION,
       expect.objectContaining({ startOverHref: undefined }),
-    )
-  })
-
-  it('rejects a client_uri with non-http(s) scheme and falls back to clientId origin', async () => {
-    resolveClientMetadataMock.mockResolvedValueOnce({}).mockResolvedValueOnce({
-      client_uri: 'javascript:alert(1)',
-    })
-    const got = await invoke({
-      err: new Error('This request has expired'),
-      signedClientId: CLIENT_ID,
-    })
-    expect(got.renderError).toHaveBeenCalledWith(
-      TIMEOUT_DESCRIPTION,
-      expect.objectContaining({
-        startOverHref: 'https://demo.example/',
-      }),
     )
   })
 })

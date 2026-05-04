@@ -20,7 +20,7 @@
  * which call sites use this helper and why.
  */
 import type { Response } from 'express'
-import { resolveClientMetadata, createLogger } from '@certified-app/shared'
+import { createLogger, resolveStartOverHref } from '@certified-app/shared'
 import {
   buildClientErrorRedirect,
   type ClientErrorCode,
@@ -98,9 +98,11 @@ export async function cleanExit(opts: CleanExitOpts): Promise<void> {
   }
 
   // Tier 2: styled page with a Start Over link, when we can resolve
-  // the client's home page.
+  // the client's home page. The lookup logic lives in
+  // @certified-app/shared so pds-core's HTML fallback uses the same
+  // resolution / sanitisation rules.
   const startOverHref = opts.clientId
-    ? await resolveClientHome(opts.clientId)
+    ? await resolveStartOverHref(opts.clientId, logger)
     : null
 
   // Default title matches the common timeout case; server_error
@@ -123,59 +125,4 @@ export async function cleanExit(opts: CleanExitOpts): Promise<void> {
         startOverLabel: 'Return to sign in',
       }),
     )
-}
-
-/**
- * Best-effort lookup of the client's user-facing home / sign-in URL.
- * Prefers `client_uri` (an OAuth client metadata field intended for
- * exactly this purpose) and falls back to the client's origin.
- * Returns null when metadata cannot be resolved at all — the Start
- * Over button is then omitted and the page degrades to message-only.
- */
-async function resolveClientHome(clientId: string): Promise<string | null> {
-  try {
-    const metadata = await resolveClientMetadata(clientId)
-    const fromMetadata = sanitiseHttpUrl(metadata.client_uri)
-    if (fromMetadata) return fromMetadata
-    // Fallback: derive an origin from the client_id URL itself. Most
-    // atproto OAuth clients use a metadata URL on their own host, so
-    // the origin is a reasonable Sign-In landing page. Re-runs the
-    // same scheme check belt-and-braces — the upstream OAuth provider
-    // already enforces http(s) on client_id, but this lib is the only
-    // thing standing between an exotic clientId and the rendered
-    // Start Over button.
-    return sanitiseHttpUrl(safeOrigin(clientId))
-  } catch (err) {
-    logger.warn(
-      { err, clientId },
-      'cleanExit: client metadata lookup for Start Over failed',
-    )
-    return null
-  }
-}
-
-/**
- * Return `value` only when it parses as an absolute http(s) URL;
- * otherwise null. Defence in depth so a malformed `client_uri` from a
- * misconfigured client metadata document cannot end up as the href on
- * a `javascript:` link in the rendered Start Over button.
- */
-function sanitiseHttpUrl(value: string | null | undefined): string | null {
-  if (!value) return null
-  let url: URL
-  try {
-    url = new URL(value)
-  } catch {
-    return null
-  }
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
-  return url.toString()
-}
-
-function safeOrigin(value: string): string | null {
-  try {
-    return new URL(value).origin
-  } catch {
-    return null
-  }
 }

@@ -28,6 +28,7 @@ import type { Response } from 'express'
 import type { Logger } from 'pino'
 import {
   resolveClientMetadata,
+  resolveStartOverHref,
   type RenderErrorOptions,
 } from '@certified-app/shared'
 
@@ -308,51 +309,5 @@ export async function handleCallbackError(
           startOverLabel: 'Return to sign in',
         }),
       )
-  }
-}
-
-/**
- * Best-effort lookup of a sign-in entry URL for the given OAuth
- * client. Prefers `client_uri` (intended for exactly this purpose)
- * and falls back to the client_id's origin. Returns null when
- * metadata cannot be resolved at all. Mirrors the equivalent helper
- * in auth-service's `lib/clean-exit.ts` — pds-core's HTML fallback
- * is the same shape and shouldn't ship a different fallback.
- */
-async function resolveStartOverHref(
-  clientId: string,
-  logger: Pick<Logger, 'error' | 'warn'>,
-): Promise<string | null> {
-  try {
-    const metadata = await resolveClientMetadata(clientId)
-    const fromMetadata = sanitiseHttpUrl(metadata.client_uri)
-    if (fromMetadata) return fromMetadata
-    return sanitiseHttpUrl(safeOrigin(clientId))
-  } catch (err) {
-    logger.warn(
-      { err, clientId },
-      'ePDS callback: client metadata lookup for Start Over failed',
-    )
-    return null
-  }
-}
-
-function sanitiseHttpUrl(value: string | null | undefined): string | null {
-  if (!value) return null
-  let url: URL
-  try {
-    url = new URL(value)
-  } catch {
-    return null
-  }
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
-  return url.toString()
-}
-
-function safeOrigin(value: string): string | null {
-  try {
-    return new URL(value).origin
-  } catch {
-    return null
   }
 }
