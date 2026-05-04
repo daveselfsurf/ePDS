@@ -39,6 +39,47 @@ const logger = createLogger('auth:complete')
 
 const AUTH_FLOW_COOKIE = 'epds_auth_flow'
 
+/**
+ * Build the HMAC-signed `/oauth/epds-callback` redirect URL the
+ * /auth/complete route emits to bridge the user from auth-service to
+ * pds-core once the OTP / handle steps are done. Carries `client_id`
+ * alongside the rest of the signed params so pds-core's catch block
+ * can mount a clean-exit redirect to the client even when the PAR
+ * row has died and Step 2 itself throws (the row is gone before its
+ * `.parameters.client_id` can be read). client_id is signed too, so
+ * an attacker cannot tamper to redirect at a different client.
+ *
+ * `handle` is intentionally omitted on the random-mode path: an
+ * absent `handle` in the signed payload (serialised as '' by
+ * signCallback's `?? ''` sentinel) is the agreed signal to pds-core
+ * that it should call generateRandomHandle() instead of using a
+ * caller-supplied value. Both signCallback and verifyCallback use
+ * the same `params.handle ?? ''` shape; the sentinel is pinned by
+ * tests in packages/shared/src/__tests__/crypto.test.ts.
+ *
+ * Exported so it can be unit-tested without standing up the full
+ * /auth/complete route.
+ */
+export function buildEpdsCallbackUrl(args: {
+  flowRequestUri: string
+  flowClientId: string | null
+  email: string
+  isNewAccount: boolean
+  pdsPublicUrl: string
+  epdsCallbackSecret: string
+}): string {
+  const callbackParams: CallbackParams = {
+    request_uri: args.flowRequestUri,
+    email: args.email,
+    approved: '1',
+    new_account: args.isNewAccount ? '1' : '0',
+  }
+  if (args.flowClientId) callbackParams.client_id = args.flowClientId
+  const { sig, ts } = signCallback(callbackParams, args.epdsCallbackSecret)
+  const params = new URLSearchParams({ ...callbackParams, ts, sig })
+  return `${args.pdsPublicUrl}/oauth/epds-callback?${params.toString()}`
+}
+
 export function createCompleteRouter(
   ctx: AuthServiceContext,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- better-auth instance has no exported type
@@ -79,47 +120,6 @@ export function createCompleteRouter(
     })
 
   /**
-   * Build the HMAC-signed `/oauth/epds-callback` redirect URL the
-   * route emits to bridge the user from auth-service to pds-core
-   * once the OTP / handle steps are done. Carries `client_id`
-   * alongside the rest of the signed params so pds-core's catch
-   * block can mount a clean-exit redirect to the client even when
-   * the PAR row has died and Step 2 itself throws (the row is gone
-   * before its .parameters.client_id can be read). client_id is
-   * signed too, so an attacker cannot tamper to redirect at a
-   * different client.
-   *
-   * `handle` is intentionally omitted on the random-mode path: an
-   * absent `handle` in the signed payload (serialised as '' by
-   * signCallback's `?? ''` sentinel) is the agreed signal to
-   * pds-core that it should call generateRandomHandle() instead of
-   * using a caller-supplied value. Both signCallback and
-   * verifyCallback use the same `params.handle ?? ''` shape; the
-   * sentinel is pinned by tests in
-   * packages/shared/src/__tests__/crypto.test.ts.
-   */
-  function buildEpdsCallbackUrl(args: {
-    flowRequestUri: string
-    flowClientId: string | null
-    email: string
-    isNewAccount: boolean
-  }): string {
-    const callbackParams: CallbackParams = {
-      request_uri: args.flowRequestUri,
-      email: args.email,
-      approved: '1',
-      new_account: args.isNewAccount ? '1' : '0',
-    }
-    if (args.flowClientId) callbackParams.client_id = args.flowClientId
-    const { sig, ts } = signCallback(
-      callbackParams,
-      ctx.config.epdsCallbackSecret,
-    )
-    const params = new URLSearchParams({ ...callbackParams, ts, sig })
-    return `${ctx.config.pdsPublicUrl}/oauth/epds-callback?${params.toString()}`
-  }
-
-  /**
    * New-user random-mode bridge: skip the handle picker, ping the
    * PAR to reset the inactivity timer (non-fatal — pds-core will
    * surface any expiry it sees), and redirect to /oauth/epds-callback.
@@ -143,6 +143,8 @@ export function createCompleteRouter(
       flowClientId: flow.clientId,
       email,
       isNewAccount: true,
+      pdsPublicUrl: ctx.config.pdsPublicUrl,
+      epdsCallbackSecret: ctx.config.epdsCallbackSecret,
     })
     logger.info(
       { email, flowId },
@@ -262,6 +264,8 @@ export function createCompleteRouter(
       flowClientId: flow.clientId,
       email,
       isNewAccount: false,
+      pdsPublicUrl: ctx.config.pdsPublicUrl,
+      epdsCallbackSecret: ctx.config.epdsCallbackSecret,
     })
     logger.info(
       { email, flowId, isNewAccount },
