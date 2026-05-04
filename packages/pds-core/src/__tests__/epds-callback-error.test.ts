@@ -268,7 +268,10 @@ describe('handleCallbackError — malformed captured redirect_uri', () => {
     // HTML page served instead.
     expect(got.statusCode).toBe(400)
     expect(got.contentType).toBe('html')
-    expect(got.renderError).toHaveBeenCalledWith(TIMEOUT_DESCRIPTION)
+    expect(got.renderError).toHaveBeenCalledWith(
+      TIMEOUT_DESCRIPTION,
+      expect.any(Object),
+    )
     // The URL parse failure must be visible in operational logs.
     expect(got.logger.error).toHaveBeenCalledWith(
       expect.objectContaining({ capturedRedirectUri: badUri }),
@@ -282,7 +285,10 @@ describe('handleCallbackError — HTML fallback path', () => {
     const got = await invoke({ err: new Error('This request has expired') })
     expect(got.statusCode).toBe(400)
     expect(got.contentType).toBe('html')
-    expect(got.renderError).toHaveBeenCalledWith(TIMEOUT_DESCRIPTION)
+    expect(got.renderError).toHaveBeenCalledWith(
+      TIMEOUT_DESCRIPTION,
+      expect.any(Object),
+    )
     expect(got.body).toContain(TIMEOUT_DESCRIPTION)
     expect(got.redirectLocation).toBeUndefined()
   })
@@ -295,7 +301,10 @@ describe('handleCallbackError — HTML fallback path', () => {
   it('renders a 500 HTML page on generic server failure with no redirect_uri', async () => {
     const got = await invoke({ err: new Error('Database connection refused') })
     expect(got.statusCode).toBe(500)
-    expect(got.renderError).toHaveBeenCalledWith(SERVER_DESCRIPTION)
+    expect(got.renderError).toHaveBeenCalledWith(
+      SERVER_DESCRIPTION,
+      expect.any(Object),
+    )
   })
 
   it('does NOT leak raw JSON {"error":"Authentication failed"}', async () => {
@@ -361,7 +370,10 @@ describe('handleCallbackError — signedClientId fallback', () => {
     expect(got.redirectLocation).toBeUndefined()
     expect(got.statusCode).toBe(400)
     expect(got.contentType).toBe('html')
-    expect(got.renderError).toHaveBeenCalledWith(TIMEOUT_DESCRIPTION)
+    expect(got.renderError).toHaveBeenCalledWith(
+      TIMEOUT_DESCRIPTION,
+      expect.any(Object),
+    )
     expect(got.logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ signedClientId: CLIENT_ID }),
       expect.stringContaining('no usable redirect_uris'),
@@ -423,6 +435,93 @@ describe('handleCallbackError — signedClientId fallback', () => {
     // Falls through to the existing static HTML page.
     expect(got.statusCode).toBe(400)
     expect(got.contentType).toBe('html')
+  })
+})
+
+describe('handleCallbackError — HTML fallback Start Over CTA', () => {
+  // When neither tier produces a redirect, the HTML fallback should
+  // still surface a "Return to sign in" button when we can resolve
+  // a sign-in entry URL from the signed client_id's metadata. The
+  // shape mirrors the equivalent helper in auth-service's
+  // lib/clean-exit.ts so users see the same CTA wherever the
+  // fallback fires.
+
+  it('renders a Start Over button targeting client_uri when signedClientId resolves but redirect fails', async () => {
+    // First call (Tier 1b) resolves but redirect_uri is bad → falls through.
+    // Second call (Start Over CTA) returns client_uri.
+    resolveClientMetadataMock
+      .mockResolvedValueOnce({}) // Tier 1b: no redirect_uris → null
+      .mockResolvedValueOnce({ client_uri: 'https://demo.example/' })
+    const got = await invoke({
+      err: new Error('This request has expired'),
+      signedClientId: CLIENT_ID,
+    })
+    expect(got.statusCode).toBe(400)
+    expect(got.contentType).toBe('html')
+    // renderError invoked with options.startOverHref pointing at client_uri.
+    expect(got.renderError).toHaveBeenCalledWith(
+      TIMEOUT_DESCRIPTION,
+      expect.objectContaining({
+        startOverHref: 'https://demo.example/',
+        startOverLabel: 'Return to sign in',
+      }),
+    )
+  })
+
+  it('falls back to clientId origin when client_uri is absent', async () => {
+    resolveClientMetadataMock
+      .mockResolvedValueOnce({}) // Tier 1b
+      .mockResolvedValueOnce({}) // Start Over: no client_uri
+    const got = await invoke({
+      err: new Error('This request has expired'),
+      signedClientId: CLIENT_ID,
+    })
+    expect(got.renderError).toHaveBeenCalledWith(
+      TIMEOUT_DESCRIPTION,
+      expect.objectContaining({
+        // URL.origin of CLIENT_ID
+        startOverHref: 'https://demo.example/',
+        startOverLabel: 'Return to sign in',
+      }),
+    )
+  })
+
+  it('omits the Start Over button when no signedClientId is in scope', async () => {
+    const got = await invoke({ err: new Error('This request has expired') })
+    expect(got.renderError).toHaveBeenCalledWith(
+      TIMEOUT_DESCRIPTION,
+      expect.objectContaining({ startOverHref: undefined }),
+    )
+  })
+
+  it('omits the Start Over button when the second metadata lookup throws', async () => {
+    resolveClientMetadataMock
+      .mockResolvedValueOnce({}) // Tier 1b
+      .mockRejectedValueOnce(new Error('network')) // Start Over lookup fails
+    const got = await invoke({
+      err: new Error('This request has expired'),
+      signedClientId: CLIENT_ID,
+    })
+    expect(got.renderError).toHaveBeenCalledWith(
+      TIMEOUT_DESCRIPTION,
+      expect.objectContaining({ startOverHref: undefined }),
+    )
+  })
+
+  it('rejects a client_uri with non-http(s) scheme and falls back to clientId origin', async () => {
+    resolveClientMetadataMock.mockResolvedValueOnce({}).mockResolvedValueOnce({
+      client_uri: 'javascript:alert(1)',
+    })
+    const got = await invoke({
+      err: new Error('This request has expired'),
+      signedClientId: CLIENT_ID,
+    })
+    expect(got.renderError).toHaveBeenCalledWith(
+      TIMEOUT_DESCRIPTION,
+      expect.objectContaining({
+        startOverHref: 'https://demo.example/',
+      }),
+    )
   })
 })
 

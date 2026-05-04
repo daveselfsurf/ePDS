@@ -58,6 +58,16 @@ export interface CleanExitOpts {
    * pass it when available.
    */
   state?: string
+  /**
+   * Title for the styled HTML fallback page when the redirect path
+   * cannot fire. Default "Sign-in session expired" matches the
+   * common user-paced-timeout case (`code: 'access_denied'`); pass
+   * an explicit title for `server_error` callers where the body
+   * copy describes an internal failure rather than a session
+   * timeout. Mismatched title vs body would otherwise mis-diagnose
+   * the failure for both users and operators.
+   */
+  fallbackTitle?: string
 }
 
 /**
@@ -93,12 +103,22 @@ export async function cleanExit(opts: CleanExitOpts): Promise<void> {
     ? await resolveClientHome(opts.clientId)
     : null
 
+  // Default title matches the common timeout case; server_error
+  // callers should pass `fallbackTitle: 'Authentication failed'` (or
+  // similar) so the heading isn't a mis-diagnosis when the body
+  // describes an internal failure.
+  const fallbackTitle =
+    opts.fallbackTitle ??
+    (opts.code === 'server_error'
+      ? 'Authentication failed'
+      : 'Sign-in session expired')
+
   opts.res
     .status(fallbackStatus)
     .type('html')
     .send(
       renderError(opts.description, {
-        title: 'Sign-in session expired',
+        title: fallbackTitle,
         startOverHref: startOverHref ?? undefined,
         startOverLabel: 'Return to sign in',
       }),

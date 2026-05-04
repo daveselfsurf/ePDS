@@ -269,6 +269,57 @@ describe('cleanExit — Tier 2 (Start Over fallback when redirect fails)', () =>
     expect(inspect().statusCode).toBe(500)
   })
 
+  it('uses "Authentication failed" as the fallback title for server_error code', async () => {
+    // Mismatched title vs body would mis-diagnose the failure for both
+    // users and operators — the body says "internal failure" so the
+    // heading shouldn't say "Sign-in session expired".
+    buildRedirectMock.mockResolvedValueOnce(null)
+    resolveClientMetadataMock.mockResolvedValueOnce({})
+    const { res, inspect } = makeResStub()
+    await cleanExit({
+      res,
+      clientId: CLIENT_ID,
+      pdsUrl: PDS_URL,
+      code: 'server_error',
+      description: 'Internal failure',
+    })
+    const body = inspect().body!
+    expect(body).toContain('<title>Authentication failed</title>')
+    expect(body).toContain('<h1>Authentication failed</h1>')
+    expect(body).not.toContain('Sign-in session expired')
+  })
+
+  it('uses "Sign-in session expired" as the fallback title for access_denied code', async () => {
+    buildRedirectMock.mockResolvedValueOnce(null)
+    resolveClientMetadataMock.mockResolvedValueOnce({})
+    const { res, inspect } = makeResStub()
+    await cleanExit({
+      res,
+      clientId: CLIENT_ID,
+      pdsUrl: PDS_URL,
+      code: 'access_denied',
+      description: 'Sign-in took too long.',
+    })
+    const body = inspect().body!
+    expect(body).toContain('<title>Sign-in session expired</title>')
+    expect(body).not.toContain('Authentication failed')
+  })
+
+  it('honours an explicit fallbackTitle override regardless of code', async () => {
+    buildRedirectMock.mockResolvedValueOnce(null)
+    resolveClientMetadataMock.mockResolvedValueOnce({})
+    const { res, inspect } = makeResStub()
+    await cleanExit({
+      res,
+      clientId: CLIENT_ID,
+      pdsUrl: PDS_URL,
+      code: 'access_denied',
+      description: 'd',
+      fallbackTitle: 'Custom heading',
+    })
+    expect(inspect().body).toContain('<title>Custom heading</title>')
+  })
+
   it('sets Cache-Control: no-store on the HTML fallback too', async () => {
     buildRedirectMock.mockResolvedValueOnce(null)
     resolveClientMetadataMock.mockResolvedValueOnce({})

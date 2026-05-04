@@ -150,13 +150,18 @@ export function createRecoveryRouter(
         if (!flowId || !existingFlow) {
           const { randomBytes } = await import('node:crypto')
           flowId = randomBytes(16).toString('hex')
+          // Recover the original OAuth client_id by looking up the live
+          // auth_flow row keyed by this request_uri (the login page
+          // populated it on the parent flow). Falls back to null when
+          // the parent flow has expired or never existed — the rest of
+          // the clean-exit pipeline already handles a null clientId
+          // gracefully (text-only fallback page), so missing clientId
+          // is graceful degradation rather than a breakage.
+          const parentFlow = ctx.db.getAuthFlowByRequestUri(requestUri)
           ctx.db.createAuthFlow({
             flowId,
             requestUri,
-            // Recovery flows always start with null clientId — the prior OAuth
-            // flow's clientId is not recoverable here since getAuthFlow filters
-            // expired rows and we have no peek accessor.
-            clientId: null,
+            clientId: parentFlow?.clientId ?? null,
             // handleMode omitted — recovery flows don't go through handle assignment
             expiresAt: Date.now() + AUTH_FLOW_TTL_MS,
           })
@@ -351,6 +356,33 @@ export function renderRecoveryForm(opts: {
     </div>
     ${POWERED_BY_HTML}
   </div>
+  <script>
+    (function() {
+      // PAR heartbeat for the email-input recovery page — same shape
+      // as the OTP form and recovery OTP form. A user who lands on
+      // /auth/recover and then pauses (rummaging for a backup email
+      // address, switching tabs, fishing through a different inbox)
+      // would otherwise let the parent OAuth flow's PAR die before
+      // they even submit the email. Stops on form submit / unload /
+      // when the server reports the auth_flow or PAR is gone.
+      if (!${JSON.stringify(opts.heartbeatEnabled !== false)}) return;
+      var handle = null;
+      function ping() {
+        fetch('/auth/ping', { credentials: 'include', cache: 'no-store' })
+          .then(function(r) { return r.json(); })
+          .then(function(body) {
+            if (body && body.ok === false && body.reason !== 'transient') stop();
+          })
+          .catch(function() {});
+      }
+      function stop() { if (handle !== null) { clearInterval(handle); handle = null; } }
+      handle = setInterval(ping, 3 * 60 * 1000);
+      window.addEventListener('beforeunload', stop);
+      Array.prototype.forEach.call(document.querySelectorAll('form'), function(form) {
+        form.addEventListener('submit', stop);
+      });
+    })();
+  </script>
 </body>
 </html>`
 }

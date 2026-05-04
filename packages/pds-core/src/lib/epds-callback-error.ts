@@ -26,7 +26,10 @@
  */
 import type { Response } from 'express'
 import type { Logger } from 'pino'
-import { resolveClientMetadata } from '@certified-app/shared'
+import {
+  resolveClientMetadata,
+  type RenderErrorOptions,
+} from '@certified-app/shared'
 
 /** Decoded view of a thrown error for response shaping. */
 export interface CallbackErrorClassification {
@@ -97,8 +100,12 @@ export interface HandleCallbackErrorOpts {
   logger: Pick<Logger, 'error' | 'warn'>
   /** Renders the styled HTML fallback page. Injected so tests can
    * assert on the rendered string without pulling in the real
-   * renderer. */
-  renderError: (message: string) => string
+   * renderer. Accepts the same options object the shared
+   * `renderError` exports so the HTML fallback can render a
+   * "Return to sign in" button when we know which OAuth client the
+   * user came from but couldn't construct a valid redirect target
+   * (metadata missing, redirect_uris empty / unparseable). */
+  renderError: (message: string, options?: RenderErrorOptions) => string
 }
 
 /**
@@ -154,11 +161,21 @@ function tryRedirectFromCapturedUri(args: {
  * Tier 1b: try to issue an RFC 6749 §4.1.2.1 redirect using
  * `redirect_uris[0]` resolved from the signed `client_id`'s
  * published OAuth metadata. Used when Step 2 itself threw so we
- * never captured the PAR's redirect_uri / state. We lose `state`,
- * but the OAuth spec permits missing state on error redirects and
- * the client treats the response as an anonymous error and
- * restarts — exactly the right semantics for an expiry.
- * signedClientId rode along on the HMAC-signed callback URL so a
+ * never captured the PAR's redirect_uri / state.
+ *
+ * RFC 6749 §4.1.2.1 *requires* `state` in the error response when it
+ * was present in the authorization request. We omit it here because
+ * the original `state` value lived in the now-deleted PAR row and
+ * is unrecoverable — this is a pragmatic degradation, not
+ * spec-permitted behaviour. Spec-compliant OAuth clients have to
+ * tolerate uncorrelated error responses anyway (cross-device resume,
+ * browser session loss), so an "anonymous error, restart" outcome
+ * is universally recoverable on the client side. We chose redirect
+ * over stranding on a static page because the user gets back to the
+ * client's UI in either case, and the client at least sees the
+ * specific error code and description.
+ *
+ * `signedClientId` rode along on the HMAC-signed callback URL so a
  * tampered value cannot redirect a victim's flow at a different
  * OAuth client. Returns true when a redirect was emitted; false
  * when no redirect could be constructed (caller should fall through
@@ -272,9 +289,70 @@ export async function handleCallbackError(
     // produced from per-request state, so a cached copy is at best
     // misleading on a later attempt.
     res.setHeader('Cache-Control', 'no-store')
+    // Best-effort Start Over CTA: when we know which OAuth client
+    // initiated the flow (signedClientId), resolve a sign-in entry
+    // URL from its published metadata so the styled fallback isn't
+    // a true dead end. Auth-service does the same thing in
+    // lib/clean-exit.ts. Returns null when no clientId is in scope
+    // or metadata can't be resolved — the page degrades to text-only
+    // in that case.
+    const startOverHref = signedClientId
+      ? await resolveStartOverHref(signedClientId, logger)
+      : null
     res
       .status(isExpired ? 400 : 500)
       .type('html')
-      .send(renderError(description))
+      .send(
+        renderError(description, {
+          startOverHref: startOverHref ?? undefined,
+          startOverLabel: 'Return to sign in',
+        }),
+      )
+  }
+}
+
+/**
+ * Best-effort lookup of a sign-in entry URL for the given OAuth
+ * client. Prefers `client_uri` (intended for exactly this purpose)
+ * and falls back to the client_id's origin. Returns null when
+ * metadata cannot be resolved at all. Mirrors the equivalent helper
+ * in auth-service's `lib/clean-exit.ts` — pds-core's HTML fallback
+ * is the same shape and shouldn't ship a different fallback.
+ */
+async function resolveStartOverHref(
+  clientId: string,
+  logger: Pick<Logger, 'error' | 'warn'>,
+): Promise<string | null> {
+  try {
+    const metadata = await resolveClientMetadata(clientId)
+    const fromMetadata = sanitiseHttpUrl(metadata.client_uri)
+    if (fromMetadata) return fromMetadata
+    return sanitiseHttpUrl(safeOrigin(clientId))
+  } catch (err) {
+    logger.warn(
+      { err, clientId },
+      'ePDS callback: client metadata lookup for Start Over failed',
+    )
+    return null
+  }
+}
+
+function sanitiseHttpUrl(value: string | null | undefined): string | null {
+  if (!value) return null
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
+  return url.toString()
+}
+
+function safeOrigin(value: string): string | null {
+  try {
+    return new URL(value).origin
+  } catch {
+    return null
   }
 }
