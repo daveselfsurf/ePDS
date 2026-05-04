@@ -460,7 +460,11 @@ Then(
   async function (this: EpdsWorld, expected: string) {
     const page = getPage(this)
     await expect(page.locator('#error-msg')).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator('#error-msg')).toHaveText(expected, {
+    // toContainText (not toHaveText) so the OTP-expired error
+    // banner can carry the inline "Send a new code" action button
+    // alongside the message text. Equality matching would fail
+    // whenever the inline action surfaces.
+    await expect(page.locator('#error-msg')).toContainText(expected, {
       timeout: 10_000,
     })
   },
