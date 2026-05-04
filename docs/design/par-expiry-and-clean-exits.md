@@ -337,9 +337,18 @@ This work must avoid adding to the white-boxing surface catalogued in
 
 ## Status
 
-- Reproduction scenarios: landed on `fix/otp-resend-after-par-expiry`,
-  4 RED.
+- Reproduction scenarios: 4 RED scenarios committed on
+  `fix/otp-resend-after-par-expiry` and now GREEN — they assert
+  "browser lands back at the demo client with an auth error", which
+  the demo translates to `?error=auth_failed`.
 - Audit: complete. All 12 dead-end sites mapped to clusters A / B / C
   with resolved decisions.
-- Heartbeat impl: not started.
-- Clean-exit impl: not started.
+- Heartbeat impl: landed on commit `b1fc940`. `/auth/ping` route +
+  3-min `setInterval` on OTP form + recovery form. Covered by 15
+  unit tests and one e2e (`@par-heartbeat`).
+- Clean-exit impl: landed on commit `2e4d327`. Six auth-service
+  dead-ends rewired to `cleanExit()`; pds-core's
+  `handleCallbackError` extended with a `signedClientId` fallback
+  (delivered via a new `client_id` field on the HMAC-signed
+  callback). Covered by 7 new pds-core tests, 4 new shared crypto
+  tests, and the four `@otp-and-par-expiry` e2e scenarios.
