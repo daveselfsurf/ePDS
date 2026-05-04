@@ -346,10 +346,25 @@ Then(
   },
 )
 
-Then('the user can try again', async function (this: EpdsWorld) {
-  const page = getPage(this)
-  await expect(page.locator('.otp-box').first()).toBeEnabled()
-})
+Then(
+  'the OTP entry boxes are visible and enabled',
+  async function (this: EpdsWorld) {
+    const page = getPage(this)
+    const boxes = page.locator('.otp-box')
+    const count = await boxes.count()
+    if (count === 0) {
+      throw new Error('No .otp-box elements found — OTP form is not rendered')
+    }
+    // Every box must be both visible AND enabled. Asserting on .first()
+    // alone hid regressions where a partial form (e.g. a stale
+    // "verifying..." latch on later boxes) blocked further attempts even
+    // though the first box looked fine.
+    for (let i = 0; i < count; i++) {
+      await expect(boxes.nth(i)).toBeVisible()
+      await expect(boxes.nth(i)).toBeEnabled()
+    }
+  },
+)
 
 Then('further attempts are rejected', async function (this: EpdsWorld) {
   const page = getPage(this)

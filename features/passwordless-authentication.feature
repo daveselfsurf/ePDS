@@ -264,7 +264,7 @@ Feature: Passwordless authentication via email OTP
     When more than 10 minutes pass before the user enters the OTP
     And the user enters the OTP code
     Then the verification form shows an "OTP expired" error
-    And the user can try again
+    And the OTP entry boxes are visible and enabled
     When the user requests a new OTP via the resend button
     Then a fresh OTP email arrives in the mail trap for the test email
     When the user enters the OTP code
@@ -314,7 +314,7 @@ Feature: Passwordless authentication via email OTP
     And the PAR request_uri has expired before the bridge fires
     And the user enters the OTP code
     Then the verification form shows an "OTP expired" error
-    And the user can try again
+    And the OTP entry boxes are visible and enabled
     When the user requests a new OTP via the resend button
     Then a fresh OTP email arrives in the mail trap for the test email
     When the user enters the OTP code
@@ -455,7 +455,7 @@ Feature: Passwordless authentication via email OTP
     When the user requests an OTP for a unique test email
     And enters an incorrect OTP code
     Then the verification form shows an error message
-    And the user can try again
+    And the OTP entry boxes are visible and enabled
 
   Scenario: Too many failed OTP attempts locks out the token
     When the user requests an OTP for a unique test email
