@@ -658,6 +658,28 @@ Then(
 )
 
 // ---------------------------------------------------------------------------
+// Clean-exit assertions for @otp-and-par-expiry scenarios
+// ---------------------------------------------------------------------------
+//
+// When the upstream PAR is hard-dead (the test hook deletes the row),
+// no amount of heartbeat can revive it — but we still owe the user a
+// clean exit per RFC 6749 §4.1.2.1: redirect them back to the OAuth
+// client's redirect_uri with `error=access_denied` so the client's
+// own UI can handle retry. The demo client translates that to
+// `?error=auth_failed` on its landing page.
+
+Then(
+  'the browser lands back at the demo client with an auth error',
+  async function (this: EpdsWorld) {
+    const origin = new URL(testEnv.demoUrl).origin
+    const page = getPage(this)
+    await page.waitForURL(`${origin}/?error=auth_failed*`, {
+      timeout: 30_000,
+    })
+  },
+)
+
+// ---------------------------------------------------------------------------
 // PAR heartbeat liveness (@par-heartbeat)
 // ---------------------------------------------------------------------------
 //

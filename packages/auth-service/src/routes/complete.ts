@@ -23,11 +23,15 @@
  */
 import { Router, type Request, type Response } from 'express'
 import type { AuthServiceContext } from '../context.js'
-import { createLogger, signCallback } from '@certified-app/shared'
+import {
+  createLogger,
+  signCallback,
+  type CallbackParams,
+} from '@certified-app/shared'
 import { fromNodeHeaders } from 'better-auth/node'
+import { cleanExit } from '../lib/clean-exit.js'
 import { getDidByEmail } from '../lib/get-did-by-email.js'
 import { pingParRequest } from '../lib/ping-par-request.js'
-import { renderError } from '../lib/render-error.js'
 import { requireInternalEnv } from '../lib/require-internal-env.js'
 import { resolveRecoveryEmail } from '../lib/resolve-recovery-email.js'
 
@@ -49,10 +53,18 @@ export function createCompleteRouter(
     const flowId = req.cookies[AUTH_FLOW_COOKIE] as string | undefined
     if (!flowId) {
       logger.warn('No epds_auth_flow cookie found on /auth/complete')
-      res
-        .status(400)
-        .type('html')
-        .send(renderError('Authentication session expired. Please try again.'))
+      // No clientId in scope (no cookie → no flow → no client), so the
+      // helper falls through to the styled Start Over page with no
+      // button. The user has no recoverable context here; this is the
+      // best we can do.
+      await cleanExit({
+        res,
+        clientId: null,
+        pdsUrl,
+        code: 'access_denied',
+        description:
+          'Your sign-in took too long to complete. Please start sign-in again.',
+      })
       return
     }
 
@@ -61,10 +73,14 @@ export function createCompleteRouter(
     if (!flow) {
       logger.warn({ flowId }, 'auth_flow not found or expired')
       res.clearCookie(AUTH_FLOW_COOKIE)
-      res
-        .status(400)
-        .type('html')
-        .send(renderError('Authentication session expired. Please try again.'))
+      await cleanExit({
+        res,
+        clientId: null,
+        pdsUrl,
+        code: 'access_denied',
+        description:
+          'Your sign-in took too long to complete. Please start sign-in again.',
+      })
       return
     }
 
@@ -77,10 +93,18 @@ export function createCompleteRouter(
       })
     } catch (err) {
       logger.error({ err }, 'Failed to get better-auth session')
-      res
-        .status(500)
-        .type('html')
-        .send(renderError('Authentication failed. Please try again.'))
+      // Internal failure rather than a user-paced timeout — server_error
+      // per RFC 6749 §4.1.2.1. Flow has a clientId so the user gets
+      // bounced cleanly back to the OAuth client.
+      await cleanExit({
+        res,
+        clientId: flow.clientId,
+        pdsUrl,
+        code: 'server_error',
+        description:
+          'Authentication failed because of a server error. Please try again.',
+        fallbackStatus: 500,
+      })
       return
     }
 
@@ -155,12 +179,18 @@ export function createCompleteRouter(
          *  If you ever change this contract, update pds-core/src/index.ts
          *  and the sentinel tests in packages/shared/src/__tests__/crypto.test.ts.
          */
-        const callbackParams = {
+        // Carry the OAuth client_id so pds-core's catch block can mount
+        // a clean-exit redirect to the client even when the PAR row has
+        // died and Step 2 itself throws (the row is gone before
+        // .parameters.client_id can be read). client_id is signed too,
+        // so an attacker cannot tamper to redirect at a different client.
+        const callbackParams: CallbackParams = {
           request_uri: flow.requestUri,
           email,
           approved: '1',
           new_account: '1',
         }
+        if (flow.clientId) callbackParams.client_id = flow.clientId
         const { sig, ts } = signCallback(
           callbackParams,
           ctx.config.epdsCallbackSecret,
@@ -198,12 +228,14 @@ export function createCompleteRouter(
     ctx.db.deleteAuthFlow(flowId)
     res.clearCookie(AUTH_FLOW_COOKIE)
 
-    const callbackParams = {
+    // See the random-mode branch above for why client_id rides along.
+    const callbackParams: CallbackParams = {
       request_uri: flow.requestUri,
       email,
       approved: '1',
       new_account: '0',
     }
+    if (flow.clientId) callbackParams.client_id = flow.clientId
     const { sig, ts } = signCallback(
       callbackParams,
       ctx.config.epdsCallbackSecret,

@@ -26,6 +26,7 @@
  */
 import type { Response } from 'express'
 import type { Logger } from 'pino'
+import { resolveClientMetadata } from '@certified-app/shared'
 
 /** Decoded view of a thrown error for response shaping. */
 export interface CallbackErrorClassification {
@@ -80,6 +81,17 @@ export interface HandleCallbackErrorOpts {
   /** state stashed from Step 2's requestManager.get(); preserved on the
    * redirect for CSRF round-trip. */
   capturedState: string | undefined
+  /**
+   * OAuth client_id, signed and forwarded by auth-service in the
+   * /oauth/epds-callback URL. Used as a last-resort fallback when
+   * `capturedRedirectUri` is absent — the catch block resolves the
+   * client's published metadata to recover `redirect_uris[0]` so the
+   * user can still bounce back to the OAuth client (with `error` and
+   * `error_description`) instead of stranding them on a static page.
+   * The original `state` lives in the dead PAR and is unrecoverable
+   * here; clients treat the missing `state` as an anonymous error.
+   */
+  signedClientId?: string
   /** Issuer identifier per RFC 9207, set on the redirect. */
   pdsUrl: string
   logger: Pick<Logger, 'error' | 'warn'>
@@ -89,12 +101,15 @@ export interface HandleCallbackErrorOpts {
   renderError: (message: string) => string
 }
 
-export function handleCallbackError(opts: HandleCallbackErrorOpts): void {
+export async function handleCallbackError(
+  opts: HandleCallbackErrorOpts,
+): Promise<void> {
   const {
     res,
     err,
     capturedRedirectUri,
     capturedState,
+    signedClientId,
     pdsUrl,
     logger,
     renderError,
@@ -113,6 +128,8 @@ export function handleCallbackError(opts: HandleCallbackErrorOpts): void {
     logger.error({ err }, 'ePDS callback error')
   }
 
+  // Tier 1a: redirect built from a captured (live-PAR-time) redirect_uri.
+  // This is the spec-compliant path with `state` preserved.
   if (!res.headersSent && capturedRedirectUri) {
     // The redirect_uri was captured from a successful Step-2 read of
     // the upstream PAR row, and @atproto/oauth-provider validates the
@@ -144,6 +161,49 @@ export function handleCallbackError(opts: HandleCallbackErrorOpts): void {
       if (capturedState) errorUrl.searchParams.set('state', capturedState)
       res.redirect(303, errorUrl.toString())
       return
+    }
+  }
+
+  // Tier 1b: redirect built from the signed client_id's published
+  // metadata. Used when Step 2 itself threw so we never captured the
+  // PAR's redirect_uri / state. We lose `state`, but the OAuth spec
+  // permits missing state on error redirects and the client treats
+  // the response as an anonymous error and restarts — exactly the
+  // right semantics for an expiry. signedClientId rode along on the
+  // HMAC-signed callback URL so a tampered value cannot redirect a
+  // victim's flow at a different OAuth client.
+  if (!res.headersSent && signedClientId) {
+    try {
+      const metadata = await resolveClientMetadata(signedClientId)
+      const fallbackRedirect = metadata.redirect_uris?.[0]
+      if (fallbackRedirect) {
+        let errorUrl: URL | null = null
+        try {
+          errorUrl = new URL(fallbackRedirect)
+        } catch (urlErr) {
+          logger.error(
+            { err: urlErr, signedClientId, fallbackRedirect },
+            'ePDS callback: client metadata redirect_uri is not a valid URL — falling back to HTML error page',
+          )
+        }
+        if (errorUrl) {
+          res.setHeader('Cache-Control', 'no-store')
+          errorUrl.searchParams.set('error', code)
+          errorUrl.searchParams.set('error_description', description)
+          errorUrl.searchParams.set('iss', pdsUrl)
+          res.redirect(303, errorUrl.toString())
+          return
+        }
+      }
+      logger.warn(
+        { signedClientId },
+        'ePDS callback: client metadata has no usable redirect_uris — falling back to HTML error page',
+      )
+    } catch (lookupErr) {
+      logger.warn(
+        { err: lookupErr, signedClientId },
+        'ePDS callback: client metadata lookup failed — falling back to HTML error page',
+      )
     }
   }
 
