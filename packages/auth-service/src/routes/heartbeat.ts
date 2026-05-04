@@ -23,6 +23,7 @@
 import { Router, type Request, type Response } from 'express'
 import { createLogger } from '@certified-app/shared'
 import type { AuthServiceContext } from '../context.js'
+import { cleanExit } from '../lib/clean-exit.js'
 import { pingParRequest } from '../lib/ping-par-request.js'
 import { requireInternalEnv } from '../lib/require-internal-env.js'
 
@@ -94,6 +95,42 @@ export function createHeartbeatRouter(ctx: AuthServiceContext): Router {
 
     const okBody: HeartbeatResponse = { ok: true }
     res.status(200).json(okBody)
+  })
+
+  /**
+   * GET /auth/abort
+   *
+   * Browser-driven clean exit. The OTP / recovery forms hit this URL
+   * when they know the flow can no longer complete (typically after
+   * /auth/ping returned `par_expired`). The route runs the same
+   * cleanExit() helper as the unrecoverable-error paths in
+   * /auth/complete and /auth/choose-handle: redirect to the OAuth
+   * client's redirect_uri with `error=access_denied` per RFC 6749
+   * §4.1.2.1, or fall back to a styled "Return to sign in" page when
+   * the client is unknown.
+   *
+   * The point: avoid the dishonest cycle where Resend issues a fresh
+   * OTP that cannot complete the flow because the upstream PAR is
+   * dead. Better to bail to the OAuth client immediately than
+   * mislead the user into typing a code that will fail.
+   */
+  router.get('/auth/abort', async (req: Request, res: Response) => {
+    const flowId = req.cookies[AUTH_FLOW_COOKIE] as string | undefined
+    const flow = flowId ? ctx.db.getAuthFlow(flowId) : undefined
+    // Always clear the cookie — the flow is being abandoned.
+    if (flowId) res.clearCookie(AUTH_FLOW_COOKIE)
+    logger.info(
+      { flowId, hasFlow: !!flow, clientId: flow?.clientId ?? null },
+      'auth-abort: clean-exiting per browser request',
+    )
+    await cleanExit({
+      res,
+      clientId: flow?.clientId ?? null,
+      pdsUrl,
+      code: 'access_denied',
+      description:
+        'Your sign-in took too long to complete. Please start sign-in again.',
+    })
   })
 
   return router

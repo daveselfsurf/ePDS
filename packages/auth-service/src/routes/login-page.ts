@@ -743,20 +743,27 @@ export function renderLoginPage(opts: {
       var heartbeatEnabled = ${JSON.stringify(opts.heartbeatEnabled)};
       var heartbeatHandle = null;
       var heartbeatIntervalMs = 3 * 60 * 1000;
+      // Set to true the moment we know the flow can no longer
+      // complete (PAR or auth_flow gone). Resend / Verify gates
+      // check this so a click that races the proactive notice
+      // still bails to /auth/abort instead of issuing a fresh OTP
+      // that would only fail.
+      var flowAborted = false;
       function pingHeartbeat() {
-        fetch('/auth/ping', { credentials: 'include', cache: 'no-store' })
+        return fetch('/auth/ping', { credentials: 'include', cache: 'no-store' })
           .then(function(r) { return r.json(); })
           .then(function(body) {
             if (body && body.ok === false && body.reason !== 'transient') {
-              // Auth flow / PAR genuinely dead — no point pinging again.
-              // Leave the form alive so an in-flight submit can still
-              // surface the eventual error through the normal channel.
-              // 'transient' (5xx / network blip) does NOT stop the
-              // interval: the next tick may recover.
+              // Auth flow / PAR genuinely dead — no point pinging again,
+              // and no point letting the user keep typing. 'transient'
+              // (5xx / network blip) does NOT stop the interval; the
+              // next tick may recover.
               stopHeartbeat();
+              showFlowAbortedNotice();
             }
+            return body;
           })
-          .catch(function() { /* network blip — keep trying next tick */ });
+          .catch(function() { return null; /* network blip — caller may retry */ });
       }
       function startHeartbeat() {
         if (!heartbeatEnabled) return;
@@ -770,6 +777,71 @@ export function renderLoginPage(opts: {
         }
       }
       window.addEventListener('beforeunload', stopHeartbeat);
+
+      // Show the proactive "this won't work — start over" notice when
+      // the flow is unrecoverable. Disables the OTP boxes, the verify
+      // button, and the resend button so nothing the user types or
+      // clicks on the form can silently fail. Replaces the error
+      // banner content with copy + a single Start over button that
+      // navigates to /auth/abort (which performs the spec-compliant
+      // RFC 6749 §4.1.2.1 redirect to the OAuth client). Idempotent —
+      // safe to call from the heartbeat tick AND from the reactive
+      // gates without duplicating the notice.
+      function showFlowAbortedNotice() {
+        if (flowAborted) return;
+        flowAborted = true;
+        // Disable every form control on the OTP step so nothing the
+        // user does on the form has any effect from here on.
+        for (var i = 0; i < otpBoxes.length; i++) otpBoxes[i].disabled = true;
+        var resendBtn = document.getElementById('btn-resend');
+        if (resendBtn) resendBtn.disabled = true;
+        var backBtn = document.getElementById('btn-back');
+        if (backBtn) backBtn.disabled = true;
+        var verifyBtn = document.querySelector('#form-verify-otp button[type=submit]');
+        if (verifyBtn) verifyBtn.disabled = true;
+        // Render the notice in the existing error banner so the
+        // styling / position is consistent with other errors. The
+        // copy is set via textContent (no HTML), the Start over
+        // button is built imperatively.
+        clearError();
+        showFlash(
+          'Your sign-in has timed out. The code we sent will no longer work. Start sign-in again from the app you came from.',
+          'error',
+        );
+        errorEl.appendChild(document.createElement('br'));
+        var startOverBtn = document.createElement('button');
+        startOverBtn.type = 'button';
+        startOverBtn.className = 'flash-action';
+        startOverBtn.textContent = 'Start over';
+        startOverBtn.addEventListener('click', function() {
+          window.location.href = '/auth/abort';
+        });
+        errorEl.appendChild(startOverBtn);
+      }
+
+      /**
+       * Reactive gate used by the Resend and Verify click handlers.
+       * Pings /auth/ping synchronously; if the result indicates the
+       * flow is no longer recoverable, navigates to /auth/abort and
+       * returns true. Caller should bail (return) when this returns
+       * true, since navigation is already in flight. Returns false
+       * for ok / transient / network errors — those should not block
+       * the action since they may not be terminal.
+       */
+      async function abortIfFlowDead() {
+        if (flowAborted) {
+          window.location.href = '/auth/abort';
+          return true;
+        }
+        try {
+          var body = await pingHeartbeat();
+          if (body && body.ok === false && body.reason !== 'transient') {
+            window.location.href = '/auth/abort';
+            return true;
+          }
+        } catch (e) { /* fall through; treat as transient */ }
+        return false;
+      }
 
       function updateHiddenCode() {
         var v = '';
@@ -1013,6 +1085,14 @@ export function renderLoginPage(opts: {
         btn.disabled = true;
         btn.textContent = 'Verifying...';
 
+        // Reactive gate (defence in depth on top of the proactive
+        // notice): if the PAR or auth_flow is already dead by the
+        // time the user submits, don't even attempt the verify —
+        // it would consume the OTP and then the dead-PAR path on
+        // /oauth/epds-callback would bounce the user with
+        // error=access_denied anyway. Cleaner to bail upfront.
+        if (await abortIfFlowDead()) return;
+
         try {
           var result = await verifyOtp(currentEmail, otp);
           if (result && result.error) {
@@ -1024,6 +1104,12 @@ export function renderLoginPage(opts: {
             // expired") plus generic "expir"/"too long" variants.
             var isExpired = /expir|too long/i.test(result.error);
             if (isExpired) {
+              // The inline action triggers the same Resend handler,
+              // which itself runs abortIfFlowDead() before issuing
+              // a new code. So even if the PAR is dead the user
+              // gets the spec-compliant bounce rather than a fresh
+              // OTP that wouldn't work — no need to gate the
+              // action's visibility separately here.
               showErrorWithAction(result.error, 'Send a new code', function() {
                 document.getElementById('btn-resend').click();
               });
@@ -1055,6 +1141,11 @@ export function renderLoginPage(opts: {
         clearError();
         this.disabled = true;
         this.textContent = 'Sending...';
+        // Reactive gate (defence in depth on top of the proactive
+        // notice): if the PAR or auth_flow is already dead, don't
+        // issue a fresh OTP — the user would never be able to
+        // submit it. Bounce to /auth/abort instead.
+        if (await abortIfFlowDead()) return;
         var result = await sendOtp(currentEmail);
         this.disabled = false;
         this.textContent = 'Resend code';

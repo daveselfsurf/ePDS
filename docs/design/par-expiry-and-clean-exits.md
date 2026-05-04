@@ -354,6 +354,82 @@ This work must avoid adding to the white-boxing surface catalogued in
 - Re-architecting the auth_flow / PAR / OTP separation.
 - Generic session-keepalive that crosses concerns.
 
+## Bug found post-PR-154: Resend offers a code that cannot complete the flow
+
+**What broke:** the user lands on the OTP form after the OTP has expired
+(>10 min), clicks Resend, gets a fresh code, types it in — and is
+bounced back to the OAuth client with an `error=access_denied` redirect.
+The clean-exit contract is technically satisfied (user is recoverable,
+not stranded inside ePDS), but the experience is a lie: we offered them
+Resend as if it would complete the flow, accepted their fresh OTP, then
+told them sign-in failed.
+
+**Why it happens:** the heartbeat keeps the upstream PAR alive only
+while the page is actively pinging. A user who waits >10 min for the
+OTP has typically also let the PAR die at minute 5 (browser tab
+backgrounded, laptop closed, network hiccup hit two pings in a row,
+etc.). When they click Resend, better-auth happily issues a new OTP
+because it doesn't know about the PAR. Auth-service then signs the
+callback against the dead `request_uri` and pds-core's
+`handleCallbackError` redirects the user back to the OAuth client
+with `error=access_denied`.
+
+**Resolved approach:** prevent the dishonest cycle in the first place.
+
+- **Proactive notice (no redirect).** When the heartbeat's
+  `/auth/ping` returns `par_expired`, the OTP form replaces its
+  current state with a clear notice: "Your sign-in has timed out.
+  The code we sent will no longer work. Start sign-in again from the
+  app you came from." The notice carries a single "Start over"
+  button. The OTP boxes, Resend button, and Verify button are all
+  disabled — nothing the user types or clicks on the form will
+  silently fail.
+
+  No automatic redirect. The user makes the choice to click Start
+  over (which navigates to `/auth/abort`). Clicking elsewhere on
+  the page (e.g. the Powered by Certified link) still works as
+  expected.
+
+- **Reactive gates kept for defence in depth.** Even with the
+  proactive notice, race conditions exist (heartbeat hasn't
+  fired yet, user already mid-typing, etc.). Both the Resend click
+  and the Verify submit ping `/auth/ping` first — if it returns
+  `par_expired`, the handler navigates to `/auth/abort` instead of
+  proceeding, so a user who beats the proactive notice still gets
+  cleanly bounced rather than typing a code that won't work.
+
+- **`GET /auth/abort` route.** Browser-driven server-side clean exit.
+  Reads the auth_flow cookie, runs the same `cleanExit()` helper as
+  the unrecoverable-error paths in /auth/complete and
+  /auth/choose-handle: redirect to the OAuth client's `redirect_uri`
+  with `error=access_denied` per RFC 6749 §4.1.2.1, or fall back to
+  a styled "Return to sign in" page when the client is unknown.
+  Cookie is cleared because the flow is being abandoned.
+
+**Why a 3-minute heartbeat interval against a 5-minute window?**
+PAR's sliding inactivity timer (5 min) is reset on every successful
+`requestManager.get()` call upstream. 3 min is comfortably under 5
+and tolerates one missed ping (network blip, suspended tab between
+ticks). Tighter would be wasted requests; looser would risk the timer
+expiring between pings.
+
+**Why slide the timer indefinitely?** The upstream code in
+`@atproto/oauth-provider`'s `request-manager.ts` resets `expiresAt`
+on every successful read by design — sliding-on-touch is the
+intended pattern, not a workaround. The 5-min figure was introduced
+in the initial OAuth provider commit (June 2024) with no inline
+rationale, no subsequent discussion in PR/commit history, and
+nothing in the OAuth/PAR specs that mandates either the value or
+the sliding behaviour. Practical bounds:
+
+- The 60-min auth_flow TTL caps how long heartbeat-driven sliding
+  can keep a PAR alive — once the auth_flow row dies, /auth/ping
+  returns `flow_expired` and the browser stops pinging.
+- The httpOnly `epds_auth_flow` cookie gates `/auth/ping`, so an
+  attacker without the cookie cannot ping.
+- PAR consumption is single-use — once the auth code is issued,
+  the row is deleted.
+
 ## Status
 
 - Reproduction scenarios: 4 RED scenarios committed on
@@ -371,3 +447,14 @@ This work must avoid adding to the white-boxing surface catalogued in
   (delivered via a new `client_id` field on the HMAC-signed
   callback). Covered by 7 new pds-core tests, 4 new shared crypto
   tests, and the four `@otp-and-par-expiry` e2e scenarios.
+- Resend-honesty impl (post-PR-154 user report): `/auth/abort`
+  route + proactive notice on the OTP form + reactive abort gates
+  on Resend / Verify clicks. Resend no longer issues a fresh OTP
+  that cannot complete the flow — instead the user goes straight
+  to the OAuth client with the spec-compliant error redirect.
+  Covered by 4 new auth-abort tests, 7 new login-page render-shape
+  tests, and the new `@resend-after-par-dead` e2e scenario. The
+  pre-existing `@otp-and-par-expiry` and `@multiple-resend`
+  scenarios were updated to match the new contract (the user no
+  longer sees the misleading "OTP expired → Resend → fresh OTP
+  → fails" cycle).

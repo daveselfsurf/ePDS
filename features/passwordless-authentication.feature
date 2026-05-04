@@ -304,6 +304,13 @@ Feature: Passwordless authentication via email OTP
   # one-click when prevention fails.
   @email @otp-and-par-expiry
   Scenario: Expired OTP + expired PAR — clean exit back to the OAuth client
+    # With the proactive notice + reactive abort gate (added after the
+    # original PR-154 user report) the user no longer goes through the
+    # "OTP expired → Resend → fresh OTP → fails anyway" cycle. The
+    # Verify submit sees the dead PAR via /auth/ping and bails to
+    # /auth/abort directly, so the contract this scenario asserts
+    # is just "lands at the demo client with an auth error" — same
+    # end state, fewer misleading UI steps.
     When the demo client initiates an OAuth login
     Then the browser is redirected to the auth service login page
     And the login page displays an email input form
@@ -313,15 +320,17 @@ Feature: Passwordless authentication via email OTP
     When more than 10 minutes pass before the user enters the OTP
     And the PAR request_uri has expired before the bridge fires
     And the user enters the OTP code
-    Then the verification form shows an "OTP expired" error
-    And the OTP entry boxes are visible and enabled
-    When the user requests a new OTP via the resend button
-    Then a fresh OTP email arrives in the mail trap for the test email
-    When the user enters the OTP code
     Then the browser lands back at the demo client with an auth error
 
   @email @otp-and-par-expiry @multiple-resend
   Scenario: Two Resend cycles after silent PAR death — clean exit back to the OAuth client
+    # First Resend cycle works (PAR is still alive). Second Resend
+    # triggers after the PAR has died: the reactive abort gate sees
+    # /auth/ping returns par_expired, so the resend handler bails
+    # to /auth/abort instead of issuing a third OTP that the user
+    # could never use. End state: user is back at the demo client
+    # with the spec-compliant error redirect, NOT in a misleading
+    # "fresh code that won't work" cycle.
     When the demo client initiates an OAuth login
     Then the browser is redirected to the auth service login page
     And the login page displays an email input form
@@ -332,8 +341,6 @@ Feature: Passwordless authentication via email OTP
     Then a fresh OTP email arrives in the mail trap for the test email
     When the PAR request_uri has expired before the bridge fires
     And the user requests a new OTP via the resend button
-    Then a fresh OTP email arrives in the mail trap for the test email
-    When the user enters the OTP code
     Then the browser lands back at the demo client with an auth error
 
   @email @otp-and-par-expiry @prompt-login
@@ -381,6 +388,39 @@ Feature: Passwordless authentication via email OTP
     Then an OTP email arrives in the mail trap for the test email
     And the login page shows an OTP verification form
     Then a heartbeat fetched from the OTP form returns ok:true
+
+  # --- Resend after PAR death ---
+  #
+  # If the user lands on the OTP form with the upstream PAR already
+  # dead (>5 min wait, missed heartbeat, suspended tab, etc.), they
+  # should NOT be allowed to click Resend, get a fresh code, type it
+  # in, and only then be told sign-in failed. Offering Resend in
+  # that state is misleading: better-auth would happily issue a new
+  # OTP that pds-core's /oauth/epds-callback would then bounce back
+  # to the OAuth client with error=access_denied because the PAR is
+  # gone and cannot be revived.
+  #
+  # The Resend click handler now pings /auth/ping first. If the
+  # response is `par_expired` (or `flow_expired` / `no_cookie`), the
+  # browser navigates to /auth/abort instead of issuing the new OTP.
+  # /auth/abort runs the same cleanExit() as the unrecoverable-error
+  # paths, so the user lands at the OAuth client with the standard
+  # RFC 6749 §4.1.2.1 error params. No fresh OTP gets issued, no
+  # OTP-typing UX cycle.
+  @email @resend-after-par-dead
+  Scenario: Clicking Resend after the PAR has died bails to the OAuth client without issuing a new OTP
+    When the demo client initiates an OAuth login
+    Then the browser is redirected to the auth service login page
+    When the user enters a unique test email and submits
+    Then an OTP email arrives in the mail trap for the test email
+    And the login page shows an OTP verification form
+    When the PAR request_uri has expired before the bridge fires
+    # The Resend step wipes the inbox before clicking the button, so
+    # the "no new OTP email" assertion below measures the resend
+    # click in isolation rather than the OTP that already arrived.
+    And the user requests a new OTP via the resend button
+    Then the browser lands back at the demo client with an auth error
+    And no new OTP email is sent to the test email
 
   # --- PAR (request_uri) expiry ---
   #
