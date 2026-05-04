@@ -97,6 +97,22 @@ export async function buildClientErrorRedirect(
     return null
   }
 
+  // Defence in depth: reject non-web schemes even if the metadata
+  // somehow advertises one. atproto's @atproto/oauth-provider already
+  // validates redirect_uris at PAR creation, so this branch should be
+  // unreachable in practice — but the catch above exists precisely to
+  // spare the user a 500, and an unhandled `javascript:` redirect
+  // would defeat that. RFC 6749 §3.1.2 requires absolute http/https
+  // URIs; `localhost` http is intentionally permitted for the
+  // dev-loop case.
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    logger.warn(
+      { clientId: opts.clientId, redirectUri, protocol: url.protocol },
+      'redirectToClientError: redirect_uri has unsupported scheme',
+    )
+    return null
+  }
+
   // OAuth clients can only redirect to a pre-registered URI anyway,
   // so using the first one is RFC-compliant. The original `state`
   // is lost on the dead-PAR path — clients treat the response as an

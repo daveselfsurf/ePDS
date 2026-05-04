@@ -23,7 +23,11 @@ afterEach(() => {
 })
 
 function reqWith(query: Record<string, string>): Request {
-  return { query } as unknown as Request
+  return { query, body: undefined } as unknown as Request
+}
+
+function reqWithBody(body: Record<string, string>): Request {
+  return { query: {}, body } as unknown as Request
 }
 
 describe('heartbeatEnabledFor', () => {
@@ -52,6 +56,27 @@ describe('heartbeatEnabledFor', () => {
     // is treated as a no-op rather than a footgun.
     process.env.EPDS_TEST_HOOKS = '1'
     expect(heartbeatEnabledFor(reqWith({ no_heartbeat: 'true' }))).toBe(true)
+  })
+
+  it('honours no_heartbeat=1 in form-encoded request bodies', () => {
+    // The recovery flow's POST handlers re-render the form from
+    // body fields, not query params, so the toggle must work
+    // through req.body for symmetry with req.query.
+    process.env.EPDS_TEST_HOOKS = '1'
+    expect(heartbeatEnabledFor(reqWithBody({ no_heartbeat: '1' }))).toBe(false)
+  })
+
+  it('treats body.no_heartbeat as disabled only on the literal string "1"', () => {
+    process.env.EPDS_TEST_HOOKS = '1'
+    expect(heartbeatEnabledFor(reqWithBody({ no_heartbeat: 'true' }))).toBe(
+      true,
+    )
+    expect(heartbeatEnabledFor(reqWithBody({}))).toBe(true)
+  })
+
+  it('ignores body.no_heartbeat when EPDS_TEST_HOOKS is unset', () => {
+    delete process.env.EPDS_TEST_HOOKS
+    expect(heartbeatEnabledFor(reqWithBody({ no_heartbeat: '1' }))).toBe(true)
   })
 })
 

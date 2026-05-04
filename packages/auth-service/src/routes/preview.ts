@@ -297,6 +297,10 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
         customFaviconUrl: faviconUrl,
         customFaviconUrlDark: faviconUrlDark,
         backUri: FAKE_REQUEST_URI,
+        // No real OAuth flow behind a preview, so the flag is a no-op
+        // — leave it on the production default to keep the preview
+        // visually identical to the real form.
+        heartbeatEnabled: true,
       }),
     )
   })

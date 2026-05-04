@@ -1,6 +1,27 @@
 import { escapeHtml } from './html.js'
 
 /**
+ * Normalise an optional href to a safe absolute URL we are willing to
+ * inline as a button target. Rejects non-`http:`/`https:` schemes so a
+ * caller passing an attacker-controlled `client_uri` cannot end up
+ * rendering `<a href="javascript:...">` into the page (defence in
+ * depth — `escapeHtml` does NOT neutralise `javascript:` URLs because
+ * they contain no escape-sensitive characters). Returns `null` when
+ * the href is missing, unparseable, or carries a disallowed scheme.
+ */
+function normaliseStartOverHref(href?: string): string | null {
+  if (!href) return null
+  let url: URL
+  try {
+    url = new URL(href)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
+  return url.toString()
+}
+
+/**
  * CSS shared across every styled error page in the project. Both
  * auth-service and pds-core consume it as-is. Layout is a centred
  * white card on a light-grey body, designed to look reasonable
@@ -63,8 +84,9 @@ export function renderError(
     startOverHref,
     startOverLabel = 'Start over',
   } = options
-  const startOverHtml = startOverHref
-    ? `<a class="start-over" href="${escapeHtml(startOverHref)}" rel="noopener noreferrer">${escapeHtml(startOverLabel)}</a>`
+  const safeStartOverHref = normaliseStartOverHref(startOverHref)
+  const startOverHtml = safeStartOverHref
+    ? `<a class="start-over" href="${escapeHtml(safeStartOverHref)}" rel="noopener noreferrer">${escapeHtml(startOverLabel)}</a>`
     : ''
   return `<!DOCTYPE html>
 <html lang="en">

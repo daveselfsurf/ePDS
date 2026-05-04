@@ -615,48 +615,6 @@ When(
   },
 )
 
-Then('the response body is not raw JSON', async function (this: EpdsWorld) {
-  const page = getPage(this)
-  // The OTP form's submit is JS-driven and async, and Playwright's
-  // fill() returns before the bridge redirects. Wait for the
-  // browser to actually leave the auth-service host and arrive at
-  // pds-core's epds-callback (where, in this scenario, the
-  // catch-block renders the error page). Without this wait we'd
-  // read the still-rendering OTP form's body.
-  const pdsHost = new URL(testEnv.pdsUrl).host
-  await page.waitForURL(
-    (url) => url.host === pdsHost && url.pathname.includes('epds-callback'),
-    { timeout: 30_000 },
-  )
-  const body = await page.locator('body').innerText()
-  // The pre-fix behaviour returned a body that started with
-  // {"error": "Authentication failed"}. A graceful HTML page won't —
-  // its <h1>/<p> text isn't valid JSON. The regex catches any
-  // {"error": ...} shape so a future leak of a different JSON
-  // payload is still caught.
-  if (/^\s*\{\s*"error"/.test(body)) {
-    throw new Error(
-      `pds-core leaked raw JSON to the browser: ${body.slice(0, 200)}`,
-    )
-  }
-})
-
-Then(
-  'the response body explains that sign-in timed out',
-  async function (this: EpdsWorld) {
-    const page = getPage(this)
-    const body = await page.locator('body').innerText()
-    // Don't pin exact wording — just require something that mentions
-    // the timeout / expiry so a human reading it understands why
-    // their sign-in failed.
-    if (!/expir|timed? ?out|too long/i.test(body)) {
-      throw new Error(
-        `Error page should mention the timeout but said: "${body.slice(0, 500)}"`,
-      )
-    }
-  },
-)
-
 // ---------------------------------------------------------------------------
 // Clean-exit assertions for @otp-and-par-expiry scenarios
 // ---------------------------------------------------------------------------

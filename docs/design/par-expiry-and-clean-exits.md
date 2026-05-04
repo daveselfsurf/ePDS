@@ -198,6 +198,18 @@ end (the shared `renderError` template has no retry link, no Start
 Over button — see `packages/shared/src/render-error.ts`). "Target" is
 the proposed clean-exit UX.
 
+> **Note (post-resolution):** the table records the audit at decision
+> time. Some Target cells speculate about a `/_internal/par-…`-style
+> lookup or bare `/oauth/authorize` restart. The resolved approach
+> (see "Resolved decisions" below) replaced both with a single shape:
+> resolve the OAuth client's published metadata via
+> `@certified-app/shared`'s `resolveClientMetadata()` to recover
+> `redirect_uris[0]`, then issue the spec error redirect. No new
+> pds-core internal endpoints; no bare authorize restart. The table
+> is preserved as-written to keep the audit honest about the option
+> space; the "Resolved decisions" section is the source of truth for
+> what shipped.
+
 | #   | Page                                                 | Trigger                                                                                                 | Today                                                                                                                                                                                                                                                     | Target                                                                                                                                                                             |
 | --- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | `/auth/complete` (no cookie)                         | `epds_auth_flow` cookie missing                                                                         | Static "Authentication session expired. Please try again."                                                                                                                                                                                                | Redirect back to OAuth client with `error=access_denied` if `redirect_uri` recoverable; else static page with Start Over link to fresh `/oauth/authorize` for the original client. |
@@ -260,12 +272,19 @@ possible.
    only the last-resort fallback when no clientId is in scope at all.
 
 2. **Cluster B (PAR-dead-on-handle-page) → redirect to the client.**
-   We have `flow.clientId` on every auth_flow row and OAuth clients
+   We have `flow.clientId` on every auth*flow row and OAuth clients
    publish metadata independently of the PAR row, so
-   `redirect_uris[0]` is resolvable. Lose the original `state` (it
-   lived in the PAR), but the OAuth spec permits missing state on
-   error redirects — the client treats it as an anonymous error and
-   restarts. That is exactly the right semantics for an expiry.
+   `redirect_uris[0]` is resolvable. The original `state` is lost
+   (it lived in the PAR). RFC 6749 §4.1.2.1 explicitly \_requires*
+   `state` in the error response when it was present in the
+   authorization request, so this is a pragmatic degradation — not
+   a spec-permitted shortcut. We chose redirect-without-state over
+   stranding the user because every spec-compliant OAuth client
+   already has to handle the case where it cannot correlate an
+   error response with an in-flight attempt (e.g. cross-device
+   resumption, browser session loss), so an "anonymous error,
+   restart" outcome is universally recoverable on the client side
+   even if it is not the spec's preferred shape.
 
 3. **Recovery flows must carry `clientId`.** The current `clientId:
 null` on recovery's auth_flow row is a side-effect of the DB API,

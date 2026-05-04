@@ -426,18 +426,20 @@ Feature: Passwordless authentication via email OTP
   # The test deletes the PAR row before the callback fires, mirroring
   # the production failure where /oauth/epds-callback's first
   # requestManager.get() (Step 2 in the handler) throws
-  # InvalidRequestError("Unknown request_uri"). With no live PAR row
-  # there is no redirect_uri to recover, so the user must land on a
-  # styled HTML page on the PDS host — not the previous raw JSON
-  # body — explaining that the sign-in timed out.
+  # InvalidRequestError("Unknown request_uri"). The signed callback
+  # URL now carries `client_id` (per the clean-exit work in this PR),
+  # so even though the PAR is dead the catch block can resolve the
+  # client's metadata and redirect the user back to the OAuth client
+  # with the standard RFC 6749 §4.1.2.1 error parameters. The demo
+  # client translates `error=access_denied` into `?error=auth_failed`
+  # on its landing page; that's the contract this scenario asserts.
   #
-  # The redirect-back-to-client path (driven by the redirect_uri /
-  # state captured during a successful Step 2) is exercised by the
-  # other paths inside the same handler that throw later in the
-  # flow; we don't have an easy e2e harness to inject a mid-flow
-  # failure today.
+  # The static HTML fallback inside pds-core's catch block only fires
+  # in the worst case where neither the captured PAR data nor the
+  # signed `client_id` resolves to a usable redirect URI — much
+  # harder to reach now and not exercised here.
   @email @par-callback-error
-  Scenario: Expired PAR shows a styled HTML page instead of leaking JSON
+  Scenario: Expired PAR redirects back to the OAuth client instead of stranding the user
     Given a returning user has a PDS account
     When the demo client initiates an OAuth login
     And the user enters the test email on the login page
@@ -445,8 +447,7 @@ Feature: Passwordless authentication via email OTP
     And the login page shows an OTP verification form
     When the PAR request_uri has expired before the bridge fires
     And the user enters the OTP code
-    Then the response body is not raw JSON
-    And the response body explains that sign-in timed out
+    Then the browser lands back at the demo client with an auth error
 
   # --- Brute force protection ---
 

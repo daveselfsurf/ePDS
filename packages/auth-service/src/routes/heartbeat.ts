@@ -32,7 +32,20 @@ const AUTH_FLOW_COOKIE = 'epds_auth_flow'
 
 export type HeartbeatResponse =
   | { ok: true }
-  | { ok: false; reason: 'no_cookie' | 'flow_expired' | 'par_expired' }
+  | {
+      ok: false
+      reason:
+        | 'no_cookie'
+        | 'flow_expired'
+        | 'par_expired'
+        /**
+         * Transient — pds-core returned a non-OK status that wasn't
+         * 404 (e.g. 5xx, gateway timeout, network blip). The browser
+         * MUST keep heartbeating; the next tick may succeed. Do NOT
+         * treat as terminal.
+         */
+        | 'transient'
+    }
 
 export function createHeartbeatRouter(ctx: AuthServiceContext): Router {
   const router = Router()
@@ -59,11 +72,22 @@ export function createHeartbeatRouter(ctx: AuthServiceContext): Router {
 
     const ping = await pingParRequest(flow.requestUri, pdsUrl, internalSecret)
     if (!ping.ok) {
+      // Only a 404 from pds-core (`request_uri` deleted/unknown) is
+      // terminal — that's `requestManager.get()` having thrown and
+      // swept the row in the same call. Anything else (5xx, network
+      // timeout, no-status thrown error) is transient: a momentary
+      // upstream blip should not stop the browser from polling, or a
+      // single dropped packet during otherwise-healthy operation
+      // would terminate keepalive permanently and re-introduce the
+      // very dead-end the heartbeat exists to prevent.
+      const isTerminal = ping.status === 404
       logger.debug(
-        { status: ping.status, err: ping.err, flowId },
+        { status: ping.status, err: ping.err, flowId, isTerminal },
         'heartbeat: PAR ping failed',
       )
-      const body: HeartbeatResponse = { ok: false, reason: 'par_expired' }
+      const body: HeartbeatResponse = isTerminal
+        ? { ok: false, reason: 'par_expired' }
+        : { ok: false, reason: 'transient' }
       res.status(200).json(body)
       return
     }

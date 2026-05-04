@@ -128,13 +128,31 @@ export function resolveHandleMode(
  * Decide whether to enable the OTP-form / recovery-form heartbeat for
  * this request. Heartbeat is on by default; the only way to disable it
  * is to combine `EPDS_TEST_HOOKS=1` (a server-side opt-in already
- * required for the e2e test-only routes) with `?no_heartbeat=1` on the
- * URL. This lets e2e scenarios prove the heartbeat is what saves a
- * slow user without removing the heartbeat in production.
+ * required for the e2e test-only routes) with `no_heartbeat=1` on the
+ * URL OR in the form body. This lets e2e scenarios prove the
+ * heartbeat is what saves a slow user without removing the heartbeat
+ * in production.
+ *
+ * The body branch matters for the recovery flow: the email-submit
+ * POST to `/auth/recover` strips query params from the subsequent
+ * OTP form re-render, so a recovery scenario that wants to disable
+ * the heartbeat needs to forward the flag as a hidden field on the
+ * email form. The toggle's only consumer today is the
+ * @par-heartbeat e2e scenario which goes through the login page,
+ * not recovery, so the recovery propagation is a future concern —
+ * documented here so that path doesn't surprise a future reader.
  */
 export function heartbeatEnabledFor(req: Request): boolean {
   if (process.env.EPDS_TEST_HOOKS !== '1') return true
-  return req.query.no_heartbeat !== '1'
+  if (req.query.no_heartbeat === '1') return false
+  // Express's body parser populates req.body for
+  // application/x-www-form-urlencoded POSTs. Reading both surfaces
+  // covers the GET-with-query and POST-with-hidden-field cases
+  // symmetrically; the field is treated as a literal '1' switch so
+  // garbage values don't accidentally disable production heartbeat.
+  const body = req.body as { no_heartbeat?: string } | undefined
+  if (body?.no_heartbeat === '1') return false
+  return true
 }
 
 export function createLoginPageRouter(ctx: AuthServiceContext): Router {
@@ -723,10 +741,12 @@ export function renderLoginPage(opts: {
         fetch('/auth/ping', { credentials: 'include', cache: 'no-store' })
           .then(function(r) { return r.json(); })
           .then(function(body) {
-            if (body && body.ok === false) {
-              // Auth flow or PAR dead — no point pinging again. Leave
-              // the form alive so an in-flight submit can still surface
-              // the eventual error through the normal channel.
+            if (body && body.ok === false && body.reason !== 'transient') {
+              // Auth flow / PAR genuinely dead — no point pinging again.
+              // Leave the form alive so an in-flight submit can still
+              // surface the eventual error through the normal channel.
+              // 'transient' (5xx / network blip) does NOT stop the
+              // interval: the next tick may recover.
               stopHeartbeat();
             }
           })
