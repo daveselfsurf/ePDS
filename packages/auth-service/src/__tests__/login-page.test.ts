@@ -683,10 +683,18 @@ describe('renderLoginPage flow-aborted notice + reactive abort gates', () => {
     const html = renderDefault()
     // The pingHeartbeat handler must call showFlowAbortedNotice
     // when reason !== 'transient'. Transient failures must not
-    // trigger the notice.
-    expect(html).toMatch(
-      /if \(body && body\.ok === false && body\.reason !== 'transient'\) \{\s*[\s\S]*?stopHeartbeat\(\);\s*showFlowAbortedNotice\(\);/,
+    // trigger the notice. Substring-based slicing rather than a
+    // greedy regex (.*?) so Sonar doesn't flag this as ReDoS.
+    const guardIdx = html.indexOf(
+      "if (body && body.ok === false && body.reason !== 'transient')",
     )
+    expect(guardIdx).toBeGreaterThan(0)
+    // The two effects (stop pinging, show the notice) must both
+    // appear after the guard. Use a bounded slice to keep the
+    // assertion linear.
+    const branchSlice = html.slice(guardIdx, guardIdx + 600)
+    expect(branchSlice).toContain('stopHeartbeat();')
+    expect(branchSlice).toContain('showFlowAbortedNotice();')
   })
 
   it('gates the Resend click on abortIfFlowDead', () => {

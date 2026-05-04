@@ -16,9 +16,12 @@ import {
   beforeAll,
   afterAll,
 } from 'vitest'
-import express from 'express'
-import cookieParser from 'cookie-parser'
-import type { AuthServiceContext } from '../context.js'
+import {
+  buildHeartbeatApp,
+  harnessGet,
+  type FakeFlow,
+} from './__helpers__/heartbeat-router-harness.js'
+import type express from 'express'
 
 // Use https:// in the test fixture so SonarQube's S5332 hotspot doesn't
 // flag this file. The mocked pingParRequest never actually issues a
@@ -56,57 +59,16 @@ beforeEach(() => {
 // Late import so the vi.mock above is in effect.
 const { createHeartbeatRouter } = await import('../routes/heartbeat.js')
 
-interface FakeFlow {
-  requestUri: string
-  clientId: string | null
-  handleMode: null
-}
-
 function buildApp(flows: Map<string, FakeFlow>): express.Express {
-  const ctx = {
-    db: {
-      getAuthFlow(flowId: string): FakeFlow | undefined {
-        return flows.get(flowId)
-      },
-    },
-  } as unknown as AuthServiceContext
-  const app = express()
-  app.use(cookieParser())
-  app.use(createHeartbeatRouter(ctx))
-  return app
+  return buildHeartbeatApp(createHeartbeatRouter, flows)
 }
 
 async function getPing(
   app: express.Express,
   cookie?: string,
 ): Promise<{ status: number; cacheControl: string | null; body: unknown }> {
-  const server = app.listen(0)
-  try {
-    server.unref()
-    const port = await new Promise<number>((resolve, reject) => {
-      server.once('error', reject)
-      server.once('listening', () => {
-        const addr = server.address()
-        if (typeof addr === 'object' && addr) resolve(addr.port)
-        else reject(new Error('Failed to resolve ephemeral port'))
-      })
-    })
-    const res = await fetch(`http://127.0.0.1:${port}/auth/ping`, {
-      method: 'GET',
-      headers: cookie ? { Cookie: cookie } : {},
-    })
-    return {
-      status: res.status,
-      cacheControl: res.headers.get('cache-control'),
-      body: await res.json(),
-    }
-  } finally {
-    await new Promise<void>((resolve) => {
-      server.close(() => {
-        resolve()
-      })
-    })
-  }
+  const r = await harnessGet(app, '/auth/ping', cookie)
+  return { status: r.status, cacheControl: r.cacheControl, body: r.body }
 }
 
 describe('GET /auth/ping', () => {

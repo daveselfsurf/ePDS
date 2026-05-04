@@ -19,9 +19,12 @@ import {
   beforeAll,
   afterAll,
 } from 'vitest'
-import express from 'express'
-import cookieParser from 'cookie-parser'
-import type { AuthServiceContext } from '../context.js'
+import {
+  buildHeartbeatApp,
+  harnessGet,
+  type FakeFlow,
+} from './__helpers__/heartbeat-router-harness.js'
+import type express from 'express'
 
 const PDS_URL = 'https://core:3000'
 const SECRET = 'test-secret'
@@ -72,58 +75,16 @@ beforeEach(() => {
 
 const { createHeartbeatRouter } = await import('../routes/heartbeat.js')
 
-interface FakeFlow {
-  requestUri: string
-  clientId: string | null
-  handleMode: null
-}
-
 function buildApp(flows: Map<string, FakeFlow>): express.Express {
-  const ctx = {
-    db: {
-      getAuthFlow(flowId: string): FakeFlow | undefined {
-        return flows.get(flowId)
-      },
-    },
-  } as unknown as AuthServiceContext
-  const app = express()
-  app.use(cookieParser())
-  app.use(createHeartbeatRouter(ctx))
-  return app
+  return buildHeartbeatApp(createHeartbeatRouter, flows)
 }
 
 async function getAbort(
   app: express.Express,
   cookie?: string,
 ): Promise<{ status: number; setCookie: string[]; location: string | null }> {
-  const server = app.listen(0)
-  try {
-    server.unref()
-    const port = await new Promise<number>((resolve, reject) => {
-      server.once('error', reject)
-      server.once('listening', () => {
-        const addr = server.address()
-        if (typeof addr === 'object' && addr) resolve(addr.port)
-        else reject(new Error('Failed to resolve ephemeral port'))
-      })
-    })
-    const res = await fetch(`http://127.0.0.1:${port}/auth/abort`, {
-      method: 'GET',
-      headers: cookie ? { Cookie: cookie } : {},
-      redirect: 'manual',
-    })
-    return {
-      status: res.status,
-      setCookie: res.headers.getSetCookie(),
-      location: res.headers.get('location'),
-    }
-  } finally {
-    await new Promise<void>((resolve) => {
-      server.close(() => {
-        resolve()
-      })
-    })
-  }
+  const r = await harnessGet(app, '/auth/abort', cookie)
+  return { status: r.status, setCookie: r.setCookie, location: r.location }
 }
 
 describe('GET /auth/abort', () => {
