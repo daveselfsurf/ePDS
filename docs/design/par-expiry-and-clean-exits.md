@@ -24,11 +24,11 @@ expiry, so the immediate question was: how did this slip through?
 
 ## The three timers
 
-| Timer | Default | Where |
-|---|---|---|
-| OTP TTL | 10 min | better-auth `verification` row (auth-service SQLite) |
-| PAR (`request_uri`) TTL | 5 min, sliding | `@atproto/oauth-provider` request store (pds-core) |
-| auth_flow TTL | 60 min | auth-service SQLite + `epds_auth_flow` cookie |
+| Timer                   | Default        | Where                                                |
+| ----------------------- | -------------- | ---------------------------------------------------- |
+| OTP TTL                 | 10 min         | better-auth `verification` row (auth-service SQLite) |
+| PAR (`request_uri`) TTL | 5 min, sliding | `@atproto/oauth-provider` request store (pds-core)   |
+| auth_flow TTL           | 60 min         | auth-service SQLite + `epds_auth_flow` cookie        |
 
 Each lives in a different layer because each layer owns a different
 concept (better-auth: email-OTP only; oauth-provider: OAuth handshake
@@ -66,23 +66,23 @@ with no recovery path.
 
 ## Why the existing scenarios missed it
 
-| Scenario | OTP expired | PAR expired | auth_flow expired | Resend in flow |
-|---|---|---|---|---|
-| `@otp-expiry` (existing) | Yes | **No** | No | Yes |
-| `@par-callback-error` (existing) | No | Yes | No | No |
-| `@otp-and-par-expiry` (new) | Yes | Yes | No | Yes |
-| `@multiple-resend` (new) | No | Yes | No | Yes (twice) |
-| `@prompt-login` (new) | No | Yes | No | No |
-| `@recovery` (new) | No | Yes | No | No |
+| Scenario                         | OTP expired | PAR expired | auth_flow expired | Resend in flow |
+| -------------------------------- | ----------- | ----------- | ----------------- | -------------- |
+| `@otp-expiry` (existing)         | Yes         | **No**      | No                | Yes            |
+| `@par-callback-error` (existing) | No          | Yes         | No                | No             |
+| `@otp-and-par-expiry` (new)      | Yes         | Yes         | No                | Yes            |
+| `@multiple-resend` (new)         | No          | Yes         | No                | Yes (twice)    |
+| `@prompt-login` (new)            | No          | Yes         | No                | No             |
+| `@recovery` (new)                | No          | Yes         | No                | No             |
 
-`@otp-expiry` only ages the OTP row and *deliberately keeps the PAR
-alive* to isolate the auth-service-side TTL fix from the PDS layer.
+`@otp-expiry` only ages the OTP row and _deliberately keeps the PAR
+alive_ to isolate the auth-service-side TTL fix from the PDS layer.
 But PAR's hardcoded 5-min TTL is shorter than OTP's 10-min TTL, so in
 production the PAR is already dead by the time OTP expiry ever fires.
 The scenario passes because it artificially preserves a row that
 wouldn't exist in real life.
 
-`@par-callback-error` only covers the *response shape* when PAR is
+`@par-callback-error` only covers the _response shape_ when PAR is
 dead at callback (styled HTML vs raw JSON). It does not exercise
 Resend at all and asserts nothing about user recovery.
 
@@ -198,20 +198,20 @@ end (the shared `renderError` template has no retry link, no Start
 Over button — see `packages/shared/src/render-error.ts`). "Target" is
 the proposed clean-exit UX.
 
-| # | Page | Trigger | Today | Target |
-|---|---|---|---|---|
-| 1 | `/auth/complete` (no cookie) | `epds_auth_flow` cookie missing | Static "Authentication session expired. Please try again." | Redirect back to OAuth client with `error=access_denied` if `redirect_uri` recoverable; else static page with Start Over link to fresh `/oauth/authorize` for the original client. |
-| 2 | `/auth/complete` (no flow row) | auth_flow row missing/expired | Static "Authentication session expired. Please try again." | Same as #1. The flow row carried `requestUri` + `clientId`; if it's gone we don't know `redirect_uri` and must fall back to Start Over. |
-| 3 | `/auth/complete` (better-auth session error) | better-auth session lookup throws | Static "Authentication failed. Please try again." | Redirect to client with `error=server_error` if recoverable; otherwise Start Over. |
-| 4 | `/auth/choose-handle` (no cookie / no flow) | same as #1/#2 but on handle picker | Static "Session expired, please start over" | Same as #1. |
-| 5 | `/auth/choose-handle` (better-auth session error) | session lookup throws | Static "Authentication failed. Please try again." | Same as #3. |
-| 6 | `/auth/choose-handle` (no session user) | better-auth session has no user | Static "Session expired, please start over" | Same as #1. |
-| 7 | `/auth/choose-handle` (PAR ping fails on render) | upstream PAR row dead before user even sees the picker | Static "Session expired, please start over" | Redirect to client (we still hold `flow.clientId` here, can resolve `redirect_uri` via `/_internal/par-…`-style lookup OR we can defer — see open question below). |
-| 8 | `/auth/choose-handle` (PAR ping fails on POST) | PAR died while user was picking | Static "Session expired, please start over" | Same as #7. |
-| 9 | `/oauth/epds-callback` catch (PAR-expired branch) | upstream `requestManager.get()` threw `expired`/`unknown request_uri` | Already does the right thing IF `redirect_uri` was captured before the throw: redirects to client with `error=access_denied` + description. Falls back to a styled-but-static "Your sign-in took too long…" page when `redirect_uri` was not recoverable. | Keep redirect path. For the static-fallback case, add a Start Over link/button so the user can re-initiate. |
-| 10 | `/oauth/epds-callback` catch (server_error branch) | any other throw | Static "Authentication failed." | Same shape: redirect when possible, Start Over fallback when not. |
-| 11 | `/auth/recover` (missing request_uri) | direct GET without query param | Static "Missing request_uri parameter" | Out of scope — this isn't an expiry case, it's misuse. Leave as is. |
-| 12 | Recovery OTP verify success → `/auth/complete` chain | recovery flow hands back to `/auth/complete`; if PAR died during the recovery loop, falls into #1/#2/#9 | Inherits the surface of whichever route fires | Inherits the fix. |
+| #   | Page                                                 | Trigger                                                                                                 | Today                                                                                                                                                                                                                                                     | Target                                                                                                                                                                             |
+| --- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `/auth/complete` (no cookie)                         | `epds_auth_flow` cookie missing                                                                         | Static "Authentication session expired. Please try again."                                                                                                                                                                                                | Redirect back to OAuth client with `error=access_denied` if `redirect_uri` recoverable; else static page with Start Over link to fresh `/oauth/authorize` for the original client. |
+| 2   | `/auth/complete` (no flow row)                       | auth_flow row missing/expired                                                                           | Static "Authentication session expired. Please try again."                                                                                                                                                                                                | Same as #1. The flow row carried `requestUri` + `clientId`; if it's gone we don't know `redirect_uri` and must fall back to Start Over.                                            |
+| 3   | `/auth/complete` (better-auth session error)         | better-auth session lookup throws                                                                       | Static "Authentication failed. Please try again."                                                                                                                                                                                                         | Redirect to client with `error=server_error` if recoverable; otherwise Start Over.                                                                                                 |
+| 4   | `/auth/choose-handle` (no cookie / no flow)          | same as #1/#2 but on handle picker                                                                      | Static "Session expired, please start over"                                                                                                                                                                                                               | Same as #1.                                                                                                                                                                        |
+| 5   | `/auth/choose-handle` (better-auth session error)    | session lookup throws                                                                                   | Static "Authentication failed. Please try again."                                                                                                                                                                                                         | Same as #3.                                                                                                                                                                        |
+| 6   | `/auth/choose-handle` (no session user)              | better-auth session has no user                                                                         | Static "Session expired, please start over"                                                                                                                                                                                                               | Same as #1.                                                                                                                                                                        |
+| 7   | `/auth/choose-handle` (PAR ping fails on render)     | upstream PAR row dead before user even sees the picker                                                  | Static "Session expired, please start over"                                                                                                                                                                                                               | Redirect to client (we still hold `flow.clientId` here, can resolve `redirect_uri` via `/_internal/par-…`-style lookup OR we can defer — see open question below).                 |
+| 8   | `/auth/choose-handle` (PAR ping fails on POST)       | PAR died while user was picking                                                                         | Static "Session expired, please start over"                                                                                                                                                                                                               | Same as #7.                                                                                                                                                                        |
+| 9   | `/oauth/epds-callback` catch (PAR-expired branch)    | upstream `requestManager.get()` threw `expired`/`unknown request_uri`                                   | Already does the right thing IF `redirect_uri` was captured before the throw: redirects to client with `error=access_denied` + description. Falls back to a styled-but-static "Your sign-in took too long…" page when `redirect_uri` was not recoverable. | Keep redirect path. For the static-fallback case, add a Start Over link/button so the user can re-initiate.                                                                        |
+| 10  | `/oauth/epds-callback` catch (server_error branch)   | any other throw                                                                                         | Static "Authentication failed."                                                                                                                                                                                                                           | Same shape: redirect when possible, Start Over fallback when not.                                                                                                                  |
+| 11  | `/auth/recover` (missing request_uri)                | direct GET without query param                                                                          | Static "Missing request_uri parameter"                                                                                                                                                                                                                    | Out of scope — this isn't an expiry case, it's misuse. Leave as is.                                                                                                                |
+| 12  | Recovery OTP verify success → `/auth/complete` chain | recovery flow hands back to `/auth/complete`; if PAR died during the recovery loop, falls into #1/#2/#9 | Inherits the surface of whichever route fires                                                                                                                                                                                                             | Inherits the fix.                                                                                                                                                                  |
 
 ### Failure clusters
 
@@ -268,7 +268,7 @@ possible.
    restarts. That is exactly the right semantics for an expiry.
 
 3. **Recovery flows must carry `clientId`.** The current `clientId:
-   null` on recovery's auth_flow row is a side-effect of the DB API,
+null` on recovery's auth_flow row is a side-effect of the DB API,
    not a design choice. Thread the clientId from the login page into
    the recovery link (URL or cookie) so the recovery page can
    populate it on the auth_flow row at creation. This puts recovery
@@ -278,7 +278,7 @@ possible.
 The shape of the implementation falls out of these:
 
 - One shared helper `redirectToClientWithError(res, clientId, code,
-  description, state?)` that resolves client metadata and issues the
+description, state?)` that resolves client metadata and issues the
   RFC 6749 error redirect. Called from every cluster A and B site.
 - Lift `handleCallbackError`'s redirect logic into that helper so
   pds-core and auth-service share one code path.

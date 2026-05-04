@@ -124,6 +124,19 @@ export function resolveHandleMode(
   return sharedResolveHandleMode(queryParam, clientMeta.epds_handle_mode)
 }
 
+/**
+ * Decide whether to enable the OTP-form / recovery-form heartbeat for
+ * this request. Heartbeat is on by default; the only way to disable it
+ * is to combine `EPDS_TEST_HOOKS=1` (a server-side opt-in already
+ * required for the e2e test-only routes) with `?no_heartbeat=1` on the
+ * URL. This lets e2e scenarios prove the heartbeat is what saves a
+ * slow user without removing the heartbeat in production.
+ */
+export function heartbeatEnabledFor(req: Request): boolean {
+  if (process.env.EPDS_TEST_HOOKS !== '1') return true
+  return req.query.no_heartbeat !== '1'
+}
+
 export function createLoginPageRouter(ctx: AuthServiceContext): Router {
   const router = Router()
 
@@ -426,6 +439,7 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
         legalEntityName: ctx.config.legalEntityName,
         otpLength: ctx.config.otpLength,
         otpCharset: ctx.config.otpCharset,
+        heartbeatEnabled: heartbeatEnabledFor(req),
       }),
     )
   })
@@ -452,6 +466,14 @@ export function renderLoginPage(opts: {
   legalEntityName?: string
   otpLength: number
   otpCharset: 'numeric' | 'alphanumeric'
+  /**
+   * When true, the rendered page starts a 3-min `setInterval` that
+   * GETs /auth/ping while the user is on the OTP step, sliding the
+   * upstream PAR's inactivity timer so the user can read their email
+   * without losing the OAuth flow. Disabled only by the
+   * `?no_heartbeat=1` test toggle (see `heartbeatEnabledFor`).
+   */
+  heartbeatEnabled: boolean
 }): string {
   const b = opts.branding
   const appName = b.client_name || opts.clientName || 'Certified'
@@ -689,6 +711,40 @@ export function renderLoginPage(opts: {
       var otpBoxes = Array.prototype.slice.call(document.querySelectorAll('.otp-box'));
       var hiddenCode = document.getElementById('code');
 
+      // PAR heartbeat — slides the upstream request_uri inactivity
+      // timer (atproto's AUTHORIZATION_INACTIVITY_TIMEOUT, 5 min) so
+      // a user who waits >5 min for the OTP email doesn't trip the
+      // dead-PAR path on submit. Disabled when ?no_heartbeat=1 was
+      // passed on the original /oauth/authorize URL with EPDS_TEST_HOOKS=1.
+      var heartbeatEnabled = ${JSON.stringify(opts.heartbeatEnabled)};
+      var heartbeatHandle = null;
+      var heartbeatIntervalMs = 3 * 60 * 1000;
+      function pingHeartbeat() {
+        fetch('/auth/ping', { credentials: 'include', cache: 'no-store' })
+          .then(function(r) { return r.json(); })
+          .then(function(body) {
+            if (body && body.ok === false) {
+              // Auth flow or PAR dead — no point pinging again. Leave
+              // the form alive so an in-flight submit can still surface
+              // the eventual error through the normal channel.
+              stopHeartbeat();
+            }
+          })
+          .catch(function() { /* network blip — keep trying next tick */ });
+      }
+      function startHeartbeat() {
+        if (!heartbeatEnabled) return;
+        if (heartbeatHandle !== null) return;
+        heartbeatHandle = setInterval(pingHeartbeat, heartbeatIntervalMs);
+      }
+      function stopHeartbeat() {
+        if (heartbeatHandle !== null) {
+          clearInterval(heartbeatHandle);
+          heartbeatHandle = null;
+        }
+      }
+      window.addEventListener('beforeunload', stopHeartbeat);
+
       function updateHiddenCode() {
         var v = '';
         for (var i = 0; i < otpBoxes.length; i++) v += otpBoxes[i].value;
@@ -803,6 +859,7 @@ export function renderLoginPage(opts: {
         clearOtpBoxes();
         if (otpBoxes.length) otpBoxes[0].focus();
         clearError();
+        startHeartbeat();
       }
 
       function showEmailStep() {
@@ -811,6 +868,7 @@ export function renderLoginPage(opts: {
         headingEl.textContent = 'Sign in';
         if (termsEl) termsEl.style.display = 'block';
         clearError();
+        stopHeartbeat();
       }
 
       // Send OTP via better-auth
@@ -895,6 +953,9 @@ export function renderLoginPage(opts: {
         // flashes "Invalid OTP" before the page unloads.
         if (verifying) return;
         verifying = true;
+        // Stop pinging the moment a verify is in flight — the redirect
+        // is imminent and any further heartbeat is wasted.
+        stopHeartbeat();
         clearError();
         var otp = document.getElementById('code').value.trim();
         var btn = this.querySelector('button[type=submit]');
@@ -918,6 +979,9 @@ export function renderLoginPage(opts: {
             verifying = false;
             btn.disabled = false;
             btn.textContent = 'Verify';
+            // Verify failed (typo, expired OTP, etc.) — the form is
+            // still live, so resume keeping the PAR alive.
+            startHeartbeat();
           }
         }
       });
@@ -965,6 +1029,9 @@ export function renderLoginPage(opts: {
             }
           });
         }
+        // OTP form is already visible server-side; showOtpStep() never
+        // ran, so kick off the heartbeat ourselves.
+        startHeartbeat();
       }
     })();
   </script>

@@ -224,6 +224,8 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
         legalEntityName: ctx.config.legalEntityName,
         otpLength: ctx.config.otpLength,
         otpCharset: ctx.config.otpCharset,
+        // No real OAuth flow behind a preview, so no PAR to keep alive.
+        heartbeatEnabled: false,
       }),
     )
   })
@@ -252,6 +254,8 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
         legalEntityName: ctx.config.legalEntityName,
         otpLength: ctx.config.otpLength,
         otpCharset: ctx.config.otpCharset,
+        // No real OAuth flow behind a preview, so no PAR to keep alive.
+        heartbeatEnabled: false,
       }),
     )
   })
@@ -312,6 +316,7 @@ export function createPreviewRouter(ctx: AuthServiceContext): Router {
         customFaviconUrl: faviconUrl,
         customFaviconUrlDark: faviconUrlDark,
         backUri: FAKE_REQUEST_URI,
+        heartbeatEnabled: false,
       }),
     )
   })

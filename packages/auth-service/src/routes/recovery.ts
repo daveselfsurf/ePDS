@@ -27,6 +27,7 @@ import {
 } from '../lib/page-helpers.js'
 import { renderError } from '../lib/render-error.js'
 import { AUTH_FLOW_COOKIE, AUTH_FLOW_TTL_MS } from '../lib/auth-flow.js'
+import { heartbeatEnabledFor } from './login-page.js'
 
 const logger = createLogger('auth:recovery')
 
@@ -181,6 +182,7 @@ export function createRecoveryRouter(
             customFaviconUrl,
             customFaviconUrlDark,
             backUri,
+            heartbeatEnabled: heartbeatEnabledFor(req),
           }),
         )
       } catch (err) {
@@ -197,6 +199,7 @@ export function createRecoveryRouter(
             customFaviconUrl,
             customFaviconUrlDark,
             backUri,
+            heartbeatEnabled: heartbeatEnabledFor(req),
           }),
         )
       }
@@ -213,6 +216,7 @@ export function createRecoveryRouter(
           customFaviconUrl,
           customFaviconUrlDark,
           backUri,
+          heartbeatEnabled: heartbeatEnabledFor(req),
         }),
       )
     }
@@ -275,6 +279,7 @@ export function createRecoveryRouter(
           customFaviconUrl,
           customFaviconUrlDark,
           backUri,
+          heartbeatEnabled: heartbeatEnabledFor(req),
         }),
       )
     }
@@ -340,6 +345,12 @@ export function renderRecoveryOtpForm(opts: {
   customFaviconUrl?: string | null
   customFaviconUrlDark?: string | null
   backUri?: string | null
+  /**
+   * When true, the page polls /auth/ping every 3 min to slide the
+   * upstream PAR's inactivity timer while the user reads their
+   * recovery email. Mirror of the OTP-form heartbeat in login-page.
+   */
+  heartbeatEnabled: boolean
 }): string {
   const maskedEmail = maskEmail(opts.email)
   const requestUriForBack = opts.backUri ?? opts.requestUri
@@ -393,6 +404,29 @@ export function renderRecoveryOtpForm(opts: {
     </div>
     ${POWERED_BY_HTML}
   </div>
+  <script>
+    (function() {
+      // PAR heartbeat — see packages/auth-service/src/routes/heartbeat.ts.
+      // Mirrors the login-page OTP heartbeat. Stops on form submit /
+      // unload / when the server reports the auth_flow or PAR is gone.
+      if (!${JSON.stringify(opts.heartbeatEnabled)}) return;
+      var handle = null;
+      function ping() {
+        fetch('/auth/ping', { credentials: 'include', cache: 'no-store' })
+          .then(function(r) { return r.json(); })
+          .then(function(body) {
+            if (body && body.ok === false) stop();
+          })
+          .catch(function() {});
+      }
+      function stop() { if (handle !== null) { clearInterval(handle); handle = null; } }
+      handle = setInterval(ping, 3 * 60 * 1000);
+      window.addEventListener('beforeunload', stop);
+      Array.prototype.forEach.call(document.querySelectorAll('form'), function(form) {
+        form.addEventListener('submit', stop);
+      });
+    })();
+  </script>
 </body>
 </html>`
 }

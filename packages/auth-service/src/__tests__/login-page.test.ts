@@ -430,6 +430,7 @@ describe('renderLoginPage handle login button', () => {
       pdsPublicUrl: 'https://pds.example.com',
       otpLength: 6,
       otpCharset: 'numeric',
+      heartbeatEnabled: false,
     })
   }
 
@@ -516,6 +517,7 @@ function renderDefault(): string {
     pdsPublicUrl: 'https://pds.example.com',
     otpLength: 6,
     otpCharset: 'numeric',
+    heartbeatEnabled: false,
   })
 }
 

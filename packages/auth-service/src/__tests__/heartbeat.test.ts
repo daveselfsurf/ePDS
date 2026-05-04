@@ -1,0 +1,203 @@
+/**
+ * Tests for the /auth/ping heartbeat route.
+ *
+ * Strategy: stand up the router with a hand-rolled `ctx` that satisfies
+ * just the slice the route reads (`db.getAuthFlow`). Mock
+ * `pingParRequest` at the module boundary so we can assert what the
+ * route forwards to it without hitting (or having to spy on) the
+ * test's own fetch back into the in-process express server.
+ */
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  beforeAll,
+  afterAll,
+} from 'vitest'
+import express from 'express'
+import cookieParser from 'cookie-parser'
+import type { AuthServiceContext } from '../context.js'
+
+const PDS_URL = 'http://core:3000'
+const SECRET = 'test-secret'
+
+const ORIGINAL_PDS_URL = process.env.PDS_INTERNAL_URL
+const ORIGINAL_SECRET = process.env.EPDS_INTERNAL_SECRET
+
+beforeAll(() => {
+  process.env.PDS_INTERNAL_URL = PDS_URL
+  process.env.EPDS_INTERNAL_SECRET = SECRET
+})
+
+afterAll(() => {
+  if (ORIGINAL_PDS_URL === undefined) delete process.env.PDS_INTERNAL_URL
+  else process.env.PDS_INTERNAL_URL = ORIGINAL_PDS_URL
+  if (ORIGINAL_SECRET === undefined) delete process.env.EPDS_INTERNAL_SECRET
+  else process.env.EPDS_INTERNAL_SECRET = ORIGINAL_SECRET
+})
+
+// Mock the ping-par-request module so we can drive the route's success
+// and failure branches without standing up a fake pds-core server.
+const pingMock = vi.hoisted(() => vi.fn())
+vi.mock('../lib/ping-par-request.js', () => ({
+  pingParRequest: pingMock,
+}))
+
+beforeEach(() => {
+  pingMock.mockReset()
+})
+
+// Late import so the vi.mock above is in effect.
+const { createHeartbeatRouter } = await import('../routes/heartbeat.js')
+
+interface FakeFlow {
+  requestUri: string
+  clientId: string | null
+  handleMode: null
+}
+
+function buildApp(flows: Map<string, FakeFlow>): express.Express {
+  const ctx = {
+    db: {
+      getAuthFlow(flowId: string): FakeFlow | undefined {
+        return flows.get(flowId)
+      },
+    },
+  } as unknown as AuthServiceContext
+  const app = express()
+  app.use(cookieParser())
+  app.use(createHeartbeatRouter(ctx))
+  return app
+}
+
+async function getPing(
+  app: express.Express,
+  cookie?: string,
+): Promise<{ status: number; cacheControl: string | null; body: unknown }> {
+  const server = app.listen(0)
+  try {
+    server.unref()
+    const port = await new Promise<number>((resolve, reject) => {
+      server.once('error', reject)
+      server.once('listening', () => {
+        const addr = server.address()
+        if (typeof addr === 'object' && addr) resolve(addr.port)
+        else reject(new Error('Failed to resolve ephemeral port'))
+      })
+    })
+    const res = await fetch(`http://127.0.0.1:${port}/auth/ping`, {
+      method: 'GET',
+      headers: cookie ? { Cookie: cookie } : {},
+    })
+    return {
+      status: res.status,
+      cacheControl: res.headers.get('cache-control'),
+      body: await res.json(),
+    }
+  } finally {
+    await new Promise<void>((resolve) => {
+      server.close(() => {
+        resolve()
+      })
+    })
+  }
+}
+
+describe('GET /auth/ping', () => {
+  it('returns no_cookie when the auth_flow cookie is missing', async () => {
+    const app = buildApp(new Map())
+
+    const res = await getPing(app)
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ ok: false, reason: 'no_cookie' })
+    // We do NOT call pds-core when there is nothing to ping.
+    expect(pingMock).not.toHaveBeenCalled()
+  })
+
+  it('returns flow_expired when the auth_flow row is gone', async () => {
+    const app = buildApp(new Map())
+
+    const res = await getPing(app, 'epds_auth_flow=missing-flow')
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ ok: false, reason: 'flow_expired' })
+    expect(pingMock).not.toHaveBeenCalled()
+  })
+
+  it('forwards a successful ping and returns ok:true', async () => {
+    const flows = new Map<string, FakeFlow>([
+      [
+        'flow-1',
+        {
+          requestUri: 'urn:ietf:params:oauth:request_uri:req-abc',
+          clientId: 'https://demo.example.com/client-metadata.json',
+          handleMode: null,
+        },
+      ],
+    ])
+    const app = buildApp(flows)
+    pingMock.mockResolvedValueOnce({ ok: true })
+
+    const res = await getPing(app, 'epds_auth_flow=flow-1')
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ ok: true })
+    expect(pingMock).toHaveBeenCalledTimes(1)
+    expect(pingMock).toHaveBeenCalledWith(
+      'urn:ietf:params:oauth:request_uri:req-abc',
+      PDS_URL,
+      SECRET,
+    )
+  })
+
+  it('returns par_expired when pds-core reports the request_uri is gone', async () => {
+    const flows = new Map<string, FakeFlow>([
+      [
+        'flow-1',
+        {
+          requestUri: 'urn:ietf:params:oauth:request_uri:req-dead',
+          clientId: null,
+          handleMode: null,
+        },
+      ],
+    ])
+    const app = buildApp(flows)
+    pingMock.mockResolvedValueOnce({ ok: false, status: 404 })
+
+    const res = await getPing(app, 'epds_auth_flow=flow-1')
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ ok: false, reason: 'par_expired' })
+  })
+
+  it('returns par_expired on operational errors so the browser stops pinging deterministically', async () => {
+    const flows = new Map<string, FakeFlow>([
+      [
+        'flow-1',
+        {
+          requestUri: 'urn:ietf:params:oauth:request_uri:req-blip',
+          clientId: null,
+          handleMode: null,
+        },
+      ],
+    ])
+    const app = buildApp(flows)
+    pingMock.mockResolvedValueOnce({ ok: false, status: 502 })
+
+    const res = await getPing(app, 'epds_auth_flow=flow-1')
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ ok: false, reason: 'par_expired' })
+  })
+
+  it('sets Cache-Control: no-store so a shared cache cannot serve a stale response across flows', async () => {
+    const app = buildApp(new Map())
+
+    const res = await getPing(app)
+
+    expect(res.cacheControl).toBe('no-store')
+  })
+})
