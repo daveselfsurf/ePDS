@@ -39,6 +39,18 @@ function paramsFromUrl(url: string): URLSearchParams {
   return new URL(url).searchParams
 }
 
+/**
+ * Read a required URL param. Throws if absent — tests that get here
+ * have already asserted the param was set, so a missing value is a
+ * test-fixture bug, not a runtime branch we want to handle silently.
+ * Avoids the non-null `!` assertion on every `.get()` call.
+ */
+function requiredParam(q: URLSearchParams, name: string): string {
+  const v = q.get(name)
+  if (v === null) throw new Error(`expected URL param ${name} to be set`)
+  return v
+}
+
 describe('buildEpdsCallbackUrl', () => {
   it('targets pds-core /oauth/epds-callback at the configured public URL', () => {
     const url = buildEpdsCallbackUrl({
@@ -70,8 +82,8 @@ describe('buildEpdsCallbackUrl', () => {
     expect(q.get('request_uri')).toBe(REQUEST_URI)
     expect(q.get('client_id')).toBe(CLIENT_ID)
 
-    const ts = q.get('ts')!
-    const sig = q.get('sig')!
+    const ts = requiredParam(q, 'ts')
+    const sig = requiredParam(q, 'sig')
     const params: CallbackParams = {
       request_uri: REQUEST_URI,
       email: EMAIL,
@@ -100,9 +112,14 @@ describe('buildEpdsCallbackUrl', () => {
       new_account: '1',
       client_id: CLIENT_ID,
     }
-    expect(verifyCallback(params, q.get('ts')!, q.get('sig')!, SECRET)).toBe(
-      true,
-    )
+    expect(
+      verifyCallback(
+        params,
+        requiredParam(q, 'ts'),
+        requiredParam(q, 'sig'),
+        SECRET,
+      ),
+    ).toBe(true)
   })
 
   it('omits client_id from the URL when flowClientId is null', () => {
@@ -124,9 +141,14 @@ describe('buildEpdsCallbackUrl', () => {
       approved: '1',
       new_account: '0',
     }
-    expect(verifyCallback(params, q.get('ts')!, q.get('sig')!, SECRET)).toBe(
-      true,
-    )
+    expect(
+      verifyCallback(
+        params,
+        requiredParam(q, 'ts'),
+        requiredParam(q, 'sig'),
+        SECRET,
+      ),
+    ).toBe(true)
   })
 
   it('preserves the random-mode handle sentinel: omitting `handle` is the trigger for pds-core to call generateRandomHandle()', () => {
@@ -152,9 +174,14 @@ describe('buildEpdsCallbackUrl', () => {
       new_account: '1',
       client_id: CLIENT_ID,
     }
-    expect(verifyCallback(params, q.get('ts')!, q.get('sig')!, SECRET)).toBe(
-      true,
-    )
+    expect(
+      verifyCallback(
+        params,
+        requiredParam(q, 'ts'),
+        requiredParam(q, 'sig'),
+        SECRET,
+      ),
+    ).toBe(true)
   })
 
   it("rejects a tampered client_id at the verifier (the value is signed, an attacker cannot redirect a victim's flow at a different OAuth client)", () => {
@@ -174,8 +201,13 @@ describe('buildEpdsCallbackUrl', () => {
       new_account: '0',
       client_id: 'https://attacker.example/client-metadata.json',
     }
-    expect(verifyCallback(tampered, q.get('ts')!, q.get('sig')!, SECRET)).toBe(
-      false,
-    )
+    expect(
+      verifyCallback(
+        tampered,
+        requiredParam(q, 'ts'),
+        requiredParam(q, 'sig'),
+        SECRET,
+      ),
+    ).toBe(false)
   })
 })
