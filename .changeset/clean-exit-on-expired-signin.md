@@ -1,5 +1,5 @@
 ---
-'ePDS': minor
+'ePDS': patch
 ---
 
 Sign-in pages no longer strand users on a "session expired" dead end, and Resend no longer offers codes that won't work.

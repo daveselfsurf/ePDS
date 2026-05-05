@@ -1,5 +1,5 @@
 ---
-'ePDS': minor
+'ePDS': patch
 ---
 
 Slow sign-ins are less likely to time out before you finish entering your code.
