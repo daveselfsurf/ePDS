@@ -162,14 +162,15 @@ If using direct API, include `statuses` as well as `components`:
 ```
 
 Set `expandAt` to three days before `start` when following recent scheduled
-window style.
+window style. In the sample above, `expandAt` uses the same timestamp format as
+`start` / `end`, but the actual value should be three days earlier.
 
 ## Completing a Maintenance Window
 
 Do **not** complete maintenance by only updating the parent maintenance record.
 Instatus lifecycle changes are driven by **maintenance updates**. A parent
-`PUT /maintenances/{maintenance_id}` can accept fields and still leave the
-maintenance in `NOTSTARTEDYET`.
+`PUT /v1/{page_id}/maintenances/{maintenance_id}` can accept fields and still
+leave the maintenance in `NOTSTARTEDYET`.
 
 When the user says to mark a window complete, add a maintenance update:
 
@@ -191,7 +192,7 @@ Completion payload shape:
   ],
   "status": "COMPLETED",
   "notify": true,
-  "started": "YYYY-MM-DDTHH:mm:ss.sssZ"
+  "started": "YYYY-MM-DDTHH:mm:ss.000Z"
 }
 ```
 
