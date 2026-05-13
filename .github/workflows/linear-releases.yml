@@ -24,7 +24,7 @@ jobs:
 
       # This reports what reached staging to Linear. Release-note generation
       # stays in the existing Changesets/GitHub Release flow.
-      - uses: linear/linear-release-action@v0.10.0
+      - uses: linear/linear-release-action@0917777589db006387af296dde440385f88d6ac4 # v0.10.0
         with:
           access_key: ${{ secrets.LINEAR_STAGING_ACCESS_KEY }}
           name: staging-${{ github.event.deployment.sha }}
@@ -46,7 +46,7 @@ jobs:
 
       # This reports what reached production to Linear. Release-note generation
       # stays in the existing Changesets/GitHub Release flow.
-      - uses: linear/linear-release-action@v0.10.0
+      - uses: linear/linear-release-action@0917777589db006387af296dde440385f88d6ac4 # v0.10.0
         with:
           access_key: ${{ secrets.LINEAR_PRODUCTION_ACCESS_KEY }}
           name: production-${{ github.event.deployment.sha }}
