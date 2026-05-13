@@ -12,6 +12,7 @@ jobs:
     name: staging
     if: >-
       github.event.deployment_status.state == 'success' &&
+      github.event.deployment.creator.login == 'railway-app[bot]' &&
       github.event.deployment.environment == 'ePDS / pr-base'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
@@ -34,6 +35,7 @@ jobs:
     name: production
     if: >-
       github.event.deployment_status.state == 'success' &&
+      github.event.deployment.creator.login == 'railway-app[bot]' &&
       github.event.deployment.environment == 'ePDS / production'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
