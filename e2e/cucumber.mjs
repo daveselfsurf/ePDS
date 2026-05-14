@@ -49,7 +49,14 @@ const shared = {
   strict: true,
 }
 
-const defaultParallel = Number(process.env.E2E_PARALLEL ?? '3')
+const parsedDefaultParallel = Number.parseInt(
+  process.env.E2E_PARALLEL ?? '3',
+  10,
+)
+const defaultParallel =
+  Number.isFinite(parsedDefaultParallel) && parsedDefaultParallel >= 0
+    ? parsedDefaultParallel
+    : 3
 
 // Cucumber supports the `default: () => ({...})` form to declare multiple
 // profiles including names that aren't valid JS identifiers (e.g. hyphenated).
