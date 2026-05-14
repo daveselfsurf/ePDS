@@ -49,6 +49,15 @@ const shared = {
   strict: true,
 }
 
+const parsedDefaultParallel = Number.parseInt(
+  process.env.E2E_PARALLEL ?? '3',
+  10,
+)
+const defaultParallel =
+  Number.isFinite(parsedDefaultParallel) && parsedDefaultParallel >= 0
+    ? parsedDefaultParallel
+    : 3
+
 // Cucumber supports the `default: () => ({...})` form to declare multiple
 // profiles including names that aren't valid JS identifiers (e.g. hyphenated).
 // See @cucumber/cucumber's from_file.ts: handleDefaultFunctionDefinition.
@@ -56,6 +65,7 @@ export default () => ({
   default: {
     ...shared,
     format: ['pretty', 'html:reports/e2e.html', 'junit:reports/e2e.junit.xml'],
+    parallel: defaultParallel,
     tags: defaultTagExclusions.join(' and '),
   },
   'session-reuse': {
