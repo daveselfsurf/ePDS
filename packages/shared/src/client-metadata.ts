@@ -77,8 +77,11 @@ export interface ClientMetadata {
    * OAuth flow against that PDS. Off-PDS handles cannot be authenticated
    * by this PDS, so this is the only path that works for them.
    *
-   * Must be an absolute https:// URL on the client's own origin.
-   * If absent, the button is not rendered.
+   * Must be an absolute http(s):// URL on the client's own origin.
+   * `https://` is required in production; `http://` is accepted to
+   * support localhost / dev clients (this mirrors the runtime
+   * `isSafeHttpUrl` gate in auth-service's login page). If absent or
+   * not parseable as http(s), the button is not rendered.
    */
   epds_handle_login_url?: string
 }
