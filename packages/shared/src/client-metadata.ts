@@ -82,10 +82,11 @@ export interface ClientMetadata {
    * Must be an absolute http(s):// URL; should be on the client's own
    * origin (not enforced at runtime — neither the login page's
    * `isSafeHttpUrl` gate nor the `/preview/validate` check verifies
-   * origin). `https://` is required in production; `http://` is
-   * accepted to support localhost / dev clients (this mirrors the
-   * runtime `isSafeHttpUrl` gate in auth-service's login page). If
-   * absent or not parseable as http(s), the button is not rendered.
+   * origin). `https://` is expected in production; `http://` is also
+   * accepted at runtime to support localhost / dev clients (this
+   * mirrors the `isSafeHttpUrl` gate in auth-service's login page,
+   * which does not enforce a scheme by environment). If absent or not
+   * parseable as http(s), the button is not rendered.
    */
   epds_handle_login_url?: string
 }
