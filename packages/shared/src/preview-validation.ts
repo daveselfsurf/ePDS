@@ -443,9 +443,9 @@ function checkHandleLoginUrl(metadata: ClientMetadata): PreviewCheck {
     id: 'handle-login-url',
     label,
     severity: 'ok',
-    detail: `epds_handle_login_url="${value}". Login page will render the "Or sign in with ATProto/Bluesky" button and hand off to this URL with ?handle=<value>.`,
+    detail: `epds_handle_login_url="${value}". Login page will render the "Or sign in with ATProto/Bluesky" button and hand off to this URL with a handle=<value> query param.`,
     labelHtml,
-    detailHtml: `${code('epds_handle_login_url')}=${code('"' + value + '"')}. Login page will render the "Or sign in with ATProto/Bluesky" button and hand off to this URL with ${code('?handle=<value>')}.`,
+    detailHtml: `${code('epds_handle_login_url')}=${code('"' + value + '"')}. Login page will render the "Or sign in with ATProto/Bluesky" button and hand off to this URL with a ${code('handle=<value>')} query param.`,
   }
 }
 

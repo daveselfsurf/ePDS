@@ -72,16 +72,20 @@ export interface ClientMetadata {
   /**
    * ePDS extension — when set, the auth-service login page renders an
    * "Or sign in with ATProto/Bluesky" button. Submitting a handle
-   * navigates the browser to this URL with `?handle=<value>` appended,
-   * letting the client resolve the handle to a PDS and start a fresh
-   * OAuth flow against that PDS. Off-PDS handles cannot be authenticated
-   * by this PDS, so this is the only path that works for them.
+   * navigates the browser to this URL with a `handle=<value>` query
+   * param added (via `URLSearchParams.set`, so any existing query
+   * string is preserved), letting the client resolve the handle to a
+   * PDS and start a fresh OAuth flow against that PDS. Off-PDS handles
+   * cannot be authenticated by this PDS, so this is the only path that
+   * works for them.
    *
-   * Must be an absolute http(s):// URL on the client's own origin.
-   * `https://` is required in production; `http://` is accepted to
-   * support localhost / dev clients (this mirrors the runtime
-   * `isSafeHttpUrl` gate in auth-service's login page). If absent or
-   * not parseable as http(s), the button is not rendered.
+   * Must be an absolute http(s):// URL; should be on the client's own
+   * origin (not enforced at runtime — neither the login page's
+   * `isSafeHttpUrl` gate nor the `/preview/validate` check verifies
+   * origin). `https://` is required in production; `http://` is
+   * accepted to support localhost / dev clients (this mirrors the
+   * runtime `isSafeHttpUrl` gate in auth-service's login page). If
+   * absent or not parseable as http(s), the button is not rendered.
    */
   epds_handle_login_url?: string
 }
