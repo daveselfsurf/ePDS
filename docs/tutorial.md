@@ -258,16 +258,22 @@ your client metadata JSON instead.
 
 #### Optional branding
 
-You can customise the OTP email and login page colours:
+You can customise the OTP email and login page primary colour:
 
 ```json
 {
   "email_template_uri": "https://yourapp.example.com/email-template.html",
   "email_subject_template": "{{code}} — Your {{app_name}} code",
-  "brand_color": "#000000",
-  "background_color": "#ffffff"
+  "brand_color": "#000000"
 }
 ```
+
+`brand_color` controls the primary button colour (and focus ring) on
+the login page, plus the email-template accent. To control surface
+colours on the login page (page bg, card bg, input bg, borders, muted
+text), trusted clients should use the `branding.css` CSS-var override
+mechanism documented below — `background_color` from client metadata
+is no longer read by the login page.
 
 The email template must be an HTML file containing at minimum a `{{code}}`
 placeholder. Supported template variables:
@@ -338,6 +344,187 @@ All three conditions must be met for the skip to take effect:
 The skip only applies to initial sign-up — returning users go through
 normal consent handling (which may still be auto-approved if they have
 already granted the requested scopes).
+
+#### Optional: offer ATProto/Bluesky handle sign-in
+
+Users who already have an ATProto identity on a different PDS (e.g.
+`alice.bsky.social`) can't authenticate against your PDS directly —
+they need to be redirected back to your client app, which can resolve
+the handle to their PDS and start a fresh OAuth flow against it.
+
+Opt in by adding `epds_handle_login_url` to your client metadata:
+
+```json
+{
+  "epds_handle_login_url": "https://yourapp.example.com/api/oauth/login"
+}
+```
+
+When set, the auth-service login page renders an "Or sign in with
+ATProto/Bluesky" button under the email form. Clicking it switches the
+form into handle-entry mode (placeholder `you.bsky.social`); submitting
+a handle navigates the browser to your declared URL with `?handle=<value>`
+appended. Your route is responsible for resolving the handle to its PDS
+and starting a fresh PAR against that PDS.
+
+The reference demo client implements this at
+`packages/demo/src/app/api/oauth/login/route.ts` — the same route
+already accepts `?handle=` and resolves it dynamically, so the easiest
+opt-in is to point `epds_handle_login_url` at your existing OAuth
+login route.
+
+Constraints:
+
+- The URL must use the `https:` scheme (or `http:` for local dev).
+  Other schemes (including `javascript:`) are rejected and the button
+  is not rendered.
+- If `epds_handle_login_url` is unset or invalid, the button is not
+  rendered. Existing clients see no behaviour change.
+
+#### Optional: custom CSS and favicon for ePDS pages (trusted clients)
+
+If your app is in the PDS operator's `PDS_OAUTH_TRUSTED_CLIENTS`, you can
+supply a `branding.css` string and/or a `branding.favicon_url` in your
+client metadata. ePDS injects the CSS into every page it renders during
+sign-in (login, OTP entry, choose-handle, account recovery, and the
+consent screen) and replaces the default ePDS favicon on those pages
+with the one you supply. This gives trusted clients full control over
+the look of those pages — beyond what `brand_color` alone exposes.
+
+The login page's surface colours are exposed as CSS custom properties,
+so retinting the whole card is one declaration:
+
+```css
+:root {
+  --page-bg: #YOUR_OUTER_BG; /* page bg outside the card */
+  --card-bg: #YOUR_CARD_BG; /* card surface */
+  --input-bg: #YOUR_INPUT_BG; /* email + OTP box backgrounds */
+  --input-border: #YOUR_INPUT_BORDER;
+  --card-border: #YOUR_CARD_BORDER;
+  --btn-secondary-border: #YOUR_BTN_BORDER;
+  --muted-foreground: #YOUR_MUTED; /* terms text + "Powered by" tint */
+  --focus-border: #YOUR_FOCUS; /* defaults to brand_color */
+  --recovery-link-display: none; /* hide "Recover with backup email" */
+}
+```
+
+The upstream consent + chooser pages served by pds-core ship with
+default Certified-style styling out of the box; trusted-client
+`branding.css` is layered on top of it via cascade order, so any rules
+that overlap the defaults win.
+
+```json
+{
+  "branding": {
+    "css": "body { background: #1a1208; color: #fef3c7; } .btn-primary { background: #f59e0b; color: #1a1208; } /* ... */",
+    "favicon_url": "https://myapp.example/favicon.svg",
+    "favicon_url_dark": "https://myapp.example/favicon-dark.svg"
+  }
+}
+```
+
+`favicon_url_dark` is optional. Supply it to ship a separate icon for browsers in dark mode — ePDS emits two `<link rel="icon" media="(prefers-color-scheme: ...)">` tags so each browser picks whichever matches its OS theme. With only `favicon_url` set, a single bare `<link>` is emitted and the browser uses it for both schemes.
+
+CSS constraints:
+
+- CSS is size-capped at 32 KB (measured in escaped UTF-8 bytes).
+- `</style>` sequences are escaped so the CSS can't break out of its
+  `<style>` tag.
+- The CSP `style-src` directive is updated with a SHA-256 hash of the
+  injected CSS, so there's no CSP loophole.
+
+Favicon constraints (apply to both `favicon_url` and `favicon_url_dark`):
+
+- Must be an absolute `https://` URL (no `http://`, no `data:` URIs,
+  no `javascript:`, no userinfo credentials).
+- Must be at most 2048 chars after URL normalisation (the URL parser
+  may percent-encode non-ASCII path bytes or punycode-encode IDN
+  hostnames, expanding the string).
+- **Must share an origin (scheme + host + port) with your `client_id`.**
+  The auth-service Content-Security-Policy only widens `img-src` to the
+  `client_id` origin, so a cross-origin favicon (e.g. on a separate CDN)
+  would be silently blocked by the browser. Host or proxy your favicons
+  under the same hostname that serves your client metadata.
+- `favicon_url_dark` is independent of `favicon_url` — set neither, only
+  `favicon_url`, or both. Setting only `favicon_url_dark` is meaningless
+  and ignored (no fallback to dark-only).
+
+Both forms of branding fall back silently if validation fails — the page
+falls back to the default ePDS look / icon, and a warning is logged
+server-side identifying the offending `client_id`. Clients **not** in
+`PDS_OAUTH_TRUSTED_CLIENTS` never get either form of injection,
+regardless of what their metadata contains.
+
+##### Iterating on `branding.css`
+
+Walking through the full OAuth flow every time you want to tweak a colour
+is tedious — especially the consent screen, which is the last page of the
+flow. Both services expose a set of static preview routes that render the
+pages they own with fixture data, so you can iterate on your
+`branding.css` without going through a real flow. Pass your `client_id` as
+a query param to see the CSS injected, subject to the same
+`PDS_OAUTH_TRUSTED_CLIENTS` check as real flows. Omit `client_id` to see
+the un-branded baseline.
+
+Routes are enabled per-service by the operator — `AUTH_PREVIEW_ROUTES=1`
+for auth-service pages, `PDS_PREVIEW_ROUTES=1` for the pds-core consent
+page. Both are typical on preview envs, `pr-base`, and dev; neither is
+enabled in production.
+
+> **Privacy note.** Enabling previews also exposes `/preview/cache-status`,
+> which returns the list of `client_id` URLs currently in the shared
+> client-metadata cache on that service — effectively the set of
+> third-party apps that have recently initiated an OAuth flow against
+> this PDS. That partially leaks who is using the instance, so keep
+> `AUTH_PREVIEW_ROUTES` and `PDS_PREVIEW_ROUTES` off in production
+> unless you're comfortable with that disclosure.
+
+**auth-service** (login / OTP / choose-handle / recovery):
+
+| Route                               | Page it renders                                                            |
+| ----------------------------------- | -------------------------------------------------------------------------- |
+| `GET /preview`                      | Index linking to each route below                                          |
+| `GET /preview/login`                | Login — email entry step                                                   |
+| `GET /preview/login-otp`            | Login — OTP code entry step                                                |
+| `GET /preview/choose-handle`        | Choose-handle page, `picker-with-random` mode (`?error=<msg>` shows error) |
+| `GET /preview/choose-handle-picker` | Choose-handle page, `picker` mode — no "generate random" button            |
+| `GET /preview/recovery`             | Account recovery — email entry step                                        |
+| `GET /preview/recovery-otp`         | Account recovery — OTP code entry step                                     |
+
+**pds-core** (consent):
+
+| Route                       | Page it renders                                                                                                                    |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /preview`              | Index page for the pds-core preview                                                                                                |
+| `GET /preview/consent`      | OAuth consent page (the same `@atproto/oauth-provider-ui` SPA used by `/oauth/authorize`, rendered against fixture hydration data) |
+| `GET /preview/cache-status` | JSON: live state of the shared client-metadata cache as seen by real OAuth flows                                                   |
+
+The auth-service has the same `/preview/cache-status` endpoint.
+
+Typical URLs:
+
+```text
+https://<auth-service-host>/preview/login?client_id=<URL-of-your-client-metadata.json>
+https://<pds-host>/preview/consent?client_id=<URL-of-your-client-metadata.json>
+```
+
+Edit `branding.css` in your metadata, re-host, reload the preview URL — no
+OTP emails, no walking through the full flow. Browser devtools work
+normally so you can inspect, tweak in the Styles panel, and copy the
+winning rules back into your `branding.css`.
+
+**Persistent client_id.** The `/preview` index pages have a text field
+for your client metadata URL. Paste it once and every preview link on
+the page gets `?client_id=...` appended live as you type. The value is
+saved in `localStorage` under `epds:preview:client_id`, so it's
+pre-filled on your next visit.
+
+**Cache bypass.** Preview routes always re-fetch your client metadata —
+the 10-minute cache that real OAuth flows use is bypassed, so your
+`branding.css` edits show up on the next refresh with no waiting. The
+`/preview` index also surfaces the current real-flow cache state
+(entries and TTLs) via the `/preview/cache-status` JSON endpoint so you
+can tell when a real user's next request will see the new version.
 
 ### Using `@atproto/oauth-client-node` (recommended for Flow 2)
 

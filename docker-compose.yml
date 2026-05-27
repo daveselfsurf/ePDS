@@ -11,7 +11,8 @@ services:
     networks:
       - epds-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/xrpc/_health"]
+      test:
+        ['CMD', 'wget', '-q', '--spider', 'http://localhost:3000/xrpc/_health']
       interval: 30s
       timeout: 5s
       retries: 3
