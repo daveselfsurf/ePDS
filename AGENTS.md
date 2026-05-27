@@ -28,6 +28,24 @@ pnpm lint                  # lint all files with ESLint
 pnpm lint:fix              # lint and auto-fix where possible
 ```
 
+## Before Pushing
+
+**Run every check CI runs — locally — before every push.** CI failures
+that prettier / eslint / tsc would have caught locally waste review
+cycles. The full set CI runs is:
+
+```bash
+pnpm format:check          # prettier — CI fails if any file is unformatted
+pnpm lint                  # eslint
+pnpm typecheck             # tsc --noEmit
+pnpm test                  # vitest run
+pnpm test:coverage         # v8 thresholds in vitest.config.ts
+```
+
+These are cheap. Run them all before `git push` — not just the ones you
+think are relevant to the change. In particular, `pnpm format:check`
+catches prettier drift that `pnpm format` fixes in-place.
+
 ## Documentation
 
 **Always update documentation when your changes would render existing docs
@@ -199,6 +217,63 @@ Service-to-image mapping (use this to decide what to rebuild):
 Container names: `epds-core` (PDS, port 3000), `epds-auth` (auth service, port 3001),
 and `epds-demo` (demo frontend, port 3002).
 
+## Railway
+
+ePDS deploys to Railway. When checking the live config, follow these rules
+to avoid wasting time on `--help` / wrong commands and to avoid leaking
+secrets into your context.
+
+### Discovery commands
+
+```bash
+railway status --json          # current project, service IDs, linked env
+railway environment list       # all environments in the project
+```
+
+### Use -s and -e, not `railway link`
+
+For any command that targets a specific service or environment, pass
+`-s <SERVICE>` and `-e <ENVIRONMENT>` directly. Do **not** run
+`railway environment link …` or `railway service link …` to "switch
+context" first — those mutate local CLI state and are only needed when
+`-s` / `-e` genuinely don't work for a given subcommand.
+
+```bash
+railway variable list -s demo-untrusted -e pr-base --kv | cut -d= -f1
+railway logs -s pds-core -e pr-base --deployment
+```
+
+### NEVER extract sensitive variable values
+
+This is non-negotiable. Variable values on Railway include API keys,
+JWT secrets, database passwords, signing keys, and similar credentials.
+Anything pulled into your context is effectively logged.
+
+- **Allowed:** listing variable _names_ to check for presence /
+  absence (e.g. "is `EPDS_CLIENT_PRIVATE_JWK` set on this service?").
+- **Disallowed without explicit user permission:** the actual value of
+  any variable that is not obviously non-sensitive (a hostname, a
+  public URL, a log level, a feature flag boolean). When in doubt,
+  treat it as sensitive.
+- This applies to every command that can return values, including
+  `railway variable list` (without filtering), `railway environment
+config --json` (dumps all variables across all services with values),
+  and `railway run …` (injects them into a subprocess).
+
+To check presence without seeing values, list names only:
+
+```bash
+# Names only — pipe through cut to drop values
+railway variable list -s demo-untrusted -e pr-base --kv | cut -d= -f1 | sort
+
+# Or via the JSON API, extracting keys only
+railway variable list -s demo-untrusted -e pr-base --json \
+  | python3 -c 'import json,sys; print("\n".join(sorted(json.load(sys.stdin))))'
+```
+
+If a value genuinely needs inspection (e.g. debugging a misconfigured
+URL), ask the user first.
+
 ## Code Style
 
 ### TypeScript
@@ -350,7 +425,9 @@ GitHub Release per release.
   good and bad summaries, and the plain-language rule in detail.
 - **Cutting a release:** `docs/PUBLISHING.md` documents the release workflow
   for maintainers — the two-phase "Version Packages PR" → "tag + GitHub
-  Release" flow via `.github/workflows/release.yml`.
+  Release" flow via `.github/workflows/release.yml`. Phase 1 is triggered
+  manually (`workflow_dispatch`); phase 2 fires automatically when the
+  Release PR (head branch `changeset-release/main`) is merged into `main`.
 
 ## Key Gotchas
 

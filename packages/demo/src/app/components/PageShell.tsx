@@ -1,4 +1,5 @@
 import { AppLogo } from './AppLogo'
+import { getAuthPreviewUrl } from '@/lib/auth'
 import { getPageTheme } from '@/lib/theme'
 
 interface PageShellProps {
@@ -27,6 +28,7 @@ export function PageShell({ children }: PageShellProps) {
         '--theme-text-muted': t.textMuted,
         '--theme-text-hint': t.textHint,
         '--theme-primary': t.primary,
+        '--theme-primary-text': t.primaryText,
         '--theme-primary-hover': t.primaryHover,
         '--theme-input-bg': t.inputBg,
         '--theme-input-border': t.inputBorder,
@@ -71,6 +73,18 @@ export function PageShell({ children }: PageShellProps) {
           </h1>
         </div>
         {children}
+        <a
+          href={getAuthPreviewUrl()}
+          style={{
+            display: 'block',
+            marginTop: '24px',
+            color: t?.textHint ?? '#9ca3af',
+            fontSize: '12px',
+            textDecoration: 'none',
+          }}
+        >
+          Preview pages with this client's branding
+        </a>
         {process.env.NEXT_PUBLIC_EPDS_VERSION && (
           <p
             style={{

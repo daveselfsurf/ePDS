@@ -128,6 +128,18 @@ export const PDS_URL = process.env.PDS_URL || 'https://pds.example'
 export const AUTH_ENDPOINT =
   process.env.AUTH_ENDPOINT || 'https://auth.pds.example/oauth/authorize'
 
+/**
+ * URL to the auth-service's /preview index, pre-populated with this
+ * demo's own client_id so devs land on the preview pages with the
+ * right branding already selected. Derived from AUTH_ENDPOINT so it
+ * tracks whatever auth-service the demo is configured against.
+ */
+export function getAuthPreviewUrl(): string {
+  const origin = new URL(AUTH_ENDPOINT).origin
+  const clientId = `${getBaseUrl()}/client-metadata.json`
+  return `${origin}/preview?client_id=${encodeURIComponent(clientId)}`
+}
+
 export const PLC_DIRECTORY_URL =
   process.env.PLC_DIRECTORY_URL || 'https://plc.directory'
 
