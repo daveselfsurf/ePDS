@@ -31,6 +31,7 @@ import {
 } from '../lib/client-metadata.js'
 import {
   escapeHtml,
+  maskEmail,
   createLogger,
   VALID_HANDLE_MODES,
   type HandleMode,
@@ -213,6 +214,15 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
     const hasLoginHint = !!resolvedEmail
     const initialStep = hasLoginHint ? 'otp' : 'email'
 
+    // Privacy: when the OTP step was reached by resolving a public handle/DID
+    // (rather than an email the user typed), the user never disclosed their
+    // own email — so we must not echo it back. An email hint contains '@';
+    // a handle/DID does not. Suppress the email in the OTP subtitle on the
+    // resolved-handle path.
+    const hintWasHandle =
+      !!effectiveLoginHint && !effectiveLoginHint.includes('@')
+    const hideEmail = hintWasHandle && hasLoginHint
+
     // Pillar 3 — Idempotency (Option A): when this is a duplicate GET for an
     // existing flow (e.g. browser extension, StayFocusd), tell the client-side
     // script that OTP was already sent so it skips the auto-send.
@@ -242,6 +252,7 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
         branding: clientMeta,
         customCss,
         loginHint: emailHint,
+        hideEmail,
         initialStep,
         otpAlreadySent,
         csrfToken: res.locals.csrfToken,
@@ -256,13 +267,14 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
   return router
 }
 
-function renderLoginPage(opts: {
+export function renderLoginPage(opts: {
   flowId: string
   clientId: string
   clientName: string
   branding: ClientMetadata
   customCss: string | null
   loginHint: string
+  hideEmail: boolean
   initialStep: 'email' | 'otp'
   otpAlreadySent: boolean
   csrfToken: string
@@ -382,7 +394,9 @@ function renderLoginPage(opts: {
     <div id="step-otp" class="step-otp${opts.initialStep === 'otp' ? ' active' : ''}">
       <p class="subtitle" id="otp-subtitle">${
         opts.initialStep === 'otp' && opts.otpAlreadySent
-          ? `Code already sent to ${escapeHtml(opts.loginHint.replace(/(.{2})[^@]*(@.*)/, '$1***$2'))}`
+          ? opts.hideEmail
+            ? `We've sent a ${opts.otpLength}-${opts.otpCharset === 'alphanumeric' ? 'character' : 'digit'} code if a matching account was found.`
+            : `Code already sent to ${escapeHtml(maskEmail(opts.loginHint))}`
           : ''
       }</p>
       <form id="form-verify-otp">
@@ -432,11 +446,28 @@ function renderLoginPage(opts: {
 
       var otpLength = ${opts.otpLength};
       var otpCharset = ${JSON.stringify(opts.otpCharset)};
+      var hideEmail = ${JSON.stringify(opts.hideEmail)};
+      // Strong email mask: mirror @certified-app/shared maskEmail() — mask
+      // every dot-separated segment of both local part and domain so the
+      // domain/TLD are not exposed (e.g. da***@***s.***m).
+      function maskSeg(s) {
+        return s.split('.').map(function (seg) {
+          return seg.length <= 1 ? '***' : '***' + seg.slice(-1);
+        }).join('.');
+      }
+      function maskEmail(email) {
+        var at = email.lastIndexOf('@');
+        if (at <= 0 || at === email.length - 1) return email;
+        return maskSeg(email.slice(0, at)) + '@' + maskSeg(email.slice(at + 1));
+      }
+      var otpUnit = (otpCharset === 'alphanumeric' ? '-character' : '-digit');
+      var hiddenEmailText = "We've sent a " + otpLength + otpUnit + ' code if a matching account was found.';
       function showOtpStep(email) {
+        // Reached by the user typing their own email — safe to echo it back,
+        // strongly masked. (The hideEmail / handle path never calls this.)
         currentEmail = email;
         otpEmailInput.value = email;
-        var masked = email.replace(/(.{2})[^@]*(@.*)/, '$1***$2');
-        otpSubtitle.textContent = 'We sent a ' + otpLength + (otpCharset === 'alphanumeric' ? '-character' : '-digit') + ' code to ' + masked;
+        otpSubtitle.textContent = 'We sent a ' + otpLength + otpUnit + ' code to ' + maskEmail(email);
         stepEmail.classList.add('hidden');
         stepOtp.classList.add('active');
         recoveryLink.style.display = 'block';
@@ -561,14 +592,18 @@ function renderLoginPage(opts: {
 
       if (initialStep === 'otp' && loginHint) {
         currentEmail = loginHint;
-        var masked = loginHint.replace(/(.{2})[^@]*(@.*)/, '$1***$2');
+        // hideEmail is true when loginHint was resolved from a public handle/DID
+        // the user did not type — never echo the email back in that case.
+        var sentText = hideEmail
+          ? hiddenEmailText
+          : 'We sent a ' + otpLength + otpUnit + ' code to ' + maskEmail(loginHint);
         if (!otpAlreadySent) {
           // First load — fire the OTP send in the background.
           sendOtp(loginHint).then(function(result) {
             if (result.error) {
               showError(result.error);
             } else {
-              otpSubtitle.textContent = 'We sent a ' + otpLength + (otpCharset === 'alphanumeric' ? '-character' : '-digit') + ' code to ' + masked;
+              otpSubtitle.textContent = sentText;
             }
           });
         }
