@@ -14,7 +14,7 @@
  */
 import { Router, type Request, type Response } from 'express'
 import { randomBytes } from 'node:crypto'
-import { createLogger } from '@certified-app/shared'
+import { createLogger, validateLocalPart } from '@certified-app/shared'
 import type { AuthServiceContext } from '../context.js'
 import type { BetterAuthInstance } from '../better-auth.js'
 import { getDidByEmail } from '../lib/get-did-by-email.js'
@@ -384,7 +384,10 @@ export function createHeadlessOtpRouter(
         const result = await handleLogin(resolved.email, pdsUrl)
         res.json(result)
       } catch (err) {
-        logger.error({ err, backupEmail }, 'Headless recovery post-verify failed')
+        logger.error(
+          { err, backupEmail },
+          'Headless recovery post-verify failed',
+        )
         const message = err instanceof Error ? err.message : 'Recovery failed'
         res.status(500).json({ error: message })
       }
@@ -442,6 +445,99 @@ export function createHeadlessOtpRouter(
         .getBackupEmails(did)
         .some((row) => row.verified === 1)
       res.json({ hasRecovery })
+    },
+  )
+
+  // ─── POST /_internal/account/create ─────────────────────────────────
+  // Create an ATProto account server-to-server, with no OTP round-trip.
+  // For service callers that provision community DIDs — accounts that
+  // represent a community or group rather than a single human, and so have
+  // no inbox to receive an OTP. Gated by the dedicated can_create_directly
+  // permission — NOT can_signup — because skipping the email-OTP step is a
+  // stronger capability than ordinary signup.
+  //
+  // The `handle` is the local part only; ePDS appends the handle domain.
+  // The `email` is supplied by the caller and treated as opaque — a
+  // community DID has no human inbox, so the address only needs to satisfy
+  // the PDS account email-uniqueness constraint; no mail is ever sent.
+  router.post(
+    '/_internal/account/create',
+    async (req: Request, res: Response) => {
+      const apiClient = authenticateApiKey(req, ctx.db)
+      if (!apiClient) {
+        logger.warn({ ip: req.ip }, 'Headless account create: invalid API key')
+        res.status(401).json({ error: 'Unauthorized' })
+        return
+      }
+
+      if (!checkAllowedOrigin(apiClient.allowedOrigins, req.headers.origin)) {
+        res.status(403).json({ error: 'OriginNotAllowed' })
+        return
+      }
+
+      if (
+        !checkApiClientRateLimit(
+          ctx.db,
+          apiClient.id,
+          apiClient.rateLimitPerHour,
+        )
+      ) {
+        res.status(429).json({ error: 'RateLimitExceeded' })
+        return
+      }
+
+      if (!apiClient.canCreateDirectly) {
+        logger.warn(
+          { clientId: apiClient.id },
+          'Headless account create: client lacks can_create_directly',
+        )
+        res.status(403).json({ error: 'DirectCreateNotAllowed' })
+        return
+      }
+
+      const email = ((req.body?.email as string) || '').trim().toLowerCase()
+      const rawHandle = ((req.body?.handle as string) || '').trim()
+
+      if (!email || !rawHandle) {
+        res.status(400).json({ error: 'handle and email are required' })
+        return
+      }
+
+      // Same validation the OAuth signup flow applies: 5–20 chars,
+      // single-label (no dots), ATProto-spec-valid. Returns the
+      // normalized (lowercased) local part, or null if invalid.
+      const handleDomain = getHandleDomain()
+      const normalizedLocal = validateLocalPart(rawHandle, handleDomain)
+      if (!normalizedLocal) {
+        res.status(400).json({ error: 'InvalidHandle' })
+        return
+      }
+
+      ctx.db.recordApiClientUsage(apiClient.id, 'account_create')
+      ctx.db.updateApiClientLastUsed(apiClient.id)
+
+      const pdsUrl = getPdsUrl()
+
+      try {
+        // handleSignup mints an invite code (admin API) and calls
+        // com.atproto.server.createAccount — exactly the signup path the
+        // OTP flow uses, minus the OTP verification we never ran.
+        const result = await handleSignup(
+          email,
+          normalizedLocal,
+          handleDomain,
+          pdsUrl,
+        )
+        res.status(201).json(result)
+      } catch (err) {
+        logger.error(
+          { err, handle: normalizedLocal },
+          'Headless account create failed',
+        )
+        const message =
+          err instanceof Error ? err.message : 'Account creation failed'
+        res.status(500).json({ error: message })
+      }
     },
   )
 

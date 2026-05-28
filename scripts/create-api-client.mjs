@@ -10,7 +10,9 @@
  *   --name <name>              Client display name (required)
  *   --client-id <url>          client-metadata.json URL for email branding
  *   --allowed-origins <list>   Comma-separated allowed origins
- *   --no-signup                Disable account creation for this client
+ *   --no-signup                Disable OTP-based account creation
+ *   --can-create-directly      Allow no-OTP account creation via
+ *                              POST /_internal/account/create (default: off)
  *   --rate-limit <n>           Requests per hour (default: 10000)
  *   --db <path>                Path to ePDS SQLite database
  *                              (default: ./data/epds.sqlite)
@@ -25,6 +27,7 @@ function parseArgs(argv) {
     clientId: null,
     allowedOrigins: null,
     canSignup: true,
+    canCreateDirectly: false,
     rateLimit: 10000,
     db: './data/epds.sqlite',
   }
@@ -42,6 +45,9 @@ function parseArgs(argv) {
         break
       case '--no-signup':
         args.canSignup = false
+        break
+      case '--can-create-directly':
+        args.canCreateDirectly = true
         break
       case '--rate-limit':
         args.rateLimit = parseInt(argv[++i], 10)
@@ -87,6 +93,7 @@ try {
     apiKeyHash,
     allowedOrigins: args.allowedOrigins,
     canSignup: args.canSignup,
+    canCreateDirectly: args.canCreateDirectly,
     rateLimitPerHour: args.rateLimit,
   })
 

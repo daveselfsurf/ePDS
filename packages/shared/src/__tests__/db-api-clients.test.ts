@@ -59,6 +59,8 @@ describe('API Client Operations', () => {
     expect(client!.apiKeyHash).toBe(apiKeyHash)
     expect(client!.allowedOrigins).toBe('https://example.com')
     expect(client!.canSignup).toBe(1)
+    // Defaults to 0 when not explicitly granted.
+    expect(client!.canCreateDirectly).toBe(0)
     expect(client!.rateLimitPerHour).toBe(500)
     expect(client!.revokedAt).toBeNull()
     expect(client!.lastUsedAt).toBeNull()
@@ -130,6 +132,25 @@ describe('API Client Operations', () => {
     const client = db.getApiClientByKeyHash(apiKeyHash)
     expect(client!.canSignup).toBe(0)
   })
+
+  it('stores canCreateDirectly=true correctly', () => {
+    const id = randomUUID()
+    const apiKeyHash = hashKey('direct-create')
+
+    db.createApiClient({
+      id,
+      name: 'DirectCreate',
+      clientId: null,
+      apiKeyHash,
+      allowedOrigins: null,
+      canSignup: true,
+      canCreateDirectly: true,
+      rateLimitPerHour: 10000,
+    })
+
+    const client = db.getApiClientByKeyHash(apiKeyHash)
+    expect(client!.canCreateDirectly).toBe(1)
+  })
 })
 
 describe('API Client Usage Tracking', () => {
@@ -165,7 +186,7 @@ describe('API Client Usage Tracking', () => {
 })
 
 describe('Schema Version', () => {
-  it('is at version 10 after all migrations', () => {
+  it('is at version 11 after all migrations', () => {
     // EpdsDb runs migrations in constructor, so just check the version
     // by creating a fresh db and verifying api_clients table exists
     const id = randomUUID()

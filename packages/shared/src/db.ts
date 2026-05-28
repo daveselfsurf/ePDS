@@ -39,6 +39,7 @@ export interface ApiClientRow {
   apiKeyHash: string
   allowedOrigins: string | null
   canSignup: number
+  canCreateDirectly: number
   rateLimitPerHour: number
   createdAt: number
   revokedAt: number | null
@@ -226,6 +227,16 @@ export class EpdsDb {
           );
           CREATE INDEX IF NOT EXISTS idx_acu_client_time ON api_client_usage(client_id, timestamp);
         `)
+      },
+
+      // v11: Per-client permission to create accounts directly (no OTP).
+      // Defaults to 0 — only explicitly-granted keys may use
+      // POST /_internal/account/create. Used by service callers that
+      // provision accounts server-to-server (e.g. community accounts).
+      () => {
+        this.db.exec(
+          `ALTER TABLE api_clients ADD COLUMN can_create_directly INTEGER DEFAULT 0;`,
+        )
       },
     ]
 
@@ -530,12 +541,13 @@ export class EpdsDb {
     apiKeyHash: string
     allowedOrigins: string | null
     canSignup: boolean
+    canCreateDirectly?: boolean
     rateLimitPerHour: number
   }): void {
     this.db
       .prepare(
-        `INSERT INTO api_clients (id, name, client_id, api_key_hash, allowed_origins, can_signup, rate_limit_per_hour, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO api_clients (id, name, client_id, api_key_hash, allowed_origins, can_signup, can_create_directly, rate_limit_per_hour, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         data.id,
@@ -544,6 +556,7 @@ export class EpdsDb {
         data.apiKeyHash,
         data.allowedOrigins,
         data.canSignup ? 1 : 0,
+        data.canCreateDirectly ? 1 : 0,
         data.rateLimitPerHour,
         Date.now(),
       )
@@ -555,6 +568,7 @@ export class EpdsDb {
         `SELECT
         id, name, client_id as clientId, api_key_hash as apiKeyHash,
         allowed_origins as allowedOrigins, can_signup as canSignup,
+        can_create_directly as canCreateDirectly,
         rate_limit_per_hour as rateLimitPerHour, created_at as createdAt,
         revoked_at as revokedAt, last_used_at as lastUsedAt
        FROM api_clients WHERE api_key_hash = ? AND revoked_at IS NULL`,
