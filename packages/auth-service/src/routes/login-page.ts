@@ -213,6 +213,25 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
     const hasLoginHint = !!resolvedEmail
     const initialStep = hasLoginHint ? 'otp' : 'email'
 
+    // Privacy: when the OTP step was reached by resolving a public handle/DID
+    // (an email hint contains '@'; a handle/DID does not), the user never
+    // disclosed their own email. We must not put the email anywhere the
+    // browser can see it — not displayed, not in the page source. Instead we
+    // persist the resolved email on the auth_flow row and drive OTP
+    // send/verify server-side via the flow-keyed endpoints
+    // (/auth/otp/{send,verify}-by-flow), keyed off the epds_auth_flow cookie.
+    const emailFromHandle =
+      hasLoginHint &&
+      !!effectiveLoginHint &&
+      !effectiveLoginHint.includes('@')
+    if (emailFromHandle && resolvedEmail) {
+      try {
+        ctx.db.updateAuthFlowEmail(flowId, resolvedEmail)
+      } catch (err) {
+        logger.error({ err, flowId }, 'Failed to persist resolved email on flow')
+      }
+    }
+
     // Pillar 3 — Idempotency (Option A): when this is a duplicate GET for an
     // existing flow (e.g. browser extension, StayFocusd), tell the client-side
     // script that OTP was already sent so it skips the auto-send.
@@ -230,9 +249,10 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
       'Serving login page for auth_flow',
     )
 
-    // Use the resolved email (not the raw loginHint) for pre-filling forms.
-    // This ensures handle-based hints get resolved to the correct email.
-    const emailHint = resolvedEmail ?? ''
+    // On the handle path the email must never reach the browser, so we pass
+    // an empty loginHint and let the page drive OTP by flowId. On the
+    // email-typed path the resolved email pre-fills the form as before.
+    const emailHint = emailFromHandle ? '' : (resolvedEmail ?? '')
 
     res.type('html').send(
       renderLoginPage({
@@ -242,6 +262,7 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
         branding: clientMeta,
         customCss,
         loginHint: emailHint,
+        emailFromHandle,
         initialStep,
         otpAlreadySent,
         csrfToken: res.locals.csrfToken,
@@ -256,13 +277,14 @@ export function createLoginPageRouter(ctx: AuthServiceContext): Router {
   return router
 }
 
-function renderLoginPage(opts: {
+export function renderLoginPage(opts: {
   flowId: string
   clientId: string
   clientName: string
   branding: ClientMetadata
   customCss: string | null
   loginHint: string
+  emailFromHandle: boolean
   initialStep: 'email' | 'otp'
   otpAlreadySent: boolean
   csrfToken: string
@@ -382,7 +404,9 @@ function renderLoginPage(opts: {
     <div id="step-otp" class="step-otp${opts.initialStep === 'otp' ? ' active' : ''}">
       <p class="subtitle" id="otp-subtitle">${
         opts.initialStep === 'otp' && opts.otpAlreadySent
-          ? `Code already sent to ${escapeHtml(opts.loginHint.replace(/(.{2})[^@]*(@.*)/, '$1***$2'))}`
+          ? opts.emailFromHandle
+            ? `We've sent a ${opts.otpLength}-${opts.otpCharset === 'alphanumeric' ? 'character' : 'digit'} code if an account matches that email.`
+            : `Code already sent to ${escapeHtml(opts.loginHint.replace(/(.{2})[^@]*(@.*)/, '$1***$2'))}`
           : ''
       }</p>
       <form id="form-verify-otp">
@@ -432,6 +456,51 @@ function renderLoginPage(opts: {
 
       var otpLength = ${opts.otpLength};
       var otpCharset = ${JSON.stringify(opts.otpCharset)};
+      // emailFromHandle: the OTP step was reached by resolving a public
+      // handle/DID, so the email is NOT in this page — OTP send/verify are
+      // driven server-side by the flow cookie via /auth/otp/*-by-flow.
+      var emailFromHandle = ${JSON.stringify(opts.emailFromHandle)};
+      var csrfToken = ${JSON.stringify(opts.csrfToken)};
+      var handleCodeSentText = "We've sent a " + otpLength + (otpCharset === 'alphanumeric' ? '-character' : '-digit') + ' code if an account matches that email.';
+
+      // Flow-keyed OTP send (handle path): no email in the request — the
+      // server resolves it from the epds_auth_flow cookie. CSRF token is
+      // required because these are same-origin routes behind CSRF.
+      async function sendOtpByFlow() {
+        try {
+          var res = await fetch('/auth/otp/send-by-flow', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+            body: JSON.stringify({}),
+          });
+          if (!res.ok) {
+            var data = await res.json().catch(function() { return {}; });
+            return { error: data.error || 'Failed to send code' };
+          }
+          return { ok: true };
+        } catch (err) {
+          return { error: 'Network error. Please try again.' };
+        }
+      }
+
+      async function verifyOtpByFlow(otp) {
+        try {
+          var res = await fetch('/auth/otp/verify-by-flow', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+            body: JSON.stringify({ otp: otp }),
+          });
+          if (!res.ok) {
+            var data = await res.json().catch(function() { return {}; });
+            return { error: data.error === 'InvalidCode' ? 'Invalid code' : (data.error || 'Invalid code') };
+          }
+          window.location.href = '/auth/complete';
+          return { ok: true };
+        } catch (err) {
+          return { error: 'Network error. Please try again.' };
+        }
+      }
+
       function showOtpStep(email) {
         currentEmail = email;
         otpEmailInput.value = email;
@@ -445,6 +514,10 @@ function renderLoginPage(opts: {
       }
 
       function showEmailStep() {
+        // Leaving the handle-resolved OTP step: from here the user types
+        // their own email, so switch off the flow-keyed (handle) path —
+        // subsequent send/verify use the email the user enters.
+        emailFromHandle = false;
         stepOtp.classList.remove('active');
         stepEmail.classList.remove('hidden');
         recoveryLink.style.display = 'none';
@@ -519,7 +592,9 @@ function renderLoginPage(opts: {
         btn.disabled = true;
         btn.textContent = 'Verifying...';
 
-        var result = await verifyOtp(currentEmail, otp);
+        var result = emailFromHandle
+          ? await verifyOtpByFlow(otp)
+          : await verifyOtp(currentEmail, otp);
         btn.disabled = false;
         btn.textContent = 'Verify';
 
@@ -533,7 +608,9 @@ function renderLoginPage(opts: {
         clearError();
         this.disabled = true;
         this.textContent = 'Sending...';
-        var result = await sendOtp(currentEmail);
+        var result = emailFromHandle
+          ? await sendOtpByFlow()
+          : await sendOtp(currentEmail);
         this.disabled = false;
         this.textContent = 'Resend code';
         if (result.error) {
@@ -559,7 +636,20 @@ function renderLoginPage(opts: {
       var initialStep = ${JSON.stringify(opts.initialStep)};
       var otpAlreadySent = ${JSON.stringify(opts.otpAlreadySent)};
 
-      if (initialStep === 'otp' && loginHint) {
+      if (initialStep === 'otp' && emailFromHandle) {
+        // Handle path: the email is not in this page. Auto-send via the
+        // flow-keyed endpoint and show the constant, anti-enumeration text.
+        otpSubtitle.textContent = handleCodeSentText;
+        if (!otpAlreadySent) {
+          sendOtpByFlow().then(function(result) {
+            if (result.error) {
+              showError(result.error);
+            } else {
+              otpSubtitle.textContent = handleCodeSentText;
+            }
+          });
+        }
+      } else if (initialStep === 'otp' && loginHint) {
         currentEmail = loginHint;
         var masked = loginHint.replace(/(.{2})[^@]*(@.*)/, '$1***$2');
         if (!otpAlreadySent) {

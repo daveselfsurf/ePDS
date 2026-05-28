@@ -169,6 +169,53 @@ describe('getAuthFlowByRequestUri', () => {
   })
 })
 
+describe('auth_flow email (handle-path server-side email storage)', () => {
+  it('createAuthFlow persists an email when provided', () => {
+    db.createAuthFlow({
+      flowId: 'flow-with-email',
+      requestUri: 'urn:req:with-email',
+      clientId: null,
+      email: 'dave@attpslabs.com',
+      expiresAt: Date.now() + 600_000,
+    })
+    expect(db.getAuthFlow('flow-with-email')!.email).toBe('dave@attpslabs.com')
+  })
+
+  it('email defaults to null when not provided', () => {
+    db.createAuthFlow({
+      flowId: 'flow-no-email',
+      requestUri: 'urn:req:no-email',
+      clientId: null,
+      expiresAt: Date.now() + 600_000,
+    })
+    expect(db.getAuthFlow('flow-no-email')!.email).toBeNull()
+  })
+
+  it('updateAuthFlowEmail sets the email on an existing non-expired flow', () => {
+    db.createAuthFlow({
+      flowId: 'flow-update-email',
+      requestUri: 'urn:req:update-email',
+      clientId: null,
+      expiresAt: Date.now() + 600_000,
+    })
+    db.updateAuthFlowEmail('flow-update-email', 'resolved@attpslabs.com')
+    expect(db.getAuthFlow('flow-update-email')!.email).toBe(
+      'resolved@attpslabs.com',
+    )
+  })
+
+  it('updateAuthFlowEmail does not resurrect an expired flow', () => {
+    db.createAuthFlow({
+      flowId: 'flow-expired-email',
+      requestUri: 'urn:req:expired-email',
+      clientId: null,
+      expiresAt: Date.now() - 1000,
+    })
+    db.updateAuthFlowEmail('flow-expired-email', 'x@y.com')
+    expect(db.getAuthFlow('flow-expired-email')).toBeUndefined()
+  })
+})
+
 describe('deleteAccountData', () => {
   it('deletes backup emails for a DID', () => {
     db.addBackupEmail('did:plc:delete-me', 'a@test.com', 'h1')

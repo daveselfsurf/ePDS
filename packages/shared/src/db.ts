@@ -454,22 +454,38 @@ export class EpdsDb {
     flowId: string
     requestUri: string
     clientId: string | null
+    email?: string | null
     handleMode?: HandleMode | null
     expiresAt: number
   }): void {
     this.db
       .prepare(
-        `INSERT INTO auth_flow (flow_id, request_uri, client_id, handle_mode, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO auth_flow (flow_id, request_uri, client_id, email, handle_mode, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         data.flowId,
         data.requestUri,
         data.clientId,
+        data.email ?? null,
         data.handleMode ?? null,
         Date.now(),
         data.expiresAt,
       )
+  }
+
+  /**
+   * Set the resolved email on an existing (non-expired) auth_flow. Used when
+   * a handle/DID login_hint is resolved server-side so the email can be kept
+   * off the browser — the client drives OTP send/verify by flowId, and the
+   * server looks the email up here.
+   */
+  updateAuthFlowEmail(flowId: string, email: string): void {
+    this.db
+      .prepare(
+        `UPDATE auth_flow SET email = ? WHERE flow_id = ? AND expires_at > ?`,
+      )
+      .run(email, flowId, Date.now())
   }
 
   getAuthFlow(flowId: string): AuthFlowRow | undefined {

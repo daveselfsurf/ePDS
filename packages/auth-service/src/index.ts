@@ -15,6 +15,7 @@ import { createAccountLoginRouter } from './routes/account-login.js'
 import { createAccountSettingsRouter } from './routes/account-settings.js'
 import { createCompleteRouter } from './routes/complete.js'
 import { createChooseHandleRouter } from './routes/choose-handle.js'
+import { createOtpByFlowRouter } from './routes/otp-by-flow.js'
 import { createHeadlessOtpRouter } from './routes/headless-otp.js'
 import { createHeartbeatRouter } from './routes/heartbeat.js'
 import { createPreviewEmailsRouter } from './routes/preview-emails.js'
@@ -92,6 +93,7 @@ export function createAuthService(config: AuthServiceConfig): {
   // Routes
   app.use(createRootRouter())
   app.use(createLoginPageRouter(ctx))
+  app.use(createOtpByFlowRouter(ctx, betterAuthInstance))
   app.use(createRecoveryRouter(ctx, betterAuthInstance))
   app.use(createAccountLoginRouter(betterAuthInstance, ctx))
   app.use(createAccountSettingsRouter(ctx, betterAuthInstance))
