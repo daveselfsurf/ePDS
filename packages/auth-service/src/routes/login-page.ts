@@ -405,7 +405,7 @@ export function renderLoginPage(opts: {
       <p class="subtitle" id="otp-subtitle">${
         opts.initialStep === 'otp' && opts.otpAlreadySent
           ? opts.emailFromHandle
-            ? `We've sent a ${opts.otpLength}-${opts.otpCharset === 'alphanumeric' ? 'character' : 'digit'} code if an account matches that email.`
+            ? `We've sent a ${opts.otpLength}-${opts.otpCharset === 'alphanumeric' ? 'character' : 'digit'} code to your account email.`
             : `Code already sent to ${escapeHtml(opts.loginHint.replace(/(.{2})[^@]*(@.*)/, '$1***$2'))}`
           : ''
       }</p>
@@ -461,7 +461,7 @@ export function renderLoginPage(opts: {
       // driven server-side by the flow cookie via /auth/otp/*-by-flow.
       var emailFromHandle = ${JSON.stringify(opts.emailFromHandle)};
       var csrfToken = ${JSON.stringify(opts.csrfToken)};
-      var handleCodeSentText = "We've sent a " + otpLength + (otpCharset === 'alphanumeric' ? '-character' : '-digit') + ' code if an account matches that email.';
+      var handleCodeSentText = "We've sent a " + otpLength + (otpCharset === 'alphanumeric' ? '-character' : '-digit') + ' code to your account email.';
 
       // Flow-keyed OTP send (handle path): no email in the request — the
       // server resolves it from the epds_auth_flow cookie. CSRF token is

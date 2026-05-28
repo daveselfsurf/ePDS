@@ -57,7 +57,7 @@ describe('renderLoginPage — handle path (emailFromHandle=true)', () => {
   it('uses the flow-keyed endpoints and constant anti-enumeration copy', () => {
     expect(html).toContain('/auth/otp/send-by-flow')
     expect(html).toContain('/auth/otp/verify-by-flow')
-    expect(html).toContain('if an account matches that email')
+    expect(html).toContain('to your account email')
     // Carries the CSRF token for the same-origin POSTs.
     expect(html).toContain('csrf-token-abc')
   })
