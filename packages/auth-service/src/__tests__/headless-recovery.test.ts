@@ -224,3 +224,45 @@ describe('POST /_internal/recovery/verify', () => {
     expect(res.json.error).toBe('InvalidCode')
   })
 })
+
+describe('POST /_internal/recovery/check', () => {
+  it('rejects a missing/invalid API key with 401', async () => {
+    const res = await post('/_internal/recovery/check', {
+      email: 'primary@example.com',
+    })
+    expect(res.status).toBe(401)
+  })
+
+  it('rejects a missing email with 400', async () => {
+    const { apiKey } = createTestClient()
+    const res = await post(
+      '/_internal/recovery/check',
+      {},
+      { 'x-api-key': apiKey },
+    )
+    expect(res.status).toBe(400)
+  })
+
+  it('returns hasRecovery=false for an unknown account (no DID)', async () => {
+    // getDidByEmail will fail to resolve (no pds-core reachable in the
+    // test), which maps to the no-account branch -> false.
+    const { apiKey } = createTestClient()
+    const res = await post(
+      '/_internal/recovery/check',
+      { email: 'ghost@example.com' },
+      { 'x-api-key': apiKey },
+    )
+    expect(res.status).toBe(200)
+    expect(res.json.hasRecovery).toBe(false)
+  })
+
+  it('never leaks the backup address or DID in the response', async () => {
+    const { apiKey } = createTestClient()
+    const res = await post(
+      '/_internal/recovery/check',
+      { email: 'whoever@example.com' },
+      { 'x-api-key': apiKey },
+    )
+    expect(Object.keys(res.json)).toEqual(['hasRecovery'])
+  })
+})

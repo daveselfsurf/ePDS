@@ -391,6 +391,60 @@ export function createHeadlessOtpRouter(
     },
   )
 
+  // ─── POST /_internal/recovery/check ─────────────────────────────────
+  // Report whether the account for a primary email has a verified backup
+  // email, so a client can decide whether to surface a recovery option.
+  // Returns ONLY a boolean — never the backup address or the DID. A false
+  // result is intentionally ambiguous (no account OR no verified backup)
+  // so it does not confirm non-existence.
+  router.post(
+    '/_internal/recovery/check',
+    async (req: Request, res: Response) => {
+      const apiClient = authenticateApiKey(req, ctx.db)
+      if (!apiClient) {
+        logger.warn({ ip: req.ip }, 'Headless recovery check: invalid API key')
+        res.status(401).json({ error: 'Unauthorized' })
+        return
+      }
+
+      if (!checkAllowedOrigin(apiClient.allowedOrigins, req.headers.origin)) {
+        res.status(403).json({ error: 'OriginNotAllowed' })
+        return
+      }
+
+      if (
+        !checkApiClientRateLimit(
+          ctx.db,
+          apiClient.id,
+          apiClient.rateLimitPerHour,
+        )
+      ) {
+        res.status(429).json({ error: 'RateLimitExceeded' })
+        return
+      }
+
+      const email = ((req.body?.email as string) || '').trim().toLowerCase()
+      if (!email) {
+        res.status(400).json({ error: 'email is required' })
+        return
+      }
+
+      const pdsUrl = getPdsUrl()
+      const internalSecret = process.env.EPDS_INTERNAL_SECRET ?? ''
+
+      const did = await getDidByEmail(email, pdsUrl, internalSecret)
+      if (!did) {
+        res.json({ hasRecovery: false })
+        return
+      }
+
+      const hasRecovery = ctx.db
+        .getBackupEmails(did)
+        .some((row) => row.verified === 1)
+      res.json({ hasRecovery })
+    },
+  )
+
   return router
 }
 
