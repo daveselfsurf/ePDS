@@ -18,6 +18,7 @@ import { createLogger } from '@certified-app/shared'
 import type { AuthServiceContext } from '../context.js'
 import type { BetterAuthInstance } from '../better-auth.js'
 import { getDidByEmail } from '../lib/get-did-by-email.js'
+import { resolveRecoveryEmail } from '../lib/resolve-recovery-email.js'
 import { ensurePdsUrl } from '../lib/pds-url.js'
 import { setHeadlessClientId, clearHeadlessClientId } from '../better-auth.js'
 import {
@@ -221,6 +222,228 @@ export function createHeadlessOtpRouter(
       res.status(500).json({ error: message })
     }
   })
+
+  // ─── POST /_internal/recovery/send ──────────────────────────────────
+  // Send an OTP to a user's verified backup email so they can recover
+  // access when they've lost their primary email. The OTP is keyed to the
+  // backup email; identity is translated to the primary account at verify
+  // time. Anti-enumeration: always returns { success: true }.
+  router.post(
+    '/_internal/recovery/send',
+    async (req: Request, res: Response) => {
+      const apiClient = authenticateApiKey(req, ctx.db)
+      if (!apiClient) {
+        logger.warn({ ip: req.ip }, 'Headless recovery send: invalid API key')
+        res.status(401).json({ error: 'Unauthorized' })
+        return
+      }
+
+      if (!checkAllowedOrigin(apiClient.allowedOrigins, req.headers.origin)) {
+        res.status(403).json({ error: 'OriginNotAllowed' })
+        return
+      }
+
+      if (
+        !checkApiClientRateLimit(
+          ctx.db,
+          apiClient.id,
+          apiClient.rateLimitPerHour,
+        )
+      ) {
+        res.status(429).json({ error: 'RateLimitExceeded' })
+        return
+      }
+
+      const backupEmail = ((req.body?.backupEmail as string) || '')
+        .trim()
+        .toLowerCase()
+      const clientId =
+        (req.body?.clientId as string) || apiClient.clientId || undefined
+
+      if (!backupEmail) {
+        res.status(400).json({ error: 'backupEmail is required' })
+        return
+      }
+
+      ctx.db.recordApiClientUsage(apiClient.id, 'recovery_send')
+      ctx.db.updateApiClientLastUsed(apiClient.id)
+
+      // Anti-enumeration: only send when the backup email is registered,
+      // but always return success so callers can't probe membership.
+      const did = ctx.db.getDidByBackupEmail(backupEmail)
+      if (!did) {
+        logger.info(
+          { backupEmail },
+          'Headless recovery send: no matching backup email (anti-enumeration)',
+        )
+        res.json({ success: true })
+        return
+      }
+
+      if (clientId) {
+        setHeadlessClientId(backupEmail, clientId)
+      }
+
+      try {
+        await auth.api.sendVerificationOTP({
+          body: { email: backupEmail, type: 'sign-in' },
+        })
+        res.json({ success: true })
+      } catch (err) {
+        logger.error({ err, backupEmail }, 'Failed to send recovery OTP')
+        // Anti-enumeration: return success even on failure
+        res.json({ success: true })
+      } finally {
+        if (clientId) {
+          clearHeadlessClientId(backupEmail)
+        }
+      }
+    },
+  )
+
+  // ─── POST /_internal/recovery/verify ────────────────────────────────
+  // Verify the OTP sent to the backup email, translate to the primary
+  // account, and mint AT Proto session tokens for that primary identity.
+  router.post(
+    '/_internal/recovery/verify',
+    async (req: Request, res: Response) => {
+      const apiClient = authenticateApiKey(req, ctx.db)
+      if (!apiClient) {
+        logger.warn({ ip: req.ip }, 'Headless recovery verify: invalid API key')
+        res.status(401).json({ error: 'Unauthorized' })
+        return
+      }
+
+      if (!checkAllowedOrigin(apiClient.allowedOrigins, req.headers.origin)) {
+        res.status(403).json({ error: 'OriginNotAllowed' })
+        return
+      }
+
+      if (
+        !checkApiClientRateLimit(
+          ctx.db,
+          apiClient.id,
+          apiClient.rateLimitPerHour,
+        )
+      ) {
+        res.status(429).json({ error: 'RateLimitExceeded' })
+        return
+      }
+
+      const backupEmail = ((req.body?.backupEmail as string) || '')
+        .trim()
+        .toLowerCase()
+      const otp = ((req.body?.otp as string) || '').trim()
+
+      if (!backupEmail || !otp) {
+        res.status(400).json({ error: 'backupEmail and otp are required' })
+        return
+      }
+
+      // The OTP was sent to (and is keyed by) the backup email — verify
+      // against the backup email, not the primary account email.
+      try {
+        await auth.api.signInEmailOTP({
+          body: { email: backupEmail, otp: otp.toUpperCase() },
+        })
+      } catch (err) {
+        logger.warn(
+          { err, backupEmail },
+          'Headless recovery verification failed',
+        )
+        res.status(400).json({ error: 'InvalidCode' })
+        return
+      }
+
+      ctx.db.recordApiClientUsage(apiClient.id, 'recovery_verify')
+      ctx.db.updateApiClientLastUsed(apiClient.id)
+
+      const pdsUrl = getPdsUrl()
+      const internalSecret = process.env.EPDS_INTERNAL_SECRET ?? ''
+
+      try {
+        // Translate the verified backup email to the primary account.
+        const resolved = await resolveRecoveryEmail(
+          backupEmail,
+          ctx,
+          pdsUrl,
+          internalSecret,
+        )
+        if (!resolved) {
+          logger.error(
+            { backupEmail },
+            'Recovery verify: could not resolve primary account',
+          )
+          res.status(500).json({ error: 'Recovery failed' })
+          return
+        }
+
+        // Mint session tokens for the primary identity. handleLogin keys
+        // the session on the primary email (com.atproto.server.createSession
+        // with identifier = primary email), so it must receive resolved.email.
+        const result = await handleLogin(resolved.email, pdsUrl)
+        res.json(result)
+      } catch (err) {
+        logger.error({ err, backupEmail }, 'Headless recovery post-verify failed')
+        const message = err instanceof Error ? err.message : 'Recovery failed'
+        res.status(500).json({ error: message })
+      }
+    },
+  )
+
+  // ─── POST /_internal/recovery/check ─────────────────────────────────
+  // Report whether the account for a primary email has a verified backup
+  // email, so a client can decide whether to surface a recovery option.
+  // Returns ONLY a boolean — never the backup address or the DID. A false
+  // result is intentionally ambiguous (no account OR no verified backup)
+  // so it does not confirm non-existence.
+  router.post(
+    '/_internal/recovery/check',
+    async (req: Request, res: Response) => {
+      const apiClient = authenticateApiKey(req, ctx.db)
+      if (!apiClient) {
+        logger.warn({ ip: req.ip }, 'Headless recovery check: invalid API key')
+        res.status(401).json({ error: 'Unauthorized' })
+        return
+      }
+
+      if (!checkAllowedOrigin(apiClient.allowedOrigins, req.headers.origin)) {
+        res.status(403).json({ error: 'OriginNotAllowed' })
+        return
+      }
+
+      if (
+        !checkApiClientRateLimit(
+          ctx.db,
+          apiClient.id,
+          apiClient.rateLimitPerHour,
+        )
+      ) {
+        res.status(429).json({ error: 'RateLimitExceeded' })
+        return
+      }
+
+      const email = ((req.body?.email as string) || '').trim().toLowerCase()
+      if (!email) {
+        res.status(400).json({ error: 'email is required' })
+        return
+      }
+
+      const pdsUrl = getPdsUrl()
+      const internalSecret = process.env.EPDS_INTERNAL_SECRET ?? ''
+
+      const did = await getDidByEmail(email, pdsUrl, internalSecret)
+      if (!did) {
+        res.json({ hasRecovery: false })
+        return
+      }
+
+      const hasRecovery = ctx.db
+        .getBackupEmails(did)
+        .some((row) => row.verified === 1)
+      res.json({ hasRecovery })
+    },
+  )
 
   return router
 }
