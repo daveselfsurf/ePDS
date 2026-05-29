@@ -18,7 +18,15 @@ set -o pipefail
 # Config: reads PDS_ENV_FILE (default /opt/epds/.env). Override for local/dev:
 #   PDS_ENV_FILE=./.env ./scripts/pdsadmin/pdsadmin.sh account list
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve symlinks so a symlink in e.g. /usr/local/bin/pdsadmin still finds
+# its sibling scripts in the real scripts/pdsadmin/ directory.
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -h "${SOURCE}" ]]; do
+  DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
+  SOURCE="$(readlink "${SOURCE}")"
+  [[ "${SOURCE}" != /* ]] && SOURCE="${DIR}/${SOURCE}"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
 
 COMMAND="${1:-help}"
 shift || true
